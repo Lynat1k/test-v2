@@ -1,0 +1,14 @@
+:root {
+  --candle-bull: #10b981;
+  --candle-bear: #f43f5e;
+  --candle-bull-border: #10b981;
+  --candle-bear-border: #f43f5e;
+  --color-accent: #f59e0b;
+}
+
+.light {
+  --candle-bull: #10b981;
+  --candle-bear: #f43f5e;
+  --candle-bull-border: #10b981;
+  --candle-bear-border: #f43f5e;
+}

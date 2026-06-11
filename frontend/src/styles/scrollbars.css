@@ -1,0 +1,68 @@
+.scrollbar-thin-light {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(15, 23, 42, 0.22) rgba(15, 23, 42, 0.03);
+}
+
+.scrollbar-thin-dark {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.18) rgba(15, 23, 42, 0.2);
+}
+
+.scrollbar-thin-light::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+.scrollbar-thin-light::-webkit-scrollbar-track {
+  background: rgba(15, 23, 42, 0.03);
+  border-radius: 9999px;
+}
+.scrollbar-thin-light::-webkit-scrollbar-thumb {
+  background: rgba(15, 23, 42, 0.22);
+  border-radius: 9999px;
+}
+.scrollbar-thin-light::-webkit-scrollbar-thumb:hover {
+  background: rgba(15, 23, 42, 0.35);
+}
+
+.scrollbar-thin-dark::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+.scrollbar-thin-dark::-webkit-scrollbar-track {
+  background: rgba(15, 23, 42, 0.25);
+  border-radius: 9999px;
+}
+.scrollbar-thin-dark::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.18);
+  border-radius: 9999px;
+}
+.scrollbar-thin-dark::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.3);
+}
+
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: rgba(15, 23, 42, 0.2);
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.18);
+}
+
+.scrollbar-none::-webkit-scrollbar {
+  display: none !important;
+}
+
+.scrollbar-none {
+  -ms-overflow-style: none !important;
+  scrollbar-width: none !important;
+}

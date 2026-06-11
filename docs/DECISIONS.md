@@ -11,6 +11,16 @@
 - JSON на старте; MessagePack только при доказанном bottleneck.
 - Движок графика: PixiJS WebGL + Canvas2D, изолирован, без TradingView.
 
+### [2026-06-11] Интеграция дизайн-репозитория: что перенесено, что удалено
+- Контекст: design-src содержит полный UI крипто-терминала (React+TS+Tailwind). Нужно выделить дизайн-ассеты и перенести в наш frontend.
+- Решение:
+  - **ОСТАВИТЬ**: index.css (liquid glass дизайн-система, разбит на 7 файлов), types.ts, declarations.d.ts, dataGenerator.ts, все компоненты (Header, SidebarPairs, OrderBook, TimeAndSales, DOMSidebar, IndicatorsModal, AdminPanel, UserProfile, RoadmapModal), 7 PNG-ассетов (аватары+лого), SVG-иконки (AutoIcon, JapaneseIcon, FootprintIcon, ClustersIcon, CandlePreviewIcon).
+  - **УДАЛИТЬ/НЕ ПЕРЕНОСИТЬ**: server.ts (Express бэкенд), vite.config.ts, tsconfig.json, metadata.json, index.html, .env.example, update_dom.ts, package.json (берём только npm-пакеты), package-lock.json, README.md, .gitignore.
+  - **НЕ КОПИРОВАТЬ В КОД**: ClusterChart.tsx (3879 строк канвас-рендеринга) — оставлен в design-src как визуальный референс. Движок графика пишем в фазах 5-6.
+  - **УДАЛИТЬ ПРИ ПЕНОСЕ**: paper-trading логика из DOMSidebar (~200 строк) — бизнес-логика, вернём позже.
+- Альтернативы: перенести всё как есть (отвергнуто — слишком много бизнес-логики и старого движка) или писать UI с нуля (отвергнуто — design-src уже содержит готовый дизайн).
+- Последствия: компоненты переносятся как заглушки/референсы. Полная интеграция (подключение к движку, WebSocket, данные) — в следующих фазах.
+
 ## Шаблон записи
 ### [ГГГГ-ММ-ДД] <решение>
 - Контекст: почему встал вопрос.

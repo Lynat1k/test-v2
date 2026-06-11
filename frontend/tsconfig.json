@@ -6,6 +6,9 @@
     "types": ["vite/client"],
     "skipLibCheck": true,
     "jsx": "react-jsx",
+    "baseUrl": ".",
+    "paths": { "@/*": ["src/*"] },
+    "ignoreDeprecations": "6.0",
 
     /* Strict mode */
     "strict": true,

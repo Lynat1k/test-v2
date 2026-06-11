@@ -1,0 +1,22 @@
+.terminal-grid {
+  background-size: 40px 40px;
+  background-image:
+    linear-gradient(to right, rgba(255, 255, 255, 0.02) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(255, 255, 255, 0.02) 1px, transparent 1px);
+}
+
+.glow-green {
+  animation: pulse-subtle 3s infinite ease-in-out;
+}
+
+.glow-red {
+  animation: pulse-sell 3s infinite ease-in-out;
+}
+
+.candle-text-shadow {
+  text-shadow: 0 1px 2px rgba(0,0,0,0.8);
+}
+
+.candle-text-shadow-light {
+  text-shadow: 0 1px 1.5px rgba(255,255,255,0.95);
+}

@@ -1,0 +1,15 @@
+@import url('https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;600&family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@300;400;500;600;700&display=swap');
+
+@font-face {
+  font-family: 'London Underground Regular';
+  src: url('https://raw.githubusercontent.com/petykowski/London-Underground-Dot-Matrix-Typeface/master/London%20Underground%20Regular/font/London-Underground-Regular.otf') format('opentype');
+  font-weight: normal;
+  font-style: normal;
+}
+
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-display: "Space Grotesk", sans-serif;
+  --font-mono: "Fira Code", monospace;
+  --font-matrix: "London Underground Regular", "Courier New", Courier, monospace;
+}
