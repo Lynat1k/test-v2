@@ -1,0 +1,25 @@
+#!/bin/sh
+# Pre-commit hook: format Go files and check for secrets
+
+EXIT_CODE=0
+
+# Run gofmt
+CHANGED=$(git diff --cached --name-only --diff-filter=ACM -- '*.go')
+if [ -n "$CHANGED" ]; then
+  echo "Running gofmt..."
+  for file in $CHANGED; do
+    gofmt -w "$file"
+    git add "$file"
+  done
+fi
+
+
+# Run secrets check
+if [ -f "./scripts/check-secrets.sh" ]; then
+  echo "Checking for secrets..."
+  if ! ./scripts/check-secrets.sh; then
+    EXIT_CODE=1
+  fi
+fi
+
+exit $EXIT_CODE
