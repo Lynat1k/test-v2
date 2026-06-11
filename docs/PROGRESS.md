@@ -15,6 +15,43 @@
 ---
 <!-- ниже добавляются реальные записи -->
 
+### [2026-06-12] Фаза 2 — Слой данных: ClickHouse + сжатие
+- Модель: MiMoCode (mimo-auto)
+- Что сделано:
+  - Созданы доменные типы: model.go (Trade, ClusterRow, Candle, DOMRow, Side)
+  - Создан модуль aggregation: TruncateVolume (TRUNCATE до 1 знака), CompressPrice, GenerateLevels, InterpretTrade (isBuyerMaker→Side), SortByTradeId, CompressTrades
+  - Создана конфигурация сжатия: config.go (CompressionConfig с DefaultBTCFuturesConfig/DefaultBTCSpotConfig)
+  - Создан repository-интерфейс: MarketRepository (InsertClusterBatch, InsertDOMSnapshotBatch, GetLatestCandles, GetClusters)
+  - Создана реализация на ClickHouse: clickhouse.go (New, ApplyMigrations, InsertClusterBatch, InsertDOMSnapshotBatch, GetLatestCandles, GetClusters)
+  - Созданы SQL-миграции: clusters_futures (TTL 1 год), clusters_spot (TTL 3 года), clusters_futures_dom (TTL 6 мес), clusters_spot_dom (TTL 1 год)
+  - Добавлена зависимость clickhouse-go/v2, shopspring/decimal
+  - Поднят Docker ClickHouse, применены миграции, таблицы созданы (4 таблицы)
+  - Rollup старших ТФ (1h/4h/1d) решено делать приложением (не MV из-за циклических зависимостей)
+- Затронутые файлы/папки:
+  - backend/internal/model/model.go
+  - backend/internal/aggregation/ (config.go, aggregation.go, aggregation_test.go)
+  - backend/internal/repository/ (repository.go)
+  - backend/internal/repository/clickhouse/ (clickhouse.go, clickhouse_test.go, migrations/*.sql)
+  - backend/go.mod, backend/go.sum
+- Ключевые решения:
+  - TRUNCATE до 1 знака — финальное решение округления объёмов
+  - Rollup старших ТФ: приложение агрегирует из 1m, хранит в тех же таблицах (timeframe='1h' и т.д.)
+  - TTL: futures 1y, spot 3y, futures_dom 6m, spot_dom 1y
+  - Materialized views отклонены из-за циклических зависимостей ClickHouse
+  - Decimal(18,2) для price_level, Decimal(18,1) для объёмов — конвертация через shopspring/decimal
+- Открытые вопросы / TODO для следующих фаз:
+  - Фаза 3: Ingest worker (Binance WS trades stream)
+  - Фаза 4: Aggregator (hot aggregation в Redis) + rollup worker (при закрытии 1m дописывает готовые строки 1h/4h/1d в те же таблицы clusters_*)
+  - **Rollup**: инфраструктура готова (колонка timeframe, модуль aggregation), но worker для записи предрасчёта старших ТФ ещё не написан — задача фазы 3-4
+  - Redis-кэш последних 700 свечей
+- Тесты/проверки:
+  - go test ./internal/aggregation/ — PASS (unit-тесты: TRUNCATE, CompressPrice, GenerateLevels, InterpretTrade)
+  - go test ./internal/repository/clickhouse/ — PASS (интеграционные: insert, select, DOM)
+  - go build ./... — OK
+  - gofmt -l . — OK
+  - go vet ./... — OK
+  - Docker ClickHouse запущен, таблицы созданы и проверены
+
 ### [2026-06-11] Фаза 1 — Интеграция дизайн-репозитория
 - Модель: MiMoCode (mimo-auto)
 - Что сделано:
