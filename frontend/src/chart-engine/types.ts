@@ -27,4 +27,4 @@ export interface EngineEvents {
   frame: (fps: number) => void;
 }
 
-export type CandleMode = 'japanese' | 'footprint' | 'clusters';
+export type CandleMode = 'auto' | 'japanese' | 'footprint' | 'clusters';
