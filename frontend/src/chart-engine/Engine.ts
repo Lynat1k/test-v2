@@ -1,4 +1,4 @@
-import type { Candle, EngineConfig, ViewportState } from './types';
+import type { Candle, CandleMode, ClusterLevel, EngineConfig, ViewportState, VolumeMode } from './types';
 import { Renderer } from './Renderer';
 import { Viewport } from './Viewport';
 import { DataStore } from './DataStore';
@@ -12,6 +12,9 @@ export class Engine {
   private config: EngineConfig;
   private animationFrameId: number = 0;
   private isPaused: boolean = false;
+  private currentMode: CandleMode = 'japanese';
+  private volumeMode: VolumeMode = 'bidask';
+  private compression: number = 1;
 
   private onViewportChange?: (state: ViewportState) => void;
   private onNeedHistory?: (before: number) => void;
@@ -39,6 +42,12 @@ export class Engine {
 
   async init(): Promise<void> {
     await this.renderer.init(this.config.container);
+
+    const scales = this.renderer.getScales();
+    this.viewport.setClampScaleX((scaleX, _dataLength) => {
+      return scales.clampScaleX(scaleX, this.dataStore.length);
+    });
+
     this.interaction = new InteractionManager(
       this.config.container.querySelector('canvas')!,
       this.viewport,
@@ -62,9 +71,48 @@ export class Engine {
     this.dataStore.updateLast(candle);
   }
 
+  setClusterData(timestamp: number, levels: ClusterLevel[]): void {
+    this.dataStore.setClusterData(timestamp, levels);
+    this.requestRender();
+  }
+
+  setClusterDataBatch(data: Map<number, ClusterLevel[]>): void {
+    this.dataStore.setClusterDataBatch(data);
+    this.requestRender();
+  }
+
   setPalette(palette: 'default' | 'alternative'): void {
     this.renderer.setPalette(palette);
     this.requestRender();
+  }
+
+  setMode(mode: CandleMode): void {
+    this.currentMode = mode;
+    this.renderer.setMode(mode);
+    this.requestRender();
+  }
+
+  setVolumeMode(mode: VolumeMode): void {
+    this.volumeMode = mode;
+    this.renderer.setVolumeMode(mode);
+    this.requestRender();
+  }
+
+  setCompression(level: number): void {
+    this.compression = level;
+    this.requestRender();
+  }
+
+  getMode(): CandleMode {
+    return this.currentMode;
+  }
+
+  getVolumeMode(): VolumeMode {
+    return this.volumeMode;
+  }
+
+  getCompression(): number {
+    return this.compression;
   }
 
   on(event: 'viewportChange', callback: (state: ViewportState) => void): void;

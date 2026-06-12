@@ -5,6 +5,7 @@ export class Viewport {
   private width: number;
   private height: number;
   private onChange?: (state: ViewportState) => void;
+  private clampScaleX?: (scaleX: number, dataLength: number) => number;
 
   constructor(width: number, height: number) {
     this.width = width;
@@ -25,47 +26,59 @@ export class Viewport {
     this.onChange = callback;
   }
 
-  // Pan by screen pixels
+  setClampScaleX(fn: (scaleX: number, dataLength: number) => number): void {
+    this.clampScaleX = fn;
+  }
+
   pan(dx: number, dy: number): void {
     this.state.offsetX -= dx / this.state.scaleX;
     this.state.offsetY += dy / this.state.scaleY;
     this.notifyChange();
   }
 
-  // Zoom toward screen point
   zoomAt(screenX: number, screenY: number, factorX: number, factorY: number): void {
-    // Convert screen point to data space
-    const dataX = screenX / this.state.scaleX + this.state.offsetX;
-    const dataY = this.state.offsetY + (this.height / 2 - screenY) / this.state.scaleY;
+    const dataX = this.screenToDataX(screenX);
+    const dataY = this.screenToDataY(screenY);
 
-    // Apply zoom
-    this.state.scaleX *= factorX;
-    this.state.scaleY *= factorY;
+    let newScaleX = this.state.scaleX * factorX;
+    let newScaleY = this.state.scaleY * factorY;
 
-    // Adjust offset to keep data point under cursor
+    if (this.clampScaleX) {
+      newScaleX = this.clampScaleX(newScaleX, 0);
+    }
+
+    this.state.scaleX = newScaleX;
+    this.state.scaleY = newScaleY;
+
     this.state.offsetX = dataX - screenX / this.state.scaleX;
     this.state.offsetY = dataY - (this.height / 2 - screenY) / this.state.scaleY;
 
     this.notifyChange();
   }
 
-  // Zoom X axis only (CTRL + wheel)
   zoomX(screenX: number, factor: number): void {
-    const dataX = screenX / this.state.scaleX + this.state.offsetX;
-    this.state.scaleX *= factor;
+    const dataX = this.screenToDataX(screenX);
+
+    let newScaleX = this.state.scaleX * factor;
+    if (this.clampScaleX) {
+      newScaleX = this.clampScaleX(newScaleX, 0);
+    }
+
+    this.state.scaleX = newScaleX;
     this.state.offsetX = dataX - screenX / this.state.scaleX;
+
     this.notifyChange();
   }
 
-  // Zoom Y axis only (SHIFT + wheel)
   zoomY(screenY: number, factor: number): void {
-    const dataY = this.state.offsetY + (this.height / 2 - screenY) / this.state.scaleY;
+    const dataY = this.screenToDataY(screenY);
+
     this.state.scaleY *= factor;
     this.state.offsetY = dataY - (this.height / 2 - screenY) / this.state.scaleY;
+
     this.notifyChange();
   }
 
-  // Auto-fit data range
   autoFit(minPrice: number, maxPrice: number, dataLength: number, candleWidth: number): void {
     const priceRange = maxPrice - minPrice;
     const padding = priceRange * 0.1;
@@ -82,6 +95,14 @@ export class Viewport {
   resize(width: number, height: number): void {
     this.width = width;
     this.height = height;
+  }
+
+  private screenToDataX(screenX: number): number {
+    return screenX / this.state.scaleX + this.state.offsetX;
+  }
+
+  private screenToDataY(screenY: number): number {
+    return this.state.offsetY + (this.height / 2 - screenY) / this.state.scaleY;
   }
 
   private notifyChange(): void {

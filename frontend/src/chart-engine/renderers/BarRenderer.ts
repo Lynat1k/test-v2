@@ -7,19 +7,19 @@ const BULL = 0x10b981;
 const BEAR = 0xf43f5e;
 const BULL_ALT = 0xe2e8f0;
 const BEAR_ALT = 0x374151;
-const CANDLE_GAP = 0.2;
 
-interface CandleGraphics {
-  body: Graphics;
+interface BarGraphics {
   wick: Graphics;
+  openTick: Graphics;
+  closeTick: Graphics;
   container: Container;
 }
 
-export class CandleRenderer {
+export class BarRenderer {
   private container: Container;
   private scales: Scales;
-  private pool: ObjectPool<CandleGraphics>;
-  private activeCandles: CandleGraphics[] = [];
+  private pool: ObjectPool<BarGraphics>;
+  private activeItems: BarGraphics[] = [];
   private bullColor = BULL;
   private bearColor = BEAR;
 
@@ -28,43 +28,40 @@ export class CandleRenderer {
     parentContainer.addChild(this.container);
     this.scales = scales;
 
-    this.pool = new ObjectPool<CandleGraphics>(
-      () => this.createCandleGraphics(),
-      (cg) => this.resetCandleGraphics(cg),
+    this.pool = new ObjectPool<BarGraphics>(
+      () => this.createBarGraphics(),
+      (bg) => this.resetBarGraphics(bg),
       1000,
     );
   }
 
-  private createCandleGraphics(): CandleGraphics {
+  private createBarGraphics(): BarGraphics {
     const wick = new Graphics();
-    const body = new Graphics();
+    const openTick = new Graphics();
+    const closeTick = new Graphics();
     const container = new Container();
-    container.addChild(wick, body);
+    container.addChild(wick, openTick, closeTick);
     this.container.addChild(container);
-    return { body, wick, container };
+    return { wick, openTick, closeTick, container };
   }
 
-  private resetCandleGraphics(cg: CandleGraphics): void {
-    cg.container.visible = false;
-    cg.wick.clear();
-    cg.body.clear();
+  private resetBarGraphics(bg: BarGraphics): void {
+    bg.container.visible = false;
+    bg.wick.clear();
+    bg.openTick.clear();
+    bg.closeTick.clear();
   }
 
   render(candles: Candle[], startIndex: number, endIndex: number, firstTimestamp: number): void {
     this.pool.releaseAll();
-    this.activeCandles.length = 0;
-
-    // Dynamic candle width from scale: base 8px * scaleX, with gap
-    const spacing = this.scales.getCandleSpacing();
-    const bodyWidth = Math.max(1, Math.floor(spacing * (1 - CANDLE_GAP)));
-    const halfBody = bodyWidth / 2;
+    this.activeItems.length = 0;
 
     for (let i = startIndex; i <= endIndex; i++) {
       const candle = candles[i];
       if (!candle) continue;
 
-      const cg = this.pool.acquire();
-      this.activeCandles.push(cg);
+      const bg = this.pool.acquire();
+      this.activeItems.push(bg);
 
       const isBull = candle.close >= candle.open;
       const color = isBull ? this.bullColor : this.bearColor;
@@ -75,19 +72,19 @@ export class CandleRenderer {
       const highY = this.scales.priceToScreen(candle.high);
       const lowY = this.scales.priceToScreen(candle.low);
 
-      // Wick: 1px wide line from high to low
-      cg.wick.clear();
-      cg.wick.rect(x - 0.5, highY, 1, lowY - highY);
-      cg.wick.fill(color);
+      bg.wick.clear();
+      bg.wick.rect(x - 0.5, highY, 1, lowY - highY);
+      bg.wick.fill(color);
 
-      // Body: dynamic width from spacing
-      const bodyY = Math.min(openY, closeY);
-      const bodyH = Math.abs(closeY - openY) || 1;
-      cg.body.clear();
-      cg.body.rect(x - halfBody, bodyY, bodyWidth, bodyH);
-      cg.body.fill(color);
+      bg.openTick.clear();
+      bg.openTick.rect(x - 5, openY - 0.5, 5, 1);
+      bg.openTick.fill(color);
 
-      cg.container.visible = true;
+      bg.closeTick.clear();
+      bg.closeTick.rect(x, closeY - 0.5, 5, 1);
+      bg.closeTick.fill(color);
+
+      bg.container.visible = true;
     }
   }
 

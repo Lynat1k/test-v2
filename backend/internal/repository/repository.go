@@ -11,4 +11,5 @@ type MarketRepository interface {
 	InsertDOMSnapshotBatch(ctx context.Context, rows []model.DOMRow) error
 	GetLatestCandles(ctx context.Context, symbol, timeframe string, limit int) ([]model.Candle, error)
 	GetClusters(ctx context.Context, symbol, timeframe string, candleOpen int64) ([]model.ClusterRow, error)
+	GetClustersBatch(ctx context.Context, symbol, timeframe string, candleOpens []int64) (map[int64][]model.ClusterRow, error)
 }

@@ -22,17 +22,24 @@ type Aggregator struct {
 	UpdatesCh chan<- CandleUpdate
 }
 
+type CandleLevel struct {
+	PriceLevel float64 `json:"priceLevel"`
+	BidVolume  float64 `json:"bidVolume"`
+	AskVolume  float64 `json:"askVolume"`
+}
+
 type CandleUpdate struct {
-	Symbol      string  `json:"symbol"`
-	Market      string  `json:"market"`
-	Timeframe   string  `json:"timeframe"`
-	CandleOpen  int64   `json:"candleOpen"`
-	Open        float64 `json:"open"`
-	High        float64 `json:"high"`
-	Low         float64 `json:"low"`
-	Close       float64 `json:"close"`
-	TotalVolume float64 `json:"totalVolume"`
-	TradesCount uint64  `json:"tradesCount"`
+	Symbol      string        `json:"symbol"`
+	Market      string        `json:"market"`
+	Timeframe   string        `json:"timeframe"`
+	CandleOpen  int64         `json:"candleOpen"`
+	Open        float64       `json:"open"`
+	High        float64       `json:"high"`
+	Low         float64       `json:"low"`
+	Close       float64       `json:"close"`
+	TotalVolume float64       `json:"totalVolume"`
+	TradesCount uint64        `json:"tradesCount"`
+	Levels      []CandleLevel `json:"levels"`
 }
 
 type aggregationCompressionConfig struct {
@@ -188,6 +195,10 @@ func (a *Aggregator) processTrade(trade model.Trade, live *liveCandle, lastUpdat
 	// Throttled broadcast: max once per 200ms
 	if a.UpdatesCh != nil && time.Since(*lastUpdateTime) >= 200*time.Millisecond {
 		*lastUpdateTime = time.Now()
+
+		// Read current cluster levels from Redis for the live candle
+		levels := a.readLevelsFromRedis(key)
+
 		select {
 		case a.UpdatesCh <- CandleUpdate{
 			Symbol:      "BTCUSDT",
@@ -200,6 +211,7 @@ func (a *Aggregator) processTrade(trade model.Trade, live *liveCandle, lastUpdat
 			Close:       live.close,
 			TotalVolume: live.totalVolume,
 			TradesCount: live.tradesCount,
+			Levels:      levels,
 		}:
 		default:
 		}
@@ -348,6 +360,29 @@ func (a *Aggregator) aggregateForTimeframe(rows []model.ClusterRow, tf string) [
 		result = append(result, *row)
 	}
 	return result
+}
+
+func (a *Aggregator) readLevelsFromRedis(key string) []CandleLevel {
+	fields, err := a.rdb.HGetAll(context.Background(), key).Result()
+	if err != nil || len(fields) == 0 {
+		return nil
+	}
+
+	levels := make([]CandleLevel, 0, len(fields))
+	for field, val := range fields {
+		var priceLevel float64
+		fmt.Sscanf(field, "%f", &priceLevel)
+
+		var bidVol, askVol float64
+		fmt.Sscanf(val, "%f,%f", &bidVol, &askVol)
+
+		levels = append(levels, CandleLevel{
+			PriceLevel: priceLevel,
+			BidVolume:  bidVol,
+			AskVolume:  askVol,
+		})
+	}
+	return levels
 }
 
 func (a *Aggregator) getConfig(symbol, market string) aggregationCompressionConfig {

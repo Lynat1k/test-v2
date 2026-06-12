@@ -3,6 +3,32 @@
 > Сюда пишем решения, которые меняют или фиксируют архитектуру/правила.
 > Новые — сверху. Если решение противоречит спеке — сначала обнови спеку.
 
+### [2026-06-12] BitmapText → Canvas2D ClusterTextOverlay (временное решение)
+- Контекст: PixiJS BitmapText не рендерится видимо на экране (корректные bounds/text/position, но невидим). Вероятная причина — z-ordering между PixiJS canvas и axis canvas (React strict mode дублирует engine → 4 canvas). Исправление z-index не помогло.
+- Решение:
+  - **Canvas2D ClusterTextOverlay** — отдельный canvas (position: absolute, pointer-events: none) между PixiJS и axis canvas.
+  - ClusterRenderer/FootprintRenderer рисуют geometry (body/wick) через PixiJS, текст — через overlay.drawText().
+  - Текст: monospace 11px, bid зелёный (#10b981), ask красный (#f43f5e).
+- Альтернативы:
+  - Исправить z-ordering PixiJS canvas — отвергнуто (причина не найдена, React strict mode усложняет).
+  - BitmapText с другим шрифтом — отвергнуто (тот же результат).
+- Последствия:
+  - **ПРОТИВОРЕЧИТ CHART_ENGINE.md** ("Текст — Canvas2D слой" — но для осей, не для ~14000 кластерных блоков).
+  - **ПРОТИВОРЕЧИТ исходному плану** (BitmapText для 60fps на 700 свечей × 20 уровней).
+  - **Требует пересмотра в 6b** на полном датасете: если Canvas2D не держит 60fps при ~14000 текстовых блоках → вернуться к BitmapText с исправлением z-ordering.
+  - Решение помечено как **временное** до проверки на полном датасете.
+
+### [2026-06-12] ClickHouse IN (?) с time.Time[] не работает — OR-условия
+- Контекст: `candle_open IN ?` с `[]time.Time` slice не конвертируется в Array(DateTime64) в clickhouse-go v2.
+- Решение: explicit OR-условия `candle_open = ? OR candle_open = ? OR ...` с individual time.Time args.
+- Альтернативы: `has()` function, array literal — отвергнуты (проще OR).
+- Последствия: N-1 OR-условий для N timestamps (при N≤100 — приемлемо).
+
+### [2026-06-12] ClickHouse Decimal scan: float64 не работает
+- Контекст: `rows.Scan(&float64)` для Decimal(18,2) колонок падает с "converting Decimal to *float64 is unsupported".
+- Решение: не селектить open_price/close_price в clusters-batch (фронт их не использует). Для price_level/bid/ask — сканировать в decimal.Decimal, конвертировать через .Float64().
+- Альтернативы: scan в string, ручная конвертация — отвергнуты (decimal.Decimal уже в проекте).
+
 ### [2026-06-12] OHLC свечей: хранение Open/Close в clusters_*
 - Контекст: `c.Open = c.Low; c.Close = c.High` — костыль, фитили совпадают с телом.
 - Причина: таблица clusters_* не хранила first/last trade price, только price_level buckets.

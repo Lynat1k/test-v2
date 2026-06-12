@@ -7,6 +7,22 @@ export interface Candle {
   volume: number;
 }
 
+export interface ClusterLevel {
+  priceLevel: number;
+  bidVolume: number;
+  askVolume: number;
+}
+
+export interface ClusterCandle extends Candle {
+  levels: ClusterLevel[];
+  openPrice: number;
+  closePrice: number;
+  totalBid: number;
+  totalAsk: number;
+  totalDelta: number;
+  tradesCount: number;
+}
+
 export interface ViewportState {
   offsetX: number;
   offsetY: number;
@@ -27,4 +43,6 @@ export interface EngineEvents {
   frame: (fps: number) => void;
 }
 
-export type CandleMode = 'auto' | 'japanese' | 'footprint' | 'clusters';
+export type CandleMode = 'auto' | 'japanese' | 'footprint' | 'clusters' | 'bars';
+
+export type VolumeMode = 'bidask' | 'volume' | 'delta';

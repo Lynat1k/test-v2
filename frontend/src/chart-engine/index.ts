@@ -1,4 +1,4 @@
-export type { Candle, ViewportState, EngineConfig, EngineEvents, CandleMode } from './types';
+export type { Candle, ClusterLevel, ClusterCandle, ViewportState, EngineConfig, EngineEvents, CandleMode, VolumeMode } from './types';
 export { Engine } from './Engine';
 export { DataStore } from './DataStore';
 export { Scales } from './Scales';

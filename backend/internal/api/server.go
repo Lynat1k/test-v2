@@ -59,10 +59,12 @@ func NewServer(
 
 	candlesHandler := http.HandlerFunc(s.handleCandles)
 	clusterHandler := http.HandlerFunc(s.handleClusters)
+	clustersBatchHandler := http.HandlerFunc(s.handleClustersBatch)
 	wsHandler := http.HandlerFunc(s.handleWebSocket)
 
 	mux.Handle("GET /api/v1/candles", RateLimitMiddleware(restLimiter, withMiddleware(candlesHandler)))
 	mux.Handle("GET /api/v1/candles/{symbol}/clusters/{candleOpen}", RateLimitMiddleware(restLimiter, withMiddleware(clusterHandler)))
+	mux.Handle("GET /api/v1/candles/{symbol}/clusters-batch", RateLimitMiddleware(restLimiter, withMiddleware(clustersBatchHandler)))
 	mux.Handle("GET /ws", WSRateLimitMiddleware(wsLimiter, withMiddleware(wsHandler)))
 
 	s.httpServer = &http.Server{

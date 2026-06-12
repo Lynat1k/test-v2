@@ -1,7 +1,8 @@
-import type { Candle } from './types';
+import type { Candle, ClusterCandle, ClusterLevel } from './types';
 
 export class DataStore {
   private candles: Candle[] = [];
+  private clusterMap: Map<number, ClusterLevel[]> = new Map();
   private onNeedHistory?: (before: number) => void;
   private onUpdate?: () => void;
 
@@ -27,11 +28,33 @@ export class DataStore {
   updateLast(candle: Candle): void {
     const last = this.candles[this.candles.length - 1];
     if (last && last.timestamp === candle.timestamp) {
-      this.candles[this.candles.length - 1] = candle;
+      const existingLevels = (last as ClusterCandle).levels;
+      Object.assign(last, candle);
+      if (existingLevels) {
+        (last as ClusterCandle).levels = existingLevels;
+      }
     } else {
       this.candles.push(candle);
     }
     this.onUpdate?.();
+  }
+
+  setClusterData(timestamp: number, levels: ClusterLevel[]): void {
+    this.clusterMap.set(timestamp, levels);
+    const candle = this.candles.find(c => c.timestamp === timestamp);
+    if (candle) {
+      (candle as ClusterCandle).levels = levels;
+    }
+  }
+
+  setClusterDataBatch(data: Map<number, ClusterLevel[]>): void {
+    for (const [timestamp, levels] of data) {
+      this.clusterMap.set(timestamp, levels);
+      const candle = this.candles.find(c => c.timestamp === timestamp);
+      if (candle) {
+        (candle as ClusterCandle).levels = levels;
+      }
+    }
   }
 
   getCandles(): readonly Candle[] {
@@ -40,6 +63,10 @@ export class DataStore {
 
   getVisibleCandles(startIndex: number, endIndex: number): readonly Candle[] {
     return this.candles.slice(startIndex, endIndex + 1);
+  }
+
+  getClusterLevels(timestamp: number): ClusterLevel[] | undefined {
+    return this.clusterMap.get(timestamp);
   }
 
   getPriceRange(): { min: number; max: number } {

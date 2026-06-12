@@ -189,6 +189,62 @@ func (s *Server) handleClusters(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+func (s *Server) handleClustersBatch(w http.ResponseWriter, r *http.Request) {
+	symbol := r.PathValue("symbol")
+	if symbol == "" {
+		writeError(w, http.StatusBadRequest, "INVALID_PARAMS", "symbol is required")
+		return
+	}
+	if len(symbol) > 20 {
+		writeError(w, http.StatusBadRequest, "INVALID_PARAMS", "symbol too long (max 20)")
+		return
+	}
+
+	timeframe := strings.TrimSpace(r.URL.Query().Get("timeframe"))
+	if timeframe == "" {
+		timeframe = "1m"
+	}
+	if !validTimeframes[timeframe] {
+		writeError(w, http.StatusBadRequest, "INVALID_PARAMS", "invalid timeframe")
+		return
+	}
+
+	candleOpensStr := r.URL.Query().Get("candleOpens")
+	if candleOpensStr == "" {
+		writeError(w, http.StatusBadRequest, "INVALID_PARAMS", "candleOpens is required (comma-separated unix毫秒 timestamps)")
+		return
+	}
+
+	parts := strings.Split(candleOpensStr, ",")
+	if len(parts) > 100 {
+		writeError(w, http.StatusBadRequest, "INVALID_PARAMS", "max 100 candleOpens per request")
+		return
+	}
+
+	var candleOpens []int64
+	for _, p := range parts {
+		ts, err := strconv.ParseInt(strings.TrimSpace(p), 10, 64)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "INVALID_PARAMS", "invalid candleOpen timestamp: "+p)
+			return
+		}
+		candleOpens = append(candleOpens, ts)
+	}
+
+	ctx := r.Context()
+
+	clustersMap, err := s.repo.GetClustersBatch(ctx, symbol, timeframe, candleOpens)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "DB_ERROR", "failed to fetch clusters batch")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, APIResponse{
+		OK:   true,
+		Data: map[string]interface{}{"clusters": clustersMap},
+	})
+}
+
 func writeJSON(w http.ResponseWriter, status int, v interface{}) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.WriteHeader(status)

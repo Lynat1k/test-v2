@@ -3,6 +3,56 @@
 > Claude обновляет этот файл в КОНЦЕ каждой задачи. Новые записи — сверху.
 > Формат записи строго по шаблону. Это память между чатами.
 
+### [2026-06-12] Фаза 6a — Кластеры / Футпринт / Бары + clusters-batch API
+- Модель: MiMoCode (mimo-auto)
+- Что сделано:
+  - **ClusterRenderer**: PixiJS Graphics для body/wick + Canvas2D ClusterTextOverlay для bid/ask текста
+  - **FootprintRenderer**: как ClusterRenderer + горизонтальные бары объёма (volume/delta/bidask)
+  - **BarRenderer**: OHLC-бары (wick + open/close тики)
+  - **Canvas2D ClusterTextOverlay**: отдельный Canvas2D слой для текста кластеров ( bid зелёный / ask красный )
+  - **Renderer**: делегирование по режимам (clusters/footprint/bars/japanese), releaseAll всех пулов при смене режима
+  - **Engine**: setMode(), setVolumeMode(), setCompression(), setClusterData/setClusterDataBatch
+  - **DataStore**: clusterMap (timestamp → levels[]), setClusterDataBatch, preserveLevels в updateLast (WS не теряет уровни)
+  - **Backend clusters-batch**: `GET /api/v1/candles/{symbol}/clusters-batch?candleOpens=...` (max 100), GetClustersBatch в репозитории (OR-условия для DateTime64)
+  - **Backend CandleUpdate**: расширен полями levels []CandleLevel (bid/ask на каждом priceLevel из Redis)
+  - **Batch-загрузка**: чанки по 100, параллелизм 3, кэш в DataStore.clusterMap, дебаунс 500мс на viewport change
+  - **Режим при переключении**: handleModeChange грузит кластеры для видимого диапазона
+  - **Viewport**: anchor-zoom (data-координата под курсором фиксируется ДО зума, offset корректируется ПОСЛЕ), clampScaleX (мин. spacing 2px)
+  - **CandleRenderer**: динамическая ширина тела = spacing × (1 - gap), gap=0.2
+  - **Scales**: getCandleSpacing(), clampScaleX() с ограничением мин. масштаба
+  - **PixiJS deprecation fix**: fill(color, alpha) → fill({ color, alpha }) везде
+  - **InteractionManager**: mouse tracking (mouseX, mouseY, isHovering, onMouseMove callback)
+  - **UI**: панель Japanese/Кластеры/Футпринт/Бары + Bid×Ask/Volume/Delta
+- Затронутые файлы/папки:
+  - frontend/src/chart-engine/ (Engine, Renderer, Viewport, DataStore, Scales, config.ts, fonts.ts, renderers/*, overlay/)
+  - frontend/src/components/ChartContainer.tsx
+  - backend/internal/api/ (server.go, candles.go — clusters-batch endpoint)
+  - backend/internal/repository/repository.go (GetClustersBatch interface)
+  - backend/internal/repository/clickhouse/clickhouse.go (GetClustersBatch impl)
+  - backend/internal/aggregator/aggregator.go (CandleLevel, levels в CandleUpdate, readLevelsFromRedis)
+- Ключевые решения (→ DECISIONS.md):
+  - BitmapText → Canvas2D ClusterTextOverlay (временное, требует пересмотра на полном датасете)
+  - ClickHouse IN (?) с []time.Time не работает → OR-условия для DateTime64
+  - open_price/close_price не нужны в clusters-batch (Decimal scan fail)
+  - Only visible levels: visTop/visBottom clipped to viewport, не полная candle body
+- Открытые вопросы / TODO для 6b:
+  - Кластеры/футпринт рисуются ПОВЕРХ тел японских свечей — в этих режимах candle body не должен отображаться
+  - Bars-режим не работает (BarRenderer есть, но не рисует — проверить делегацию)
+  - Зум-якорь: смещение влево при колесе/CTRL+колесо ещё не починен (anchor-zoom математика)
+  - Наложение японских свечей при горизонтальном сжатии + ограничение мин. зума
+  - BitmapText→Canvas2D: ПРОТИВОРЕЧИТ CHART_ENGINE.md/DECISIONS.md — пересмотреть на полном датасете (~14000 блоков)
+  - Авто-режим (<100→clusters, 100-300→footprint, >300→japanese) — в 6b
+  - Имбаланс >300% подсветка — в 6b
+  - Overlay2D (crosshair, плашки цены/времени, текущая цена) — в 6c
+- Тесты/проверки:
+  - clusters-batch: 200 с уровнями (price_level, bid_volume, ask_volume) ✓
+  - Кластеры с bid/ask на BTCUSDT: цифры видны ✓
+  - Переключение Japanese/Кластеры/Футпринт/Бары ✓
+  - 60 FPS при пане/зуме на кластерном виде ✓
+  - TypeScript compilation: PASS
+  - Vite build: PASS (269ms)
+  - Go build: PASS
+
 ### [2026-06-12] Фаза 5 — Движок графика: каркас + японские свечи + live pipeline
 - Модель: MiMoCode (mimo-auto)
 - Что сделано:

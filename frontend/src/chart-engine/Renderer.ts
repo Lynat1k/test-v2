@@ -1,20 +1,29 @@
 import { Application, Container } from 'pixi.js';
-import type { ViewportState, Candle } from './types';
+import type { ViewportState, Candle, CandleMode, VolumeMode } from './types';
 import { CandleRenderer } from './renderers/CandleRenderer';
+import { ClusterRenderer } from './renderers/ClusterRenderer';
+import { FootprintRenderer } from './renderers/FootprintRenderer';
+import { BarRenderer } from './renderers/BarRenderer';
 import { AxisRenderer } from './renderers/AxisRenderer';
+import { ClusterTextOverlay } from './renderers/ClusterTextOverlay';
 import { Scales } from './Scales';
 
 export class Renderer {
   private app: Application;
   private stage: Container;
   private candleRenderer: CandleRenderer;
+  private clusterRenderer: ClusterRenderer;
+  private footprintRenderer: FootprintRenderer;
+  private barRenderer: BarRenderer;
   private axisRenderer: AxisRenderer;
+  private clusterTextOverlay: ClusterTextOverlay;
   private scales: Scales;
   private width: number;
   private height: number;
   private fps: number = 0;
   private frameCount: number = 0;
   private lastFpsTime: number = performance.now();
+  private currentMode: CandleMode = 'japanese';
 
   constructor(width: number, height: number) {
     this.width = width;
@@ -27,7 +36,11 @@ export class Renderer {
     this.scales = new Scales(viewport, width, height);
 
     this.candleRenderer = new CandleRenderer(this.stage, this.scales);
+    this.clusterRenderer = new ClusterRenderer(this.stage, this.scales);
+    this.footprintRenderer = new FootprintRenderer(this.stage, this.scales);
+    this.barRenderer = new BarRenderer(this.stage, this.scales);
     this.axisRenderer = new AxisRenderer(width, height);
+    this.clusterTextOverlay = new ClusterTextOverlay(width, height);
   }
 
   async init(container: HTMLElement): Promise<void> {
@@ -40,6 +53,14 @@ export class Renderer {
     });
 
     container.appendChild(this.app.canvas as HTMLCanvasElement);
+
+    const textCanvas = this.clusterTextOverlay.getCanvas();
+    textCanvas.style.position = 'absolute';
+    textCanvas.style.top = '0';
+    textCanvas.style.left = '0';
+    textCanvas.style.pointerEvents = 'none';
+    container.appendChild(textCanvas);
+
     container.appendChild(this.axisRenderer.getCanvas());
 
     const axisCanvas = this.axisRenderer.getCanvas();
@@ -64,7 +85,29 @@ export class Renderer {
   renderCandles(candles: Candle[], viewport: ViewportState, firstTimestamp: number): void {
     this.scales.updateViewport(viewport);
     const { start, end } = this.scales.getVisibleRange(candles.length);
-    this.candleRenderer.render(candles, start, end, firstTimestamp);
+
+    this.candleRenderer['pool'].releaseAll();
+    this.clusterRenderer['pool'].releaseAll();
+    this.footprintRenderer['pool'].releaseAll();
+    this.barRenderer['pool'].releaseAll();
+
+    this.clusterTextOverlay.clear();
+
+    switch (this.currentMode) {
+      case 'clusters':
+        this.clusterRenderer.render(candles, start, end, firstTimestamp, this.clusterTextOverlay);
+        break;
+      case 'footprint':
+        this.footprintRenderer.render(candles, start, end, firstTimestamp, this.clusterTextOverlay);
+        break;
+      case 'bars':
+        this.barRenderer.render(candles, start, end, firstTimestamp);
+        break;
+      case 'japanese':
+      default:
+        this.candleRenderer.render(candles, start, end, firstTimestamp);
+        break;
+    }
   }
 
   renderAxis(viewport: ViewportState, minPrice: number, maxPrice: number): void {
@@ -74,10 +117,25 @@ export class Renderer {
 
   setPalette(palette: 'default' | 'alternative'): void {
     this.candleRenderer.setPalette(palette);
+    this.clusterRenderer.setPalette(palette);
+    this.footprintRenderer.setPalette(palette);
+    this.barRenderer.setPalette(palette);
+  }
+
+  setMode(mode: CandleMode): void {
+    this.currentMode = mode;
+  }
+
+  setVolumeMode(mode: VolumeMode): void {
+    this.footprintRenderer.setVolumeMode(mode);
   }
 
   getFPS(): number {
     return this.fps;
+  }
+
+  getScales(): Scales {
+    return this.scales;
   }
 
   resize(width: number, height: number): void {
@@ -86,10 +144,14 @@ export class Renderer {
     this.app.renderer.resize(width, height);
     this.scales.updateSize(width, height);
     this.axisRenderer.resize(width, height);
+    this.clusterTextOverlay.resize(width, height);
   }
 
   destroy(): void {
     this.candleRenderer.destroy();
+    this.clusterRenderer.destroy();
+    this.footprintRenderer.destroy();
+    this.barRenderer.destroy();
     this.axisRenderer.destroy();
     this.app.destroy(true);
   }

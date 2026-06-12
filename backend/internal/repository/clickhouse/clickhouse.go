@@ -4,6 +4,7 @@ import (
 	"context"
 	"embed"
 	"fmt"
+	"log"
 	"time"
 
 	"github.com/ClickHouse/clickhouse-go/v2"
@@ -295,4 +296,75 @@ func (r *ClickhouseRepository) GetClusters(ctx context.Context, symbol, timefram
 	}
 
 	return result, rows.Err()
+}
+
+func (r *ClickhouseRepository) GetClustersBatch(ctx context.Context, symbol, timeframe string, candleOpens []int64) (map[int64][]model.ClusterRow, error) {
+	if len(candleOpens) == 0 {
+		return nil, nil
+	}
+
+	// Build WHERE clause with explicit OR for DateTime64 compatibility
+	whereConditions := ""
+	args := []interface{}{symbol, timeframe}
+	for i, ts := range candleOpens {
+		if i > 0 {
+			whereConditions += " OR "
+		}
+		whereConditions += "candle_open = ?"
+		args = append(args, time.UnixMilli(ts))
+	}
+
+	query := fmt.Sprintf(`
+		SELECT
+			symbol,
+			timeframe,
+			candle_open,
+			price_level,
+			bid_volume,
+			ask_volume,
+			compression
+		FROM clusters_futures
+		WHERE symbol = ? AND timeframe = ? AND (%s)
+		ORDER BY candle_open, price_level ASC
+	`, whereConditions)
+
+	log.Printf("[clickhouse] GetClustersBatch: symbol=%s tf=%s n=%d", symbol, timeframe, len(candleOpens))
+
+	rows, err := r.conn.Query(ctx, query, args...)
+	if err != nil {
+		log.Printf("[clickhouse] GetClustersBatch QUERY ERROR: %v", err)
+		return nil, fmt.Errorf("query clusters batch: %w", err)
+	}
+	defer rows.Close()
+
+	result := make(map[int64][]model.ClusterRow)
+	for rows.Next() {
+		var row model.ClusterRow
+		var priceLevel, bidVolume, askVolume decimal.Decimal
+		if err := rows.Scan(
+			&row.Symbol,
+			&row.Timeframe,
+			&row.CandleOpen,
+			&priceLevel,
+			&bidVolume,
+			&askVolume,
+			&row.Compression,
+		); err != nil {
+			log.Printf("[clickhouse] GetClustersBatch SCAN ERROR: %v", err)
+			return nil, fmt.Errorf("scan cluster row: %w", err)
+		}
+		row.PriceLevel, _ = priceLevel.Float64()
+		row.BidVolume, _ = bidVolume.Float64()
+		row.AskVolume, _ = askVolume.Float64()
+
+		key := row.CandleOpen.UnixMilli()
+		result[key] = append(result[key], row)
+	}
+
+	if err := rows.Err(); err != nil {
+		log.Printf("[clickhouse] GetClustersBatch ROWS_ERR: %v", err)
+		return nil, fmt.Errorf("rows iteration: %w", err)
+	}
+
+	return result, nil
 }
