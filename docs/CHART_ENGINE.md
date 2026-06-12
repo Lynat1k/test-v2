@@ -84,10 +84,10 @@
 - engine.setData(candles[])              // bulk
 - engine.prependData(candles[])          // история при скролле
 - engine.updateLast(cluster)             // live
-- engine.setMode('auto'|'candle'|'bar'|'footprint'|'cluster')
+- engine.setMode('auto'|'japanese'|'footprint'|'clusters')
 - engine.setCompression(level)
 - engine.setVolumeMode('bidask'|'volume'|'delta')
-- engine.setPalette('rg'|'wg')
+- engine.setPalette('default'|'alternative')
 - engine.on('viewportChange', cb)        // для синхронизации, подгрузки истории
 - engine.on('needHistory', cb)           // запрос догрузки
 - engine.destroy()
