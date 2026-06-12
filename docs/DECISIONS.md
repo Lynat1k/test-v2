@@ -5,7 +5,7 @@
 
 ## Уже зафиксировано на старте
 - Округление объёмов: TRUNCATE до 1 знака после запятой (см. DATA_MODEL.md).
-- Авто-переключение режимов: <100 кластера, 100–300 футпринт, >300 японские свечи.
+- Авто-переключение режимов: <50 свечей — кластеры, 50–200 — футпринт, 200+ — японские свечи.
 - Один Go-бинарник с горутинами (не микросервисы).
 - ClickHouse — market data; Redis — горячая агрегация/кэш; SQLite — пользователи/настройки.
 - JSON на старте; MessagePack только при доказанном bottleneck.
@@ -27,6 +27,34 @@
   - Rollup worker нужен для пересчёта старших ТФ при закрытии интервала.
   - Единый модуль aggregation используется для live, истории и rollup.
   - clickhouse-go/v2 + shopspring/decimal добавлены в зависимости.
+
+### [2026-06-12] Источник трейдов: @trade vs @aggTrade (futures/spot)
+- Контекст: DATA_MODEL.md требует "НЕ aggTrades для футпринта-точности", но Binance futures WS не имеет individual `@trade` stream — только `@aggTrade`.
+- Решение:
+  - **Spot**: stream `@trade` (индивидуальные трейды), поле `t` = tradeId, REST `/api/v3/historicalTrades` для дозапроса. Gap detection по непрерывности `t`.
+  - **Futures (USDT-M)**: stream `@aggTrade` (агрегированные за ~100ms), поле `a` = aggregate trade ID, `f`/`l` = first/last trade ID, REST `/fapi/v1/aggTrades` для дозапроса (24h). Gap detection по `a` (или `f`/`l`).
+  - Оба парсера маппятся в единый `model.Trade`: `TradeID = t` (spot) или `TradeID = a` (futures).
+  - **isBuyerMaker (`m`)**: `true` → SELL/ASK (красный), `false` → BUY/BID (зелёный) — одинаково для обоих. Это единственно верная интерпретация (подтверждено в DATA_MODEL.md). Код design-src (ticks.ts:74) маппит `m=true → bid` — это ошибка старого кода, наш aggregation-модуль из фазы 2 правильно следует спеке.
+  - Это НЕ нарушение правила "не aggTrades": на фьючерсах raw-трейдов нет физически, aggTrade сохраняет цену, сторону и объём — достаточно для футпринта (сделки склеиваются по цене+стороне, т.е. как кластер по уровню).
+- Альтернативы:
+  - Везде @aggTrade — отвергнуто (теряем точность на spot, где @trade доступен).
+  - Игнорировать futures — отвергнуто (основной рынок).
+- Последствия:
+  - ingest/parser.go содержит два парсера (futures/spot) с разной логикой парсинга WS, но единым выходом `chan model.Trade`.
+  - Gap fill для futures ограничен 24h (REST aggTrades). Для старых gap — historicalTrades (другой ID space, аккуратность).
+
+### [2026-06-12] Момент записи в ClickHouse и rollup
+- Контекст: когда именно писать кластеры в ClickHouse и как делать rollup старших ТФ.
+- Решение:
+  - **Запись в ClickHouse**: только при закрытии 1m интервала (по boundaries минуты). Текущая незакрытая свеча хранится в Redis.
+  - **Rollup**: при записи 1m свечи в ClickHouse, aggregator автоматически дописывает строки 1h/4h/1d в те же таблицы. Суммирование по priceLevel, TRUNCATE один раз на финальном агрегате.
+  - **Redis hot cache**: hash `cluster:levels:{symbol}:{market}:{tf}:{candle_open_ts}` с полями priceLevel → "bid,ask". При закрытии — чтение, CompressTrades, запись в CH, удаление из Redis.
+- Альтернативы:
+  - Писать в CH на каждый трейд — отвергнуто (слишком много записей, нагрузка на CH).
+  - Rollup через materialized views — отвергнуто (циклические зависимости, см. фазу 2).
+- Последствия:
+  - Aggregator отвечает за hot aggregation + flush + rollup.
+  - Задержка данных в CH = до 1 минуты (от закрытия интервала).
 
 ### [2026-06-11] Интеграция дизайн-репозитория: что перенесено, что удалено
 - Контекст: design-src содержит полный UI крипто-терминала (React+TS+Tailwind). Нужно выделить дизайн-ассеты и перенести в наш frontend.

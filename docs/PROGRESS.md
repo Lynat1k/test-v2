@@ -15,6 +15,39 @@
 ---
 <!-- ниже добавляются реальные записи -->
 
+### [2026-06-12] Фаза 3 — Ingest + Aggregator realtime + Rollup
+- Модель: MiMoCode (mimo-auto)
+- Что сделано:
+  - Создан ingest-воркер: WS клиент (gorilla/websocket) с реконнектом (exponential backoff 1s→30s)
+  - Два парсера WS: futures (@aggTrade, поле `a`) и spot (@trade, поле `t`) → единый model.Trade
+  - Gap filler: REST дозапрос пропущенных трейдов (futures /fapi/v1/aggTrades, spot /api/v3/historicalTrades)
+  - Валидация входящих данных: price>0, qty>0, tradeId>lastId, time within 10s
+  - Aggregator: hot aggregation текущей 1m свечи в Redis (hash: priceLevel→"bid,ask")
+  - Rollup worker: при закрытии 1m дописывает готовые строки 1h/4h/1d в те же таблицы ClickHouse (суммирование + TRUNCATE на финале)
+  - Cache: Redis sorted set для 700 свечей по (symbol, timeframe, market)
+  - Добавлены зависимости: go-redis/v9, gorilla/websocket
+- Затронутые файлы/папки:
+  - backend/internal/ingest/ (client.go, parser.go, gapfill.go, ingest.go, ingest_test.go)
+  - backend/internal/aggregator/ (aggregator.go)
+  - backend/internal/cache/ (cache.go)
+  - backend/go.mod, backend/go.sum
+- Ключевые решения:
+  - Spot: @trade (индивидуальные), Futures: @aggTrade (единственный доступный источник Binance)
+  - isBuyerMaker: true→SELL/ASK, false→BUY/BID — единообразно для обоих
+  - Rollup: суммирование по priceLevel, TRUNCATE один раз на финале
+  - DATA_MODEL.md обновлён: исправлена интерпретация isBuyerMaker, уточнён источник трейдов
+- Открытые вопросы / TODO для следующих фаз:
+  - Фаза 4: REST API + WebSocket hub (live-рассылка клиентам)
+  - Фаза 5-6: Движок графика (PixiJS WebGL)
+  - Интеграция aggregator с cmd/procluster/main.go (запуск воркеров)
+- Тесты/проверки:
+  - go test ./internal/aggregation/ — PASS
+  - go test ./internal/ingest/ — PASS (парсинг futures/spot, валидация, side interpretation)
+  - go test ./internal/repository/clickhouse/ — PASS
+  - go build ./... — OK
+  - gofmt -l . — OK
+  - go vet ./... — OK
+
 ### [2026-06-12] Фаза 2 — Слой данных: ClickHouse + сжатие
 - Модель: MiMoCode (mimo-auto)
 - Что сделано:
