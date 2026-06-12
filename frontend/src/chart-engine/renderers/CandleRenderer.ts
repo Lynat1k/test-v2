@@ -66,11 +66,8 @@ export class CandleRenderer {
   }
 
   render(candles: Candle[], startIndex: number, endIndex: number, firstTimestamp: number): void {
-    // Release previous candles back to pool
-    for (const cg of this.activeCandles) {
-      this.pool.release(cg);
-    }
-    this.activeCandles = [];
+    this.pool.releaseAll();
+    this.activeCandles.length = 0;
 
     // Render only visible candles
     for (let i = startIndex; i <= endIndex; i++) {
@@ -110,6 +107,11 @@ export class CandleRenderer {
   }
 
   setPalette(palette: 'default' | 'alternative'): void {
+    this.bullBodyCtx.destroy();
+    this.bearBodyCtx.destroy();
+    this.bullWickCtx.destroy();
+    this.bearWickCtx.destroy();
+
     if (palette === 'alternative') {
       this.bullBodyCtx = new GraphicsContext().rect(-0.5, -1, 1, 1).fill(0xe2e8f0);
       this.bearBodyCtx = new GraphicsContext().rect(-0.5, -1, 1, 1).fill(0x374151);
