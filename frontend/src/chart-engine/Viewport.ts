@@ -44,7 +44,7 @@ export class Viewport {
 
     // Adjust offset to keep data point under cursor
     this.state.offsetX = dataX - screenX / this.state.scaleX;
-    this.state.offsetY = this.state.offsetY + (this.height / 2 - screenY) / this.state.scaleY - dataY;
+    this.state.offsetY = dataY - (this.height / 2 - screenY) / this.state.scaleY;
 
     this.notifyChange();
   }
