@@ -8,15 +8,24 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/joho/godotenv"
 	"github.com/redis/go-redis/v9"
 
 	"github.com/procluster/procluster/internal/aggregator"
 	"github.com/procluster/procluster/internal/api"
 	"github.com/procluster/procluster/internal/cache"
+	"github.com/procluster/procluster/internal/ingest"
+	"github.com/procluster/procluster/internal/model"
 	"github.com/procluster/procluster/internal/repository/clickhouse"
 )
 
 func main() {
+	if err := godotenv.Load(); err != nil {
+		log.Println("[env] .env not loaded (using system env)")
+	} else {
+		log.Println("[env] .env loaded")
+	}
+
 	log.Println("procluster up")
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -62,7 +71,20 @@ func main() {
 	hub := srv.Hub()
 	go hub.Run(ctx)
 
-	_ = agg
+	// Wire aggregator → WS hub for live candle_update broadcasts
+	updatesCh := make(chan aggregator.CandleUpdate, 64)
+	agg.SetUpdatesCh(updatesCh)
+	go hub.ListenToAggregator(ctx, updatesCh)
+
+	// Wire ingest → aggregator
+	tradesCh := make(chan model.Trade, 1024)
+	go agg.Run(ctx, tradesCh)
+
+	// Start ingest workers
+	futuresWorker := ingest.New("BTCUSDT", ingest.MarketFutures, tradesCh)
+	go futuresWorker.Run(ctx)
+
+	log.Println("[ingest] BTCUSDT futures connected to Binance @aggTrade")
 
 	go func() {
 		if err := srv.ListenAndServe(); err != nil && err.Error() != "http: Server closed" {

@@ -50,17 +50,15 @@ export class Renderer {
 
     this.app.stage.addChild(this.stage);
 
-    this.app.ticker.add(this.render.bind(this));
-  }
-
-  private render(): void {
-    this.frameCount++;
-    const now = performance.now();
-    if (now - this.lastFpsTime >= 1000) {
-      this.fps = this.frameCount;
-      this.frameCount = 0;
-      this.lastFpsTime = now;
-    }
+    this.app.ticker.add(() => {
+      this.frameCount++;
+      const now = performance.now();
+      if (now - this.lastFpsTime >= 1000) {
+        this.fps = this.frameCount;
+        this.frameCount = 0;
+        this.lastFpsTime = now;
+      }
+    });
   }
 
   renderCandles(candles: Candle[], viewport: ViewportState, firstTimestamp: number): void {

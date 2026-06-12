@@ -1,7 +1,12 @@
-import { Container, Graphics, GraphicsContext } from 'pixi.js';
+import { Container, Graphics } from 'pixi.js';
 import type { Candle } from '../types';
 import { ObjectPool } from '../pool/ObjectPool';
 import type { Scales } from '../Scales';
+
+const BULL = 0x10b981;
+const BEAR = 0xf43f5e;
+const BULL_ALT = 0xe2e8f0;
+const BEAR_ALT = 0x374151;
 
 interface CandleGraphics {
   body: Graphics;
@@ -14,62 +19,40 @@ export class CandleRenderer {
   private scales: Scales;
   private pool: ObjectPool<CandleGraphics>;
   private activeCandles: CandleGraphics[] = [];
-  
-  // Pre-built contexts (one per color)
-  private bullBodyCtx: GraphicsContext;
-  private bearBodyCtx: GraphicsContext;
-  private bullWickCtx: GraphicsContext;
-  private bearWickCtx: GraphicsContext;
+  private bullColor = BULL;
+  private bearColor = BEAR;
 
   constructor(parentContainer: Container, scales: Scales) {
     this.container = new Container();
     parentContainer.addChild(this.container);
     this.scales = scales;
 
-    // Create shared contexts (expensive, done once)
-    this.bullBodyCtx = new GraphicsContext()
-      .rect(-0.5, -1, 1, 1)
-      .fill(0x10b981);  // Green
-    
-    this.bearBodyCtx = new GraphicsContext()
-      .rect(-0.5, -1, 1, 1)
-      .fill(0xf43f5e);  // Red
-    
-    this.bullWickCtx = new GraphicsContext()
-      .rect(-0.5, -1, 1, 1)
-      .fill(0x10b981);
-    
-    this.bearWickCtx = new GraphicsContext()
-      .rect(-0.5, -1, 1, 1)
-      .fill(0xf43f5e);
-
-    // Initialize pool
     this.pool = new ObjectPool<CandleGraphics>(
       () => this.createCandleGraphics(),
       (cg) => this.resetCandleGraphics(cg),
-      1000  // Pre-allocate 1000 candles
+      1000,
     );
   }
 
   private createCandleGraphics(): CandleGraphics {
-    const body = new Graphics(this.bullBodyCtx);
-    const wick = new Graphics(this.bullWickCtx);
+    const wick = new Graphics();
+    const body = new Graphics();
     const container = new Container();
     container.addChild(wick, body);
     this.container.addChild(container);
-    
     return { body, wick, container };
   }
 
   private resetCandleGraphics(cg: CandleGraphics): void {
     cg.container.visible = false;
+    cg.wick.clear();
+    cg.body.clear();
   }
 
   render(candles: Candle[], startIndex: number, endIndex: number, firstTimestamp: number): void {
     this.pool.releaseAll();
     this.activeCandles.length = 0;
 
-    // Render only visible candles
     for (let i = startIndex; i <= endIndex; i++) {
       const candle = candles[i];
       if (!candle) continue;
@@ -78,50 +61,37 @@ export class CandleRenderer {
       this.activeCandles.push(cg);
 
       const isBull = candle.close >= candle.open;
-      const bodyCtx = isBull ? this.bullBodyCtx : this.bearBodyCtx;
-      const wickCtx = isBull ? this.bullWickCtx : this.bearWickCtx;
+      const color = isBull ? this.bullColor : this.bearColor;
 
-      // Position body
       const x = this.scales.timeToScreen(candle.timestamp, firstTimestamp);
       const openY = this.scales.priceToScreen(candle.open);
       const closeY = this.scales.priceToScreen(candle.close);
       const highY = this.scales.priceToScreen(candle.high);
       const lowY = this.scales.priceToScreen(candle.low);
 
-      // Wick (high to low)
-      cg.wick.context = wickCtx;
-      cg.wick.x = x;
-      cg.wick.y = highY;
-      cg.wick.scale.set(1, lowY - highY);
-      cg.wick.visible = true;
+      // Wick: 1px wide line from high to low
+      cg.wick.clear();
+      cg.wick.rect(x - 0.5, highY, 1, lowY - highY);
+      cg.wick.fill(color);
 
-      // Body (open to close)
-      cg.body.context = bodyCtx;
-      cg.body.x = x;
-      cg.body.y = Math.min(openY, closeY);
-      cg.body.scale.set(8, Math.abs(closeY - openY) || 1);  // Min 1px height
-      cg.body.visible = true;
+      // Body: 8px wide rect from open to close
+      const bodyY = Math.min(openY, closeY);
+      const bodyH = Math.abs(closeY - openY) || 1;
+      cg.body.clear();
+      cg.body.rect(x - 4, bodyY, 8, bodyH);
+      cg.body.fill(color);
 
       cg.container.visible = true;
     }
   }
 
   setPalette(palette: 'default' | 'alternative'): void {
-    this.bullBodyCtx.destroy();
-    this.bearBodyCtx.destroy();
-    this.bullWickCtx.destroy();
-    this.bearWickCtx.destroy();
-
     if (palette === 'alternative') {
-      this.bullBodyCtx = new GraphicsContext().rect(-0.5, -1, 1, 1).fill(0xe2e8f0);
-      this.bearBodyCtx = new GraphicsContext().rect(-0.5, -1, 1, 1).fill(0x374151);
-      this.bullWickCtx = new GraphicsContext().rect(-0.5, -1, 1, 1).fill(0xe2e8f0);
-      this.bearWickCtx = new GraphicsContext().rect(-0.5, -1, 1, 1).fill(0x374151);
+      this.bullColor = BULL_ALT;
+      this.bearColor = BEAR_ALT;
     } else {
-      this.bullBodyCtx = new GraphicsContext().rect(-0.5, -1, 1, 1).fill(0x10b981);
-      this.bearBodyCtx = new GraphicsContext().rect(-0.5, -1, 1, 1).fill(0xf43f5e);
-      this.bullWickCtx = new GraphicsContext().rect(-0.5, -1, 1, 1).fill(0x10b981);
-      this.bearWickCtx = new GraphicsContext().rect(-0.5, -1, 1, 1).fill(0xf43f5e);
+      this.bullColor = BULL;
+      this.bearColor = BEAR;
     }
   }
 

@@ -47,6 +47,16 @@
 - total_volume = bid_volume + ask_volume
 Плюс агрегаты свечи: open, high, low, close, total_bid, total_ask, total_delta, total_volume, trades_count.
 
+## OHLC свечей (Open/Close)
+**Правило:** Open = цена ПЕРВОГО по времени трейда минуты, Close = цена ПОСЛЕДНЕГО.
+- High = max(price_level), Low = min(price_level) — как и раньше.
+- Open/Close хранятся как колонки `open_price`/`close_price` в таблицах clusters_*.
+- Все строки кластера одной свечи имеют одинаковые open_price/close_price.
+- Rollup старших ТФ: open = open первой 1m свечи интервала, close = close последней.
+- Legacy-свечи (open_price=0): fallback open=low, close=high.
+- Для определения first/last trade: primary key = trade time, tie-breaker = tradeId.
+- Используется ОРИГИНАЛЬНАЯ цена трейда (trade.Price), НЕ синтетическая цена бакета.
+
 ## Имбаланс (для раскраски и индикаторов)
 - Диагональный имбаланс (как ATAS): сравнение ask[price] vs bid[price - 1 ряд].
 - Раскраска цифр: имбаланс > 300% → ask зелёным / bid красным соответственно
@@ -69,7 +79,9 @@ clusters_futures (
   price_level    Decimal(...),       -- нижняя граница ряда
   bid_volume     Decimal(.,1),
   ask_volume     Decimal(.,1),
-  compression    UInt16              -- базовый уровень сжатия, на котором записано
+  compression    UInt16,             -- базовый уровень сжатия, на котором записано
+  open_price     Decimal(18,2),      -- цена первого трейда минуты (0 = legacy)
+  close_price    Decimal(18,2)       -- цена последнего трейда минуты (0 = legacy)
 ) ENGINE = MergeTree
 PARTITION BY toYYYYMM(candle_open)
 ORDER BY (symbol, timeframe, candle_open, price_level)

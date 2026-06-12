@@ -23,17 +23,31 @@ type Aggregator struct {
 }
 
 type CandleUpdate struct {
-	Symbol     string
-	Market     string
-	Timeframe  string
-	CandleOpen time.Time
-	Levels     map[string]float64
+	Symbol      string  `json:"symbol"`
+	Market      string  `json:"market"`
+	Timeframe   string  `json:"timeframe"`
+	CandleOpen  int64   `json:"candleOpen"`
+	Open        float64 `json:"open"`
+	High        float64 `json:"high"`
+	Low         float64 `json:"low"`
+	Close       float64 `json:"close"`
+	TotalVolume float64 `json:"totalVolume"`
+	TradesCount uint64  `json:"tradesCount"`
 }
 
 type aggregationCompressionConfig struct {
 	Symbol    string
 	PriceTick float64
 	BaseLevel float64
+}
+
+type liveCandle struct {
+	open        float64
+	high        float64
+	low         float64
+	close       float64
+	totalVolume float64
+	tradesCount uint64
 }
 
 func New(repo repository.MarketRepository, rdb *redis.Client) *Aggregator {
@@ -63,6 +77,8 @@ func (a *Aggregator) SetUpdatesCh(ch chan<- CandleUpdate) {
 
 func (a *Aggregator) Run(ctx context.Context, trades <-chan model.Trade) {
 	var currentCandleOpen time.Time
+	var live liveCandle
+	var lastUpdateTime time.Time
 
 	flushTimer := time.NewTimer(time.Until(nextMinute()))
 	defer flushTimer.Stop()
@@ -90,14 +106,16 @@ func (a *Aggregator) Run(ctx context.Context, trades <-chan model.Trade) {
 					}
 				}
 				currentCandleOpen = candleOpen
+				live = liveCandle{}
+				lastUpdateTime = time.Time{}
 				flushTimer.Reset(time.Until(nextMinute()))
 			}
-			a.processTrade(trade)
+			a.processTrade(trade, &live, &lastUpdateTime)
 		}
 	}
 }
 
-func (a *Aggregator) processTrade(trade model.Trade) {
+func (a *Aggregator) processTrade(trade model.Trade, live *liveCandle, lastUpdateTime *time.Time) {
 	candleOpen := truncateToMinute(trade.Time)
 	config := a.getConfig("BTCUSDT", "futures")
 
@@ -129,21 +147,59 @@ func (a *Aggregator) processTrade(trade model.Trade) {
 	a.rdb.Expire(context.Background(), key, 2*time.Minute)
 
 	metaKey := fmt.Sprintf("cluster:hot:%s:%s:1m:%d", "BTCUSDT", "futures", candleOpen.UnixMilli())
+
+	// Track first/last trade price by trade time (tradeId as tie-breaker)
+	firstPrice, _ := a.rdb.HGet(context.Background(), metaKey, "first_price").Float64()
+	firstTime, _ := a.rdb.HGet(context.Background(), metaKey, "first_trade_time").Int64()
+	lastPrice, _ := a.rdb.HGet(context.Background(), metaKey, "last_price").Float64()
+	lastTime, _ := a.rdb.HGet(context.Background(), metaKey, "last_trade_time").Int64()
+
+	tradeTimeMs := trade.Time.UnixMilli()
+
+	if firstPrice == 0 || tradeTimeMs < firstTime || (tradeTimeMs == firstTime && trade.TradeID < firstTime) {
+		a.rdb.HSet(context.Background(), metaKey, "first_price", trade.Price, "first_trade_time", tradeTimeMs)
+	}
+	if lastPrice == 0 || tradeTimeMs > lastTime || (tradeTimeMs == lastTime && trade.TradeID > lastTime) {
+		a.rdb.HSet(context.Background(), metaKey, "last_price", trade.Price, "last_trade_time", tradeTimeMs)
+	}
+
 	a.rdb.HSet(context.Background(), metaKey,
 		"symbol", "BTCUSDT",
 		"timeframe", "1m",
 		"candle_open", candleOpen.UnixMilli(),
-		"last_trade_time", trade.Time.UnixMilli(),
+		"last_trade_time", tradeTimeMs,
 	)
 	a.rdb.Expire(context.Background(), metaKey, 2*time.Minute)
 
-	if a.UpdatesCh != nil {
+	// Update running OHLC
+	live.close = trade.Price
+	live.totalVolume += volume
+	live.tradesCount++
+	if live.open == 0 {
+		live.open = trade.Price
+	}
+	if trade.Price > live.high || live.high == 0 {
+		live.high = trade.Price
+	}
+	if trade.Price < live.low || live.low == 0 {
+		live.low = trade.Price
+	}
+
+	// Throttled broadcast: max once per 200ms
+	if a.UpdatesCh != nil && time.Since(*lastUpdateTime) >= 200*time.Millisecond {
+		*lastUpdateTime = time.Now()
 		select {
 		case a.UpdatesCh <- CandleUpdate{
-			Symbol:     "BTCUSDT",
-			Market:     "futures",
-			Timeframe:  "1m",
-			CandleOpen: candleOpen,
+			Symbol:      "BTCUSDT",
+			Market:      "futures",
+			Timeframe:   "1m",
+			CandleOpen:  candleOpen.UnixMilli(),
+			Open:        live.open,
+			High:        live.high,
+			Low:         live.low,
+			Close:       live.close,
+			TotalVolume: live.totalVolume,
+			TradesCount: live.tradesCount,
 		}:
 		default:
 		}
@@ -158,6 +214,10 @@ func (a *Aggregator) FlushCandle(ctx context.Context, symbol, market, timeframe 
 
 	metaKey := fmt.Sprintf("cluster:hot:%s:%s:%s:%d", symbol, market, timeframe, candleOpen.UnixMilli())
 	levelsKey := fmt.Sprintf("cluster:levels:%s:%s:%s:%d", symbol, market, timeframe, candleOpen.UnixMilli())
+
+	// Read first/last trade prices from Redis (original trade prices, not bucket centers)
+	openPrice, _ := a.rdb.HGet(ctx, metaKey, "first_price").Float64()
+	closePrice, _ := a.rdb.HGet(ctx, metaKey, "last_price").Float64()
 
 	fields, err := a.rdb.HGetAll(ctx, levelsKey).Result()
 	if err != nil {
@@ -208,6 +268,8 @@ func (a *Aggregator) FlushCandle(ctx context.Context, symbol, market, timeframe 
 		rows[i].Symbol = symbol
 		rows[i].Timeframe = timeframe
 		rows[i].CandleOpen = candleOpen
+		rows[i].OpenPrice = openPrice
+		rows[i].ClosePrice = closePrice
 	}
 
 	if err := a.repo.InsertClusterBatch(ctx, rows); err != nil {
@@ -220,7 +282,7 @@ func (a *Aggregator) FlushCandle(ctx context.Context, symbol, market, timeframe 
 
 	a.rdb.Del(ctx, levelsKey, metaKey)
 
-	log.Printf("[aggregator] flushed candle %s %s %s at %v (%d rows)", symbol, market, timeframe, candleOpen, len(rows))
+	log.Printf("[aggregator] flushed candle %s %s %s at %v (%d rows, open=%.2f close=%.2f)", symbol, market, timeframe, candleOpen, len(rows), openPrice, closePrice)
 	return nil
 }
 
@@ -247,6 +309,9 @@ func (a *Aggregator) rollup(ctx context.Context, symbol, market string, rows []m
 func (a *Aggregator) aggregateForTimeframe(rows []model.ClusterRow, tf string) []model.ClusterRow {
 	buckets := make(map[float64]*model.ClusterRow)
 
+	// Track earliest and latest candle for open/close
+	var earliest, latest *model.ClusterRow
+
 	for _, row := range rows {
 		existing, ok := buckets[row.PriceLevel]
 		if !ok {
@@ -261,10 +326,25 @@ func (a *Aggregator) aggregateForTimeframe(rows []model.ClusterRow, tf string) [
 		}
 		existing.BidVolume += row.BidVolume
 		existing.AskVolume += row.AskVolume
+
+		// Track open/close from earliest/latest candle
+		if earliest == nil || row.CandleOpen.Before(earliest.CandleOpen) {
+			earliest = &row
+		}
+		if latest == nil || row.CandleOpen.After(latest.CandleOpen) {
+			latest = &row
+		}
 	}
 
 	result := make([]model.ClusterRow, 0, len(buckets))
 	for _, row := range buckets {
+		// Set open/close from earliest/latest 1m candle
+		if earliest != nil {
+			row.OpenPrice = earliest.OpenPrice
+		}
+		if latest != nil {
+			row.ClosePrice = latest.ClosePrice
+		}
 		result = append(result, *row)
 	}
 	return result

@@ -4,8 +4,8 @@ export class Scales {
   private viewport: ViewportState;
   private chartWidth: number;
   private chartHeight: number;
-  private candleWidth: number = 8;  // Base candle width in pixels
-  private rightPadding: number = 60; // Space for price axis
+  private candleWidth: number = 8;
+  private rightPadding: number = 60;
 
   constructor(viewport: ViewportState, width: number, height: number) {
     this.viewport = viewport;
@@ -15,7 +15,7 @@ export class Scales {
 
   // Convert timestamp to screen X
   timeToScreen(timestamp: number, firstTimestamp: number): number {
-    const dataIndex = (timestamp - firstTimestamp) / 60000; // Assume 1m candles
+    const dataIndex = (timestamp - firstTimestamp) / 60000;
     return dataIndex * this.candleWidth * this.viewport.scaleX - this.viewport.offsetX;
   }
 

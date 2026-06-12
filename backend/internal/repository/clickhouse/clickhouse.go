@@ -135,6 +135,8 @@ func (r *ClickhouseRepository) InsertClusterBatch(ctx context.Context, rows []mo
 			decimal.NewFromFloat(row.BidVolume),
 			decimal.NewFromFloat(row.AskVolume),
 			row.Compression,
+			decimal.NewFromFloat(row.OpenPrice),
+			decimal.NewFromFloat(row.ClosePrice),
 		); err != nil {
 			return fmt.Errorf("append row: %w", err)
 		}
@@ -185,6 +187,8 @@ func (r *ClickhouseRepository) GetLatestCandles(ctx context.Context, symbol, tim
 			candle_open,
 			min(price_level) AS low,
 			max(price_level) AS high,
+			any(open_price) AS open_price,
+			any(close_price) AS close_price,
 			sum(bid_volume) AS total_bid,
 			sum(ask_volume) AS total_ask,
 			sum(bid_volume - ask_volume) AS total_delta,
@@ -206,13 +210,15 @@ func (r *ClickhouseRepository) GetLatestCandles(ctx context.Context, symbol, tim
 	var candles []model.Candle
 	for rows.Next() {
 		var c model.Candle
-		var low, high, totalBid, totalAsk, totalDelta, totalVolume decimal.Decimal
+		var low, high, openPrice, closePrice, totalBid, totalAsk, totalDelta, totalVolume decimal.Decimal
 		if err := rows.Scan(
 			&c.Symbol,
 			&c.Timeframe,
 			&c.CandleOpen,
 			&low,
 			&high,
+			&openPrice,
+			&closePrice,
 			&totalBid,
 			&totalAsk,
 			&totalDelta,
@@ -227,8 +233,17 @@ func (r *ClickhouseRepository) GetLatestCandles(ctx context.Context, symbol, tim
 		c.TotalAsk, _ = totalAsk.Float64()
 		c.TotalDelta, _ = totalDelta.Float64()
 		c.TotalVolume, _ = totalVolume.Float64()
-		c.Open = c.Low
-		c.Close = c.High
+
+		op, _ := openPrice.Float64()
+		cp, _ := closePrice.Float64()
+		if op > 0 && cp > 0 {
+			c.Open = op
+			c.Close = cp
+		} else {
+			// Legacy candles without open/close data
+			c.Open = c.Low
+			c.Close = c.High
+		}
 		candles = append(candles, c)
 	}
 

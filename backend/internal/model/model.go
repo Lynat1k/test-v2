@@ -25,6 +25,8 @@ type ClusterRow struct {
 	BidVolume   float64
 	AskVolume   float64
 	Compression uint16
+	OpenPrice   float64
+	ClosePrice  float64
 }
 
 type Candle struct {

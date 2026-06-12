@@ -3,6 +3,49 @@
 > Claude обновляет этот файл в КОНЦЕ каждой задачи. Новые записи — сверху.
 > Формат записи строго по шаблону. Это память между чатами.
 
+### [2026-06-12] Фаза 5 — Движок графика: каркас + японские свечи + live pipeline
+- Модель: MiMoCode (mimo-auto)
+- Что сделано:
+  - **Движок графика** в frontend/src/chart-engine/: Engine, Renderer, Viewport, DataStore, Scales, InteractionManager, CandleRenderer, AxisRenderer, ObjectPool
+  - **Object pooling**: 1000 предвыделенных Graphics объектов, zero allocations в render loop
+  - **Only visible rendering**: DataStore хранит тысячи, Renderer рисует только видимые 300-500
+  - **Японские свечи**: direct draw (clear+rect+fill), bull green / bear red, альтернативная палитра
+  - **Управление**: колесо→zoom к указателю, SHIFT+колесо→вертикальная растяжка, CTRL+колесо→горизонтальная растяжка, drag→пан
+  - **Canvas2D слой** для осей и сетки (AxisRenderer)
+  - **React интеграция**: ChartContainer компонент с fetch + WS
+  - **Vite-прокси**: /api → localhost:8080, /ws → ws://localhost:8080
+  - **.env автозагрузка**: добавлен godotenv в backend
+  - **Ingest подключён в main.go**: goroutine ingest.New("BTCUSDT", MarketFutures, tradesCh) → agg.Run(ctx, tradesCh)
+  - **OHLC fix**: колонки open_price/close_price в clusters_* (migration 005), first/last по trade time
+  - **Live WS-обновления**: CandleUpdate с полным OHLC, троттлинг 200мс, running High/Low в Redis
+  - **Баги исправлены**: мусорные свечи price>=90000 удалены, костыль OHLC (Open=Low/Close=High) заменён
+- Затронутые файлы/папки:
+  - frontend/src/chart-engine/ (Engine, Renderer, Viewport, DataStore, Scales, renderers/, interaction/, pool/)
+  - frontend/src/components/ChartContainer.tsx
+  - frontend/src/App.tsx, frontend/vite.config.ts
+  - backend/cmd/procluster/main.go (ingest + updatesCh wiring)
+  - backend/internal/aggregator/aggregator.go (first/last price, running OHLC, throttled updates)
+  - backend/internal/model/model.go (ClusterRow + OpenPrice/ClosePrice)
+  - backend/internal/repository/clickhouse/clickhouse.go (INSERT + SELECT с open_price/close_price)
+  - backend/internal/repository/clickhouse/migrations/005_add_ohlc.sql
+  - docs/DATA_MODEL.md, docs/DECISIONS.md, docs/CHART_ENGINE.md
+- Ключевые решения:
+  - Колонки open_price/close_price в clusters_* (проще, без JOIN)
+  - Direct draw в CandleRenderer вместо shared GraphicsContext (PixiJS v8 совместимость)
+  - Троттлинг WS-обновлений 200мс (не каждый трейд)
+  - Vite-прокси для dev (чище CORS)
+- Открытые вопросы / TODO для следующих фаз:
+  - Spot ingest: aggregator хардкодит "BTCUSDT/futures", нужен мульти-маркет
+  - Ingest не запускает gap fill (fillGap не вызывается из Run)
+  - Точность свечей vs другие терминалы (mobchart, exocharts)
+- Тесты/проверки:
+  - Live candles с Binance: Open≠Low, Close≠High ✓
+  - TradesCount > 0 (реальные трейды) ✓
+  - REST API: 200 с корректными OHLC ✓
+  - Live WS-обновления: последняя свеча обновляется в реальном времени ✓
+  - TypeScript compilation: PASS
+  - Build: PASS
+
 ## Шаблон записи
 ### [ГГГГ-ММ-ДД] Фаза N — <короткое название>
 - Модель: Opus / Sonnet

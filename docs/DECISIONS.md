@@ -3,6 +3,25 @@
 > Сюда пишем решения, которые меняют или фиксируют архитектуру/правила.
 > Новые — сверху. Если решение противоречит спеке — сначала обнови спеку.
 
+### [2026-06-12] OHLC свечей: хранение Open/Close в clusters_*
+- Контекст: `c.Open = c.Low; c.Close = c.High` — костыль, фитили совпадают с телом.
+- Причина: таблица clusters_* не хранила first/last trade price, только price_level buckets.
+- Решение:
+  - **Колонки `open_price`/`close_price`** в clusters_futures/spot (Decimal(18,2), DEFAULT 0).
+  - **Агрегатор** отслеживает first/last trade price в Redis (`cluster:hot:*` meta hash).
+  - **First/last определяется по trade time** (primary), tradeId как tie-breaker.
+  - **Оригинальная цена трейда** (`trade.Price`), НЕ синтетическая `priceLevel + half_bucket`.
+  - **Rollup старших ТФ**: open = open первой 1m свечи, close = close последней.
+  - **Legacy fallback**: `open_price = 0` → `open = low, close = high` (только для старых свечей).
+  - **Запрос**: `any(open_price) AS open, any(close_price) AS close` в GROUP BY.
+- Альтернативы:
+  - Отдельная таблица `candles_ohlc` — отвергнута (лишний JOIN, доп. TTL).
+  - Хранить first/last trade price в отдельном Redis key — отвергнута (нет персистентности).
+- Последствия:
+  - Migration 005: `ALTER TABLE clusters_futures/spot ADD COLUMN open_price/close_price`.
+  - Старые данные удалены (legacy свечи с open=low, close=high не нужны).
+  - Ingest должен быть запущен для накопления новых свечей с реальными OHLC.
+
 ### [2026-06-12] Race-тесты выполняются в CI (Linux), не локально на Windows
 - Контекст: `go test -race` требует CGO (gcc), которого нет на Windows-машине разработчика.
 - Решение: race-тесты прогоняются в CI на Linux (GitHub Actions, фаза 14). Локально на Windows `go test -race` не запускается. До запуска в CI -race не считать пройденным.
