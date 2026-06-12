@@ -15,6 +15,39 @@
 ---
 <!-- ниже добавляются реальные записи -->
 
+### [2026-06-12] Фаза 5 — Движок графика: каркас + японские свечи
+- Модель: MiMoCode (mimo-auto)
+- Что сделано:
+  - Создан изолированный движок графика в frontend/src/chart-engine/
+  - Модули: Engine, Renderer (PixiJS WebGL + Canvas2D), Viewport, DataStore, Scales, InteractionManager
+  - Object pooling для Graphics (1000 предвыделенных объектов, zero allocations в render loop)
+  - Только видимые свечи рендерятся (300-500 из тысяч в DataStore)
+  - Японские свечи: bull (зелёный) / bear (красный), альтернативная палитра (белый/серый)
+  - Управление: колесо→zoom к указателю, SHIFT+колесо→вертикальная растяжка, CTRL+колесо→горизонтальная растяжка, drag→пан
+  - Canvas2D слой для осей и сетки
+  - React интеграция: ChartContainer компонент
+  - Заготовка панели инструментов рисования (placeholder)
+- Затронутые файлы/папки:
+  - frontend/src/chart-engine/ (Engine, Renderer, Viewport, DataStore, Scales, renderers/, interaction/, pool/)
+  - frontend/src/components/ChartContainer.tsx
+  - frontend/src/App.tsx
+  - docs/PROGRESS.md
+  - docs/DECISIONS.md
+  - docs/CHART_ENGINE.md
+- Ключевые решения:
+  - Движок изолирован от UI — никаких импортов React внутри chart-engine/
+  - Object pooling: 1000 Graphics объектов предвыделены, переиспользуются
+  - Only visible rendering: DataStore хранит тысячи, Renderer рисует 300-500
+  - Canvas2D для текста (оси, сетка), WebGL для геометрии (свечи)
+- Открытые вопросы / TODO для следующих фаз:
+  - Фаза 6: Футпринт/кластеры/имбаланс
+  - Фаза 7: Инструменты рисования
+  - Интеграция с REST API для загрузки истории
+  - Интеграция с WS для live-обновлений
+- Тесты/проверки:
+  - TypeScript compilation: PASS
+  - Build: PASS
+
 ### [2026-06-12] Фаза 4 — REST API + WebSocket hub + лимит сессий
 - Модель: MiMoCode (mimo-auto)
 - Что сделано:
