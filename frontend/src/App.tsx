@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { ThemeProvider } from '@/contexts/ThemeContext'
 import { I18nProvider } from '@/i18n'
 import { CandlePaletteProvider } from '@/contexts/CandlePaletteContext'
+import { ChartContainer } from '@/components/ChartContainer'
 import { useAuth } from '@/features/auth/useAuth'
 import { useIndicators } from '@/features/indicators/useIndicators'
 import { useChartConfig } from '@/features/terminal/useChartConfig'
@@ -51,10 +52,29 @@ function AppShell() {
       {/* Main content */}
       <div className="flex-1 overflow-hidden">
         {currentView === 'terminal' && (
-          <div className="h-full flex items-center justify-center text-white/40 font-mono text-sm">
-            <div className="text-center">
-              <p className="mb-2">Terminal view - Phase 1 placeholder</p>
-              <p className="text-xs text-white/20">Chart engine will be implemented in phases 5-6</p>
+          <div className="flex-1 flex h-full">
+            {/* Left panel placeholder for drawing tools */}
+            <div className="w-12 bg-gray-900 border-r border-gray-700 flex flex-col items-center py-2 gap-2">
+              {/* TODO: Drawing tools will be implemented in Phase 7 */}
+              <div className="w-8 h-8 rounded bg-gray-800 flex items-center justify-center text-gray-500 text-xs">
+                🖊
+              </div>
+              <div className="w-8 h-8 rounded bg-gray-800 flex items-center justify-center text-gray-500 text-xs">
+                📏
+              </div>
+              <div className="w-8 h-8 rounded bg-gray-800 flex items-center justify-center text-gray-500 text-xs">
+                🔲
+              </div>
+            </div>
+
+            {/* Chart area */}
+            <div className="flex-1 relative">
+              <ChartContainer
+                symbol="BTCUSDT"
+                market="futures"
+                timeframe="1m"
+                chartIndex={0}
+              />
             </div>
           </div>
         )}
