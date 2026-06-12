@@ -1,7 +1,45 @@
 # DECISIONS.md — архитектурные решения (ADR)
 
 > Сюда пишем решения, которые меняют или фиксируют архитектуру/правила.
-> Новые — сверху. Если решение противоречит спеку — сначала обнови спек.
+> Новые — сверху. Если решение противоречит спеке — сначала обнови спеку.
+
+### [2026-06-12] Race-тесты выполняются в CI (Linux), не локально на Windows
+- Контекст: `go test -race` требует CGO (gcc), которого нет на Windows-машине разработчика.
+- Решение: race-тесты прогоняются в CI на Linux (GitHub Actions, фаза 14). Локально на Windows `go test -race` не запускается. До запуска в CI -race не считать пройденным.
+- Альтернативы: установить MinGW/MSYS2 на Windows — отвергнута (лишняя зависимость, CI всё равно нужен).
+- Последствия: в CI обязательно добавить `go test -race ./...` в пайплайн.
+
+### [2026-06-12] Фаза 4: REST API + WebSocket hub + лимит сессий
+- Контекст: нужен HTTP-сервер для фронта, live-данные по WS, защита от open-acct sharing.
+- Решение:
+  - **HTTP без фреймворков**: стандартный `net/http` + `ServeMux` (Go 1.22+ с pattern matching). Минимум зависимостей, проект без лишних lib.
+  - **Кэш → ClickHouse fallback**: REST candles сначала из Redis (последние ~700), глубже — из ClickHouse. Пагинация `before` (unix毫秒) идёт только в ClickHouse.
+  - **Единый JSON-контракт**: `{ok: bool, data: ..., error: {code, message}}`. Коды ошибок: INVALID_PARAMS, DB_ERROR, RATE_LIMITED.
+  - **Session limit**: Redis Sorted Set `chart_sessions:{userId}`, score = heartbeat timestamp. Lua-скрипт атомарно: удаление протухших → проверка лимита → регистрация/вытеснение. Никаких гонок при N одновременных подключениях.
+  - **Политика last-wins**: новая сессия вытесняет самую старую. Вытесненная получает `session_evicted` и уходит в пассив. Выбор политики (last-wins/reject) хранится в конфиге тарифа.
+  - **Heartbeat**: клиент каждые ~10с шлёт `{type:"heartbeat"}`, сервер обновляет score в Redis. Сессия без heartbeat >30с считается мёртвой и удаляется при следующей проверке.
+  - **Лимиты per тариф**: Free=1, Pro=2, VIP=2, Admin=-1 (без лимита). Числа из конфигурации/админки, не хардкод.
+  - **userId-заглушка**: `extractUserID` из query param или IP-based guest ID. Реальная JWT-авторизация в фазе 9 через `UserIDExtractor` interface.
+  - **Rate limiting**: per-IP через Redis sorted set, sliding window. REST: 60 req/min, WS: 5 connections/min.
+- Альтернативы:
+  - HTTP-фреймворк (chi, gin, echo) — отвергнут (избыточно для REST API с 2-3 эндпоинтами, проект без лишних зависимостей).
+  - MULTI/EXEC вместо Lua — отвергнут (Lua гарантированно атомарен, MULTI/EXEC может сломаться при ошибках).
+  - Trust client для подсчёта сессий — отвергнут (клиент может врать, лимит только на бэкенде).
+- Последствия:
+  - Фаза 9: реальная auth подключается через `UserIDExtractor` interface (смена одной implementation).
+  - Multi-symbol: aggregator нужно расширять (сейчас хардкод BTCUSDT).
+
+### [2026-06-12] Контракт WS-сообщений
+- Сервер → клиент:
+  - `{type:"candle_update", symbol, data}` — обновление свечи
+  - `{type:"session_active", sessionId}` — сессия активна, рендер разрешён
+  - `{type:"session_evicted", reason:"limit", message}` — вытеснена, уйти в пассив
+  - `{type:"session_rejected", reason:"limit", message}` — отказ по лимиту тарифа
+  - `{type:"error", message}` — ошибка
+- Клиент → сервер:
+  - `{type:"chart_subscribe", symbol, market, timeframe}` — подписка на канал
+  - `{type:"heartbeat"}` — каждые ~10с, обновляет score сессии
+  - `{type:"chart_unsubscribe"}` — отписка, освобождает слот
 
 ## Уже зафиксировано на старте
 - Округление объёмов: TRUNCATE до 1 знака после запятой (см. DATA_MODEL.md).

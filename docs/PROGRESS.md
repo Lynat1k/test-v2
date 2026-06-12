@@ -15,6 +15,51 @@
 ---
 <!-- ниже добавляются реальные записи -->
 
+### [2026-06-12] Фаза 4 — REST API + WebSocket hub + лимит сессий
+- Модель: MiMoCode (mimo-auto)
+- Что сделано:
+  - REST API: GET /api/v1/candles (параметры symbol, market, timeframe, limit, before) с Redis-кэшем (последние ~700) + ClickHouse fallback
+  - GET /api/v1/candles/{symbol}/clusters/{candleOpen} — кластеры по свече
+  - Единый JSON-контракт ответа: {ok, data, error{code, message}}
+  - Лимиты пагинации: limit 1..500, before — unix毫秒 timestamp
+  - HTTP-сервер с middleware: CORS, security headers, recovery
+  - Rate limiting: per-IP через Redis sorted set (REST 60/min, WS 5/min)
+  - WebSocket hub: подписка по (symbol, market, timeframe), рассылка candle_update, heartbeat, unregister
+  - Redis session limit: Sorted Set `chart_sessions:{userId}`, Lua-атомарный скрипт проверки+регистрации
+  - Политика last-wins: новая сессия вытесняет старейшую, вытесненная получает session_evicted
+  - Heartbeat каждые 10с, порог протухания 30с
+  - Лимиты per тариф: Free=1, Pro=2, VIP=2, Admin=-1 (без лимита)
+  - Интерфейс userId-заглушки: extractUserID (query param или IP-based guest)
+  - Агрегатор расширен каналом UpdatesCh для broadcast в WS hub
+  - Cache: убран хардкод "futures" в ключах — market теперь параметр
+  - Тесты: TestSessionLimit_NoRaceOverflow (N=50, limit=1), LastWins, Heartbeat, RemoveSession, HeartbeatExpiry — все PASS
+  - Зависимости: добавлен miniredis/v2 для тестов
+- Затронутые файлы/папки:
+  - backend/internal/api/ (server.go, candles.go, hub.go, session.go, stream.go, ratelimit.go, session_test.go)
+  - backend/internal/aggregator/aggregator.go (добавлен UpdatesCh + SetUpdatesCh)
+  - backend/internal/cache/cache.go (убран хардкод market)
+  - backend/cmd/procluster/main.go (полная wiring: Redis, CH, Cache, Aggregator, SessionManager, RateLimiters, Server)
+  - backend/go.mod, backend/go.sum
+- Ключевые решения:
+  - HTTP без фреймворков (стандартный net/http + ServeMux) — минимум зависимостей
+  - Session limit: Lua-скрипт атомарно очищает протухшие + проверяет лимит + регистрирует/вытесняет
+  - WS-контракт: session_active/session_evicted/session_rejected (сервер→клиент), chart_subscribe/heartbeat/chart_unsubscribe (клиент→сервер)
+  - userId-заглушка: query param или IP-based guest ID, реальная auth в фазе 9
+- Открытые вопросы / TODO для следующих фаз:
+  - Фаза 5-6: Движок графика (PixiJS WebGL)
+  - Фаза 9: Реальная авторизация (JWT + UserIDExtractor)
+  - Multi-symbol/multi-market: убрать хардкод BTCUSDT в aggregator
+  - Тесты с -race: требуют gcc/CGO (не доступно на текущей машине)
+- Тесты/проверки:
+  - go test ./internal/api/ — PASS (5 тестов)
+  - go test ./internal/aggregation/ — PASS
+  - go test ./internal/ingest/ — PASS
+  - go test ./internal/repository/clickhouse/ — PASS
+  - go build ./... — OK
+  - gofmt -l . — OK
+  - go vet ./... — OK
+  - **go test -race НЕ запускался локально** (Windows без CGO/gcc). Обязательно прогнать в CI на Linux (фаза 14). До тех пор -race не считать пройденным.
+
 ### [2026-06-12] Фаза 3 — Ingest + Aggregator realtime + Rollup
 - Модель: MiMoCode (mimo-auto)
 - Что сделано:

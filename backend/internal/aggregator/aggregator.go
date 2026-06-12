@@ -15,10 +15,19 @@ import (
 )
 
 type Aggregator struct {
-	repo    repository.MarketRepository
-	rdb     *redis.Client
-	configs map[string]aggregationCompressionConfig
-	mu      sync.Mutex
+	repo      repository.MarketRepository
+	rdb       *redis.Client
+	configs   map[string]aggregationCompressionConfig
+	mu        sync.Mutex
+	UpdatesCh chan<- CandleUpdate
+}
+
+type CandleUpdate struct {
+	Symbol     string
+	Market     string
+	Timeframe  string
+	CandleOpen time.Time
+	Levels     map[string]float64
 }
 
 type aggregationCompressionConfig struct {
@@ -46,6 +55,10 @@ func New(repo repository.MarketRepository, rdb *redis.Client) *Aggregator {
 	}
 
 	return a
+}
+
+func (a *Aggregator) SetUpdatesCh(ch chan<- CandleUpdate) {
+	a.UpdatesCh = ch
 }
 
 func (a *Aggregator) Run(ctx context.Context, trades <-chan model.Trade) {
@@ -123,6 +136,18 @@ func (a *Aggregator) processTrade(trade model.Trade) {
 		"last_trade_time", trade.Time.UnixMilli(),
 	)
 	a.rdb.Expire(context.Background(), metaKey, 2*time.Minute)
+
+	if a.UpdatesCh != nil {
+		select {
+		case a.UpdatesCh <- CandleUpdate{
+			Symbol:     "BTCUSDT",
+			Market:     "futures",
+			Timeframe:  "1m",
+			CandleOpen: candleOpen,
+		}:
+		default:
+		}
+	}
 }
 
 func (a *Aggregator) FlushCandle(ctx context.Context, symbol, market, timeframe string, candleOpen time.Time) error {

@@ -20,13 +20,13 @@ func New(rdb *redis.Client) *CandleCache {
 	return &CandleCache{rdb: rdb}
 }
 
-func (c *CandleCache) StoreCandle(ctx context.Context, candle model.Candle) error {
+func (c *CandleCache) StoreCandle(ctx context.Context, candle model.Candle, market string) error {
 	data, err := json.Marshal(candle)
 	if err != nil {
 		return fmt.Errorf("marshal candle: %w", err)
 	}
 
-	key := fmt.Sprintf("candles:%s:%s:%s", candle.Symbol, candle.Timeframe, "futures")
+	key := fmt.Sprintf("candles:%s:%s:%s", candle.Symbol, candle.Timeframe, market)
 	score := float64(candle.CandleOpen.UnixMilli())
 
 	c.rdb.ZAdd(ctx, key, redis.Z{
@@ -59,8 +59,8 @@ func (c *CandleCache) GetCandles(ctx context.Context, symbol, timeframe, market 
 	return candles, nil
 }
 
-func (c *CandleCache) StoreCurrentCandle(ctx context.Context, candle model.Candle) error {
-	key := fmt.Sprintf("candle:current:%s:%s:%s", candle.Symbol, candle.Timeframe, "futures")
+func (c *CandleCache) StoreCurrentCandle(ctx context.Context, candle model.Candle, market string) error {
+	key := fmt.Sprintf("candle:current:%s:%s:%s", candle.Symbol, candle.Timeframe, market)
 
 	data, err := json.Marshal(candle)
 	if err != nil {
