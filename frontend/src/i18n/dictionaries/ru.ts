@@ -91,6 +91,10 @@ const ru = {
     compression: 'Сжатие',
     indicators: 'Индикаторы',
     upgradeHint: 'Доступно по подписке Pro',
+    layout: 'Макет',
+    layoutSingle: '1 График',
+    layoutHorizontal: '2 Графика H',
+    layoutVertical: '2 Графика V',
   },
 } as const
 

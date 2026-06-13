@@ -1,10 +1,13 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useRef } from 'react'
 import { ThemeProvider } from '@/contexts/ThemeContext'
 import { I18nProvider } from '@/i18n'
 import { CandlePaletteProvider } from '@/contexts/CandlePaletteContext'
 import { ChartControlsProvider, useChartControls } from '@/contexts/ChartControlsContext'
+import { LayoutProvider, useLayout } from '@/contexts/LayoutContext'
 import { ChartContainer } from '@/components/ChartContainer'
+import { ChartPanel } from '@/components/ChartPanel'
 import { ChartHeader } from '@/components/ChartHeader'
+import { Splitter } from '@/components/Splitter'
 import { useAuth } from '@/features/auth/useAuth'
 import type { CandleMode } from '@/chart-engine'
 import { AnimatePresence, motion } from 'motion/react'
@@ -13,14 +16,27 @@ type View = 'terminal' | 'admin' | 'profile'
 
 function AppShell() {
   const { userRole } = useAuth()
-  const {
-    symbol, market, timeframe, candleMode, palette, volumeMode, compression,
-    showIndicatorsModal, setShowIndicatorsModal,
-  } = useChartControls()
+  const { showIndicatorsModal, setShowIndicatorsModal, getSlot, activeSlot, setActiveSlot } = useChartControls()
+  const { layoutMode, splitRatio, setSplitRatio } = useLayout()
   const [currentView, setCurrentView] = useState<View>('terminal')
   const [fps, setFps] = useState(0)
   const handleFpsChange = useCallback((f: number) => setFps(f), [])
   const handleResolvedModeChange = useCallback((_m: Exclude<CandleMode, 'auto'>) => {}, [])
+
+  const chartAreaRef = useRef<HTMLDivElement>(null)
+
+  const handleSplitterDrag = useCallback((delta: number) => {
+    if (!chartAreaRef.current) return
+    const rect = chartAreaRef.current.getBoundingClientRect()
+    if (layoutMode === 'horizontal') {
+      setSplitRatio(splitRatio + delta / rect.width)
+    } else {
+      setSplitRatio(splitRatio + delta / rect.height)
+    }
+  }, [layoutMode, splitRatio, setSplitRatio])
+
+  const slot0 = getSlot(0)
+  const slot1 = getSlot(1)
 
   return (
     <div className="h-screen w-screen flex flex-col overflow-hidden bg-black text-white">
@@ -60,19 +76,107 @@ function AppShell() {
             <ChartHeader fps={fps} />
 
             {/* Chart area */}
-            <div className="flex-1 relative">
-              <ChartContainer
-                symbol={symbol}
-                market={market}
-                timeframe={timeframe}
-                chartIndex={0}
-                mode={candleMode}
-                volumeMode={volumeMode}
-                compression={compression}
-                palette={palette}
-                onFpsChange={handleFpsChange}
-                onResolvedModeChange={handleResolvedModeChange}
-              />
+            <div ref={chartAreaRef} className="flex-1 relative overflow-hidden">
+              {layoutMode === 'single' && (
+                <div className="absolute inset-0">
+                  <ChartContainer
+                    symbol={slot0.symbol}
+                    market={slot0.market}
+                    timeframe={slot0.timeframe}
+                    chartIndex={0}
+                    mode={slot0.candleMode}
+                    volumeMode={slot0.volumeMode}
+                    compression={slot0.compression}
+                    palette={slot0.palette}
+                    onFpsChange={handleFpsChange}
+                    onResolvedModeChange={handleResolvedModeChange}
+                  />
+                </div>
+              )}
+
+              {layoutMode === 'horizontal' && (
+                <div className="absolute inset-0 flex">
+                  <div
+                    style={{ width: `${splitRatio * 100}%` }}
+                    className={`h-full overflow-hidden ${activeSlot === 0 ? 'ring-1 ring-amber-500/40' : ''}`}
+                    onClick={() => setActiveSlot(0)}
+                  >
+                    <ChartPanel
+                      symbol={slot0.symbol}
+                      market={slot0.market}
+                      timeframe={slot0.timeframe}
+                      chartIndex={0}
+                      mode={slot0.candleMode}
+                      volumeMode={slot0.volumeMode}
+                      compression={slot0.compression}
+                      palette={slot0.palette}
+                      onFpsChange={handleFpsChange}
+                      onResolvedModeChange={handleResolvedModeChange}
+                    />
+                  </div>
+                  <Splitter direction="horizontal" onDrag={handleSplitterDrag} />
+                  <div
+                    style={{ width: `${(1 - splitRatio) * 100}%` }}
+                    className={`h-full overflow-hidden ${activeSlot === 1 ? 'ring-1 ring-amber-500/40' : ''}`}
+                    onClick={() => setActiveSlot(1)}
+                  >
+                    <ChartPanel
+                      symbol={slot1.symbol}
+                      market={slot1.market}
+                      timeframe={slot1.timeframe}
+                      chartIndex={1}
+                      mode={slot1.candleMode}
+                      volumeMode={slot1.volumeMode}
+                      compression={slot1.compression}
+                      palette={slot1.palette}
+                      onFpsChange={handleFpsChange}
+                      onResolvedModeChange={handleResolvedModeChange}
+                    />
+                  </div>
+                </div>
+              )}
+
+              {layoutMode === 'vertical' && (
+                <div className="absolute inset-0 flex flex-col">
+                  <div
+                    style={{ height: `${splitRatio * 100}%` }}
+                    className={`w-full overflow-hidden ${activeSlot === 0 ? 'ring-1 ring-amber-500/40' : ''}`}
+                    onClick={() => setActiveSlot(0)}
+                  >
+                    <ChartPanel
+                      symbol={slot0.symbol}
+                      market={slot0.market}
+                      timeframe={slot0.timeframe}
+                      chartIndex={0}
+                      mode={slot0.candleMode}
+                      volumeMode={slot0.volumeMode}
+                      compression={slot0.compression}
+                      palette={slot0.palette}
+                      onFpsChange={handleFpsChange}
+                      onResolvedModeChange={handleResolvedModeChange}
+                    />
+                  </div>
+                  <Splitter direction="vertical" onDrag={handleSplitterDrag} />
+                  <div
+                    style={{ height: `${(1 - splitRatio) * 100}%` }}
+                    className={`w-full overflow-hidden ${activeSlot === 1 ? 'ring-1 ring-amber-500/40' : ''}`}
+                    onClick={() => setActiveSlot(1)}
+                  >
+                    <ChartPanel
+                      symbol={slot1.symbol}
+                      market={slot1.market}
+                      timeframe={slot1.timeframe}
+                      chartIndex={1}
+                      mode={slot1.candleMode}
+                      volumeMode={slot1.volumeMode}
+                      compression={slot1.compression}
+                      palette={slot1.palette}
+                      onFpsChange={handleFpsChange}
+                      onResolvedModeChange={handleResolvedModeChange}
+                    />
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         )}
@@ -121,7 +225,9 @@ export default function App() {
       <I18nProvider>
         <CandlePaletteProvider>
           <ChartControlsProvider>
-            <AppShell />
+            <LayoutProvider>
+              <AppShell />
+            </LayoutProvider>
           </ChartControlsProvider>
         </CandlePaletteProvider>
       </I18nProvider>

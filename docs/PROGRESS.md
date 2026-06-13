@@ -3,6 +3,80 @@
 > Claude обновляет этот файл в КОНЦЕ каждой задачи. Новые записи — сверху.
 > Формат записи строго по шаблону. Это память между чатами.
 
+### [2026-06-13] Фаза 7 — Layouts: фикс 3 багов dual-mode
+- Модель: Sonnet (mimo-auto)
+- Что сделано:
+  - **Bug #1 (Независимость графиков)**: `ChartControlsContext` переписан на slots-архитектуру. Новый интерфейс: `slots: [ChartSlot, ChartSlot]` — каждый slot хранит свои symbol/market/timeframe/candleMode/palette/volumeMode/compression. `activeSlot: 0|1` — какой график управляет шапка. Сеттеры (`setSymbol`, `setMarket` и т.д.) работают с `slots[activeSlot]`. `getSlot(i)` — чтение конкретного слота. Миграция legacy localStorage: если в `procluster_chart_controls` старый формат (один slot), мигрирует в `slots: [legacy, default]`.
+  - **Bug #1 (Шапка)**: `ChartHeader` читает `getSlot(activeSlot)` вместо прямых `symbol/market/...`. Palette change передаёт `activeSlot` в `CandlePaletteContext.setActivePalette()`. Добавлен slot selector (кнопки "1"/"2") — visible в dual-mode, переключает `activeSlot`.
+  - **Bug #1 (App.tsx)**: `getSlot(0)` → ChartPanel[0], `getSlot(1)` → ChartPanel[1]. Контейнер панели: `onClick={() => setActiveSlot(i)}` + amber ring highlight (`ring-1 ring-amber-500/40`) для активного графика.
+  - **Bug #2+3 (Canvas containment)**: `ChartPanel.tsx` — добавлен `position: relative` на containerRef div (`className="relative w-full h-full"`). Без `position: relative` axis canvas и cluster text overlay (оба `position: absolute`) "убегали" к ближайшему positioned-предку (`absolute inset-0 flex` в App.tsx), и оба графика рисовали оси в одном контейнере (0,0 общего предка). Теперь каждый axis/text canvas строго внутри своей панели.
+  - **Bug #2 (Размеры осей)**: ResizeObserver в ChartPanel корректно передаёт `width/height`自己的 контейнера в `engine.resize()` → `renderer.resize()` → `axisRenderer.resize()` + `scales.updateSize()`. Каждый Engine получает размеры своей панели, не первого/общего.
+  - **Playwright**: 9/9 PASS. Новые тесты: slot selector switching, independent charts (different TF), axes containment (panels don't overlap).
+- Затронутые файлы/папки:
+  - frontend/src/contexts/ChartControlsContext.tsx (переписан: slots + activeSlot + getSlot + legacy migration)
+  - frontend/src/App.tsx (getSlot(0)/getSlot(1), onClick→setActiveSlot, amber ring highlight)
+  - frontend/src/components/ChartHeader.tsx (read from getSlot(activeSlot), palette sync with activeSlot, slot selector "1"/"2")
+  - frontend/src/components/ChartPanel.tsx (+position: relative на containerRef)
+  - frontend/e2e/layout.spec.ts (9 тестов, +3 новые)
+- Ключевые решения:
+  - Slots-архитектура вместо отдельного контекста на каждую панель — меньше providers, единая точка управления
+  - Legacy migration в loadSaved() — обратная совместимость со старым localStorage
+  - `position: relative` на containerRef — minimal fix, корневая причина bugs #2+#3
+  - `getSlot(i)` API — чистое разделение: шапка читает activeSlot, App.tsx читает конкретный slot
+- Тесты/проверки:
+  - TypeScript compilation: PASS
+  - Vite build: PASS (606ms)
+  - Playwright e2e: 9/9 PASS (36.2s)
+  - Independent charts: 1m vs 4h показывают разные данные ✓
+  - Axes contained: каждый panel有自己的 price axis, time axis не налезает ✓
+  - Slot selector: переключает activeSlot, шапка применяет к нужному графику ✓
+  - Legacy localStorage: миграция из старого формата ✓
+
+### [2026-06-13] Фаза 7 — Рабочие пространства / Layouts
+- Модель: Sonnet (mimo-auto)
+- Что сделано:
+  - **LayoutContext**: `LayoutProvider` + `useLayout()` хук. State: `layoutMode` (single/horizontal/vertical), `splitRatio` (0.1–0.9, default 0.5). Сохранение в localStorage. Хук `onCrosshairMove` (empty callback) + `setCrosshairCallback` для будущей синхронизации курсора между графиками.
+  - **Splitter**: компонент с drag-обработкой (mousedown → mousemove → mouseup). Визуал: 5px линия с подсветкой при hover (amber-500/30). cursor-col-resize для горизонтального layout, cursor-row-resize для вертикального. Глобальные стили cursor/userSelect на body при drag.
+  - **ChartPanel**: новый компонент-обёртка для отдельного экземпляра Engine. Идентичен ChartContainer, но использует `ResizeObserver` вместо `window resize` — корректный resize при изменении размера панели. Cleanup: engine.destroy() при unmount, observer.disconnect().
+  - **App.tsx**: рефакторинг — `LayoutProvider` оборачивает `AppShell`. Три режима: single (один ChartContainer на всю область), horizontal (два ChartPanel + vertical Splitter, flex row), vertical (два ChartPanel + horizontal Splitter, flex col). Splitter drag обновляет splitRatio через LayoutContext. resize engine через ResizeObserver в ChartPanel.
+  - **ChartHeader**: добавлен layout switcher (9-й элемент) — 3 кнопки с SVG-иконками (SingleChartIcon, HorizontalSplitIcon, VerticalSplitIcon). Подсветка активного режима amber. data-testid для e2e тестов.
+  - **LayoutIcons.tsx**: Simple SVG иконки для 3 режимов layout (1 chart, 2 horizontal, 2 vertical).
+  - **i18n**: добавлены ключи `chart.layout`, `chart.layoutSingle`, `chart.layoutHorizontal`, `chart.layoutVertical` в en/ru/kz словари.
+  - **Playwright e2e**: 6 тестов — single chart fills area, horizontal split + splitter visible, vertical split + splitter visible, drag splitter changes proportions, switch back to single removes splitter, layout persists in localStorage. Все PASS.
+- Затронутые файлы/папки:
+  - frontend/src/contexts/LayoutContext.tsx (создан)
+  - frontend/src/components/Splitter.tsx (создан)
+  - frontend/src/components/ChartPanel.tsx (создан)
+  - frontend/src/components/icons/LayoutIcons.tsx (создан)
+  - frontend/src/components/ChartHeader.tsx (+layout switcher, +data-testid)
+  - frontend/src/App.tsx (рефакторинг: LayoutProvider, 3 режима layout)
+  - frontend/src/i18n/dictionaries/en.ts (+layout ключи)
+  - frontend/src/i18n/dictionaries/ru.ts (+layout ключи)
+  - frontend/src/i18n/dictionaries/kz.ts (+layout ключи)
+  - frontend/e2e/layout.spec.ts (создан — 6 тестов)
+  - frontend/playwright.config.ts (создан)
+- Ключевые решения:
+  - Layout на уровне React-компонентов, не внутри chart-engine (правило из CHART_ENGINE.md)
+  - ResizeObserver вместо window resize — корректный resize при splitter drag
+  - ChartPanel как отдельный компонент (не дублировать ChartContainer) — чище для dual mode
+  - splitRatio в localStorage — persistent между сессиями
+  - onCrosshairMove хук заложен, но НЕ реализован (по спеке — позже)
+  - StrictMode отключён (из фазы 6b) — ручной cleanup engine.destroy() + observer.disconnect()
+- Открытые TODO для следующих фаз:
+  - **Синхронизация курсора** между графиками (onCrosshairMove) — отдельная задача
+  - **Независимые controls** для второго графика (symbol/tf/mode per chart) — нужен per-slot ChartControls
+  - **DOM sidebar** — стакан свёрнут → график растягивается (ResizeObserver уже готов)
+- Тесты/проверки:
+  - TypeScript compilation: PASS
+  - Vite build: PASS (357ms)
+  - Playwright e2e: 6/6 PASS (20.2s)
+  - Single chart: fills full area ✓
+  - Horizontal split: two charts + vertical splitter ✓
+  - Vertical split: two charts + horizontal splitter ✓
+  - Drag splitter: proportions change ✓
+  - Layout persistence: survives reload ✓
+  - Engine cleanup: destroy() on unmount, no leaks ✓
+
 ### [2026-06-13] Фаза 6c — Роллап 15m/30m + исправления API + загрузка спот данных
 - Модель: MiMo (mimo-free)
 - Что сделано:

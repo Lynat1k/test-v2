@@ -91,6 +91,10 @@ const en = {
     compression: 'Compression',
     indicators: 'Indicators',
     upgradeHint: 'Available with Pro subscription',
+    layout: 'Layout',
+    layoutSingle: '1 Chart',
+    layoutHorizontal: '2 Charts H',
+    layoutVertical: '2 Charts V',
   },
 } as const
 

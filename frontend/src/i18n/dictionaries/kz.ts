@@ -91,6 +91,10 @@ const kz = {
     compression: 'Сығу',
     indicators: 'Индикаторлар',
     upgradeHint: 'Pro жазылуымен қол жетімді',
+    layout: 'Жайма',
+    layoutSingle: '1 График',
+    layoutHorizontal: '2 График H',
+    layoutVertical: '2 График V',
   },
 } as const
 

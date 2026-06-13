@@ -21,7 +21,7 @@ export const TIMEFRAMES_BY_MARKET: Record<MarketType, string[]> = {
   spot: ['15m', '30m', '1h', '4h'],
 }
 
-interface ChartControlsValue {
+export interface ChartSlot {
   symbol: string
   market: MarketType
   timeframe: string
@@ -29,6 +29,22 @@ interface ChartControlsValue {
   palette: CandlePalette
   volumeMode: VolumeMode
   compression: number
+}
+
+const DEFAULT_SLOT: ChartSlot = {
+  symbol: 'BTCUSDT',
+  market: 'futures',
+  timeframe: '1m',
+  candleMode: 'auto',
+  palette: 'default',
+  volumeMode: 'bidask',
+  compression: 1,
+}
+
+interface ChartControlsValue {
+  activeSlot: 0 | 1
+  setActiveSlot: (i: 0 | 1) => void
+  getSlot: (i: 0 | 1) => ChartSlot
   showIndicatorsModal: boolean
 
   setSymbol: (symbol: string) => void
@@ -46,25 +62,55 @@ interface ChartControlsValue {
 
 const STORAGE_KEY = 'procluster_chart_controls'
 
-function loadSaved(): Partial<ChartControlsValue> {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY)
-    return raw ? JSON.parse(raw) : {}
-  } catch {
-    return {}
-  }
+interface SavedState {
+  slots?: [ChartSlot, ChartSlot]
+  activeSlot?: 0 | 1
+  // legacy single-slot fields
+  symbol?: string
+  market?: MarketType
+  timeframe?: string
+  candleMode?: CandleMode
+  palette?: CandlePalette
+  volumeMode?: VolumeMode
+  compression?: number
 }
 
-function saveToStorage(state: {
-  symbol: string
-  market: MarketType
-  timeframe: string
-  candleMode: CandleMode
-  palette: CandlePalette
-  volumeMode: VolumeMode
-  compression: number
-}) {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(state))
+function loadSaved(): { slots: [ChartSlot, ChartSlot]; activeSlot: 0 | 1 } {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY)
+    if (raw) {
+      const data: SavedState = JSON.parse(raw)
+      if (data.slots) {
+        return {
+          slots: [
+            { ...DEFAULT_SLOT, ...data.slots[0] },
+            { ...DEFAULT_SLOT, ...data.slots[1] },
+          ],
+          activeSlot: data.activeSlot ?? 0,
+        }
+      }
+      // Legacy migration: single slot → slots[0]
+      if (data.symbol) {
+        const slot: ChartSlot = {
+          symbol: data.symbol ?? DEFAULT_SLOT.symbol,
+          market: data.market ?? DEFAULT_SLOT.market,
+          timeframe: data.timeframe ?? DEFAULT_SLOT.timeframe,
+          candleMode: data.candleMode ?? DEFAULT_SLOT.candleMode,
+          palette: data.palette ?? DEFAULT_SLOT.palette,
+          volumeMode: data.volumeMode ?? DEFAULT_SLOT.volumeMode,
+          compression: data.compression ?? DEFAULT_SLOT.compression,
+        }
+        return { slots: [slot, { ...DEFAULT_SLOT }], activeSlot: 0 }
+      }
+    }
+  } catch {}
+  return { slots: [{ ...DEFAULT_SLOT }, { ...DEFAULT_SLOT }], activeSlot: 0 }
+}
+
+function saveToStorage(slots: [ChartSlot, ChartSlot], activeSlot: 0 | 1) {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ slots, activeSlot }))
+  } catch {}
 }
 
 const ChartControlsContext = createContext<ChartControlsValue | null>(null)
@@ -72,57 +118,84 @@ const ChartControlsContext = createContext<ChartControlsValue | null>(null)
 export function ChartControlsProvider({ children }: { children: ReactNode }) {
   const saved = loadSaved()
 
-  const [symbol, setSymbolState] = useState<string>(() => saved.symbol ?? 'BTCUSDT')
-  const [market, setMarketState] = useState<MarketType>(() => saved.market ?? 'futures')
-  const [timeframe, setTimeframeState] = useState<string>(() => saved.timeframe ?? '1m')
-  const [candleMode, setCandleModeState] = useState<CandleMode>(() => saved.candleMode ?? 'auto')
-  const [palette, setPaletteState] = useState<CandlePalette>(() => saved.palette ?? 'default')
-  const [volumeMode, setVolumeModeState] = useState<VolumeMode>(() => saved.volumeMode ?? 'bidask')
-  const [compression, setCompressionState] = useState<number>(() => saved.compression ?? 1)
+  const [slots, setSlots] = useState<[ChartSlot, ChartSlot]>(saved.slots)
+  const [activeSlot, setActiveSlotState] = useState<0 | 1>(saved.activeSlot)
   const [showIndicatorsModal, setShowIndicatorsModal] = useState(false)
 
   useEffect(() => {
-    saveToStorage({ symbol, market, timeframe, candleMode, palette, volumeMode, compression })
-  }, [symbol, market, timeframe, candleMode, palette, volumeMode, compression])
+    saveToStorage(slots, activeSlot)
+  }, [slots, activeSlot])
+
+  const updateSlot = useCallback((index: 0 | 1, patch: Partial<ChartSlot>) => {
+    setSlots(prev => {
+      const next: [ChartSlot, ChartSlot] = [{ ...prev[0] }, { ...prev[1] }]
+      next[index] = { ...next[index], ...patch }
+      return next
+    })
+  }, [])
+
+  const setActiveSlot = useCallback((i: 0 | 1) => {
+    setActiveSlotState(i)
+  }, [])
+
+  const getSlot = useCallback((i: 0 | 1): ChartSlot => slots[i], [slots])
+
+  const active = slots[activeSlot]
 
   const setSymbol = useCallback((s: string) => {
-    setSymbolState(s)
     const ticker = AVAILABLE_TICKERS.find(t => t.symbol === s)
+    const patch: Partial<ChartSlot> = { symbol: s }
     if (ticker) {
-      const tfs = TIMEFRAMES_BY_MARKET[market]
-      if (!tfs.includes(timeframe)) {
-        setTimeframeState(tfs[0]!)
+      const tfs = TIMEFRAMES_BY_MARKET[active.market]
+      if (!tfs.includes(active.timeframe)) {
+        patch.timeframe = tfs[0]!
       }
     }
-  }, [market, timeframe])
+    updateSlot(activeSlot, patch)
+  }, [activeSlot, active.market, active.timeframe, updateSlot])
 
   const setMarket = useCallback((m: MarketType) => {
-    setMarketState(m)
     const tfs = TIMEFRAMES_BY_MARKET[m]
-    if (!tfs.includes(timeframe)) {
-      setTimeframeState(tfs[0]!)
+    const patch: Partial<ChartSlot> = { market: m }
+    if (!tfs.includes(active.timeframe)) {
+      patch.timeframe = tfs[0]!
     }
-  }, [timeframe])
+    updateSlot(activeSlot, patch)
+  }, [activeSlot, active.timeframe, updateSlot])
 
-  const setTimeframe = useCallback((tf: string) => setTimeframeState(tf), [])
-  const setCandleMode = useCallback((mode: CandleMode) => setCandleModeState(mode), [])
-  const setPalette = useCallback((p: CandlePalette) => setPaletteState(p), [])
-  const setVolumeMode = useCallback((vm: VolumeMode) => setVolumeModeState(vm), [])
-  const setCompression = useCallback((level: number) => setCompressionState(level), [])
+  const setTimeframe = useCallback((tf: string) => {
+    updateSlot(activeSlot, { timeframe: tf })
+  }, [activeSlot, updateSlot])
+
+  const setCandleMode = useCallback((mode: CandleMode) => {
+    updateSlot(activeSlot, { candleMode: mode })
+  }, [activeSlot, updateSlot])
+
+  const setPalette = useCallback((p: CandlePalette) => {
+    updateSlot(activeSlot, { palette: p })
+  }, [activeSlot, updateSlot])
+
+  const setVolumeMode = useCallback((vm: VolumeMode) => {
+    updateSlot(activeSlot, { volumeMode: vm })
+  }, [activeSlot, updateSlot])
+
+  const setCompression = useCallback((level: number) => {
+    updateSlot(activeSlot, { compression: level })
+  }, [activeSlot, updateSlot])
 
   const getTickerConfig = useCallback((): TickerConfig => {
-    return AVAILABLE_TICKERS.find(t => t.symbol === symbol) ?? AVAILABLE_TICKERS[0]!
-  }, [symbol])
+    return AVAILABLE_TICKERS.find(t => t.symbol === active.symbol) ?? AVAILABLE_TICKERS[0]!
+  }, [active.symbol])
 
   const getCompressionLevels = useCallback((): number[] => {
     const ticker = getTickerConfig()
-    const base = market === 'futures' ? ticker.baseFutures : ticker.baseSpot
+    const base = active.market === 'futures' ? ticker.baseFutures : ticker.baseSpot
     return Array.from({ length: 10 }, (_, i) => base * (i + 1))
-  }, [getTickerConfig, market])
+  }, [getTickerConfig, active.market])
 
   return (
     <ChartControlsContext.Provider value={{
-      symbol, market, timeframe, candleMode, palette, volumeMode, compression, showIndicatorsModal,
+      activeSlot, setActiveSlot, getSlot, showIndicatorsModal,
       setSymbol, setMarket, setTimeframe, setCandleMode, setPalette, setVolumeMode, setCompression, setShowIndicatorsModal,
       getTickerConfig, getCompressionLevels,
     }}>

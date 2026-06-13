@@ -15,7 +15,9 @@ import { AutoIcon } from '@/components/icons/AutoIcon'
 import { JapaneseIcon } from '@/components/icons/JapaneseIcon'
 import { FootprintIcon } from '@/components/icons/FootprintIcon'
 import { ClustersIcon } from '@/components/icons/ClustersIcon'
+import { SingleChartIcon, HorizontalSplitIcon, VerticalSplitIcon } from '@/components/icons/LayoutIcons'
 import { Portal } from '@/components/Portal'
+import { useLayout, type LayoutMode } from '@/contexts/LayoutContext'
 
 const CANDLE_MODES: { mode: CandleMode; icon: typeof AutoIcon; labelKey: string }[] = [
   { mode: 'auto', icon: AutoIcon, labelKey: 'chart.auto' },
@@ -39,11 +41,16 @@ export function ChartHeader({ fps = 0 }: ChartHeaderProps) {
   const { t } = useTranslation()
   const { userRole } = useAuth()
   const {
-    symbol, market, timeframe, candleMode, palette, volumeMode, compression, showIndicatorsModal,
+    activeSlot, setActiveSlot, getSlot,
     setSymbol, setMarket, setTimeframe, setCandleMode, setPalette: setControlsPalette,
-    setVolumeMode, setCompression, setShowIndicatorsModal, getTickerConfig, getCompressionLevels,
+    setVolumeMode, setCompression, setShowIndicatorsModal, showIndicatorsModal,
+    getTickerConfig, getCompressionLevels,
   } = useChartControls()
   const { setActivePalette } = useCandlePalette()
+  const { layoutMode, setLayoutMode } = useLayout()
+
+  const slot = getSlot(activeSlot)
+  const { symbol, market, timeframe, candleMode, palette, volumeMode, compression } = slot
 
   const [tickerDropdownOpen, setTickerDropdownOpen] = useState(false)
   const [compressionDropdownOpen, setCompressionDropdownOpen] = useState(false)
@@ -96,8 +103,8 @@ export function ChartHeader({ fps = 0 }: ChartHeaderProps) {
 
   const handlePaletteChange = useCallback((p: 'default' | 'alternative') => {
     setControlsPalette(p)
-    setActivePalette(0, p)
-  }, [setControlsPalette, setActivePalette])
+    setActivePalette(activeSlot, p)
+  }, [setControlsPalette, setActivePalette, activeSlot])
 
   return (
     <div className="relative flex items-center gap-1 px-2 py-1.5 liquid-glass-card border-b border-white/5 shrink-0 overflow-x-auto" style={{ zIndex: 1000 }}>
@@ -256,6 +263,52 @@ export function ChartHeader({ fps = 0 }: ChartHeaderProps) {
         <SlidersHorizontal className="w-3.5 h-3.5 text-amber-400" />
         <span className="hidden md:inline">{t('chart.indicators')}</span>
       </button>
+
+      <div className="w-px h-5 bg-white/10 mx-0.5" />
+
+      {/* 9. Layout switcher */}
+      <div className="flex items-center p-0.5 rounded-lg bg-black/30 border border-white/5">
+        {([
+          { mode: 'single' as LayoutMode, icon: SingleChartIcon, label: t('chart.layoutSingle'), testId: 'layout-single' },
+          { mode: 'horizontal' as LayoutMode, icon: HorizontalSplitIcon, label: t('chart.layoutHorizontal'), testId: 'layout-horizontal' },
+          { mode: 'vertical' as LayoutMode, icon: VerticalSplitIcon, label: t('chart.layoutVertical'), testId: 'layout-vertical' },
+        ]).map(({ mode, icon: Icon, label, testId }) => (
+          <button
+            key={mode}
+            data-testid={testId}
+            onClick={() => setLayoutMode(mode)}
+            title={label}
+            className={`flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-bold cursor-pointer transition-all ${
+              layoutMode === mode
+                ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30'
+                : 'text-slate-500 hover:text-slate-300 hover:bg-white/5 border border-transparent'
+            }`}
+          >
+            <Icon className="w-3.5 h-3.5" />
+            <span className="hidden lg:inline">{label}</span>
+          </button>
+        ))}
+      </div>
+
+      {/* 10. Active chart indicator (dual mode) */}
+      {layoutMode !== 'single' && (
+        <div className="flex items-center gap-1 p-0.5 rounded-lg bg-black/30 border border-white/5">
+          {[0, 1].map((i) => (
+            <button
+              key={i}
+              onClick={() => setActiveSlot(i as 0 | 1)}
+              data-testid={`slot-${i}`}
+              className={`px-2 py-1 rounded-md text-[10px] font-bold cursor-pointer transition-all ${
+                activeSlot === i
+                  ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30'
+                  : 'text-slate-500 hover:text-slate-300 hover:bg-white/5 border border-transparent'
+              }`}
+            >
+              {i + 1}
+            </button>
+          ))}
+        </div>
+      )}
 
       {/* FPS counter */}
       <div className="ml-auto flex items-center gap-1.5 px-2 py-1 text-[10px] font-mono text-slate-500">
