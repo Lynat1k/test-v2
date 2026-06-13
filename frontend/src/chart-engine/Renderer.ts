@@ -86,13 +86,15 @@ export class Renderer {
     this.scales.updateViewport(viewport);
     const { start, end } = this.scales.getVisibleRange(candles.length);
 
-    this.candleRenderer['pool'].releaseAll();
-    this.clusterRenderer['pool'].releaseAll();
-    this.footprintRenderer['pool'].releaseAll();
-    this.barRenderer['pool'].releaseAll();
+    // Hide all, show active
+    this.candleRenderer.setVisible(this.currentMode === 'japanese');
+    this.clusterRenderer.setVisible(this.currentMode === 'clusters');
+    this.footprintRenderer.setVisible(this.currentMode === 'footprint');
+    this.barRenderer.setVisible(this.currentMode === 'bars');
 
     this.clusterTextOverlay.clear();
 
+    // Only render active mode
     switch (this.currentMode) {
       case 'clusters':
         this.clusterRenderer.render(candles, start, end, firstTimestamp, this.clusterTextOverlay);
@@ -117,8 +119,6 @@ export class Renderer {
 
   setPalette(palette: 'default' | 'alternative'): void {
     this.candleRenderer.setPalette(palette);
-    this.clusterRenderer.setPalette(palette);
-    this.footprintRenderer.setPalette(palette);
     this.barRenderer.setPalette(palette);
   }
 
@@ -127,7 +127,13 @@ export class Renderer {
   }
 
   setVolumeMode(mode: VolumeMode): void {
+    this.clusterRenderer.setVolumeMode(mode);
     this.footprintRenderer.setVolumeMode(mode);
+  }
+
+  setCompression(level: number): void {
+    this.clusterRenderer.setCompression(level);
+    this.footprintRenderer.setCompression(level);
   }
 
   getFPS(): number {
@@ -153,6 +159,6 @@ export class Renderer {
     this.footprintRenderer.destroy();
     this.barRenderer.destroy();
     this.axisRenderer.destroy();
-    this.app.destroy(true);
+    try { this.app.destroy(true); } catch { /* PixiJS v8 compat */ }
   }
 }

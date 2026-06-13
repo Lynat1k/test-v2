@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useEffect, type ReactNode } from 'react'
+import { createContext, useContext, useState, useEffect, useCallback, type ReactNode } from 'react'
 
 type CandlePalette = 'default' | 'alternative'
 
@@ -53,8 +53,9 @@ export function CandlePaletteProvider({ children }: { children: ReactNode }) {
   const setPalette0 = (p: CandlePalette) => setPalette0State(p)
   const setPalette1 = (p: CandlePalette) => setPalette1State(p)
 
-  const getActivePalette = (chartIndex: 0 | 1): CandlePalette =>
+  const getActivePalette = useCallback((chartIndex: 0 | 1): CandlePalette =>
     chartIndex === 0 ? palette0 : palette1
+  , [palette0, palette1])
 
   const setActivePalette = (chartIndex: 0 | 1, palette: CandlePalette) => {
     if (chartIndex === 0) setPalette0(palette)

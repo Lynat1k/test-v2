@@ -92,4 +92,24 @@ export class DataStore {
   get length(): number {
     return this.candles.length;
   }
+
+  static compressLevels(levels: ClusterLevel[], factor: number): ClusterLevel[] {
+    if (factor <= 1 || levels.length === 0) return levels;
+    const result: ClusterLevel[] = [];
+    for (let i = 0; i < levels.length; i += factor) {
+      let bidSum = 0;
+      let askSum = 0;
+      for (let k = i; k < Math.min(i + factor, levels.length); k++) {
+        const lv = levels[k]!;
+        bidSum += lv.bidVolume;
+        askSum += lv.askVolume;
+      }
+      result.push({
+        priceLevel: levels[i]!.priceLevel,
+        bidVolume: bidSum,
+        askVolume: askSum,
+      });
+    }
+    return result;
+  }
 }

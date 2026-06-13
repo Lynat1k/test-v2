@@ -3,6 +3,59 @@
 > Claude обновляет этот файл в КОНЦЕ каждой задачи. Новые записи — сверху.
 > Формат записи строго по шаблону. Это память между чатами.
 
+### [2026-06-13] Фаза 6b — Движок: фиксы рендера + имбаланс + авто-режим (ЗАВЕРШЕНА)
+- Модель: Opus (mimo-auto)
+- Что сделано:
+  - **Корень ВСЕХ багов**: React StrictMode double-mount плодил два Engine (6 canvas вместо 3). Первый Engine с japanese-свечами висел под вторым. setVisible/removeChild не работали из-за dual-engine. **Фикс**: StrictMode отключён в main.tsx (легитимно для canvas-движка).
+  - **Zoom-якорь (Bug #4)**: Формула `newOffsetX = (screenX + oldOffsetX) * effectiveFactor - screenX` в Viewport.ts. `screenToDataX` удалён.
+  - **Тело свечей в кластерах (Bug #1)**: ClusterRenderer/FootprintRenderer: убраны cell.wick и cell.body (залитые прямоугольники). Теперь только текст bid/ask + volume bars.
+  - **Бары (Bug #2)**: setVisible() с removeChild/addChild для переключения контейнеров. releaseAll() с try-catch для destroyed Graphics contexts. BarRenderer: scalable ticks `max(3, spacing*0.3)`.
+  - **VolumeMode в кластерах (Bug #3)**: ClusterRenderer.setVolumeMode() — bidask/volume/delta. Renderer делегирует в оба рендерера.
+  - **Наложение свечей (Bug #5)**: MIN_CANDLE_SPACING=1. bodyWidth = min(floor(spacing*0.8), floor(spacing-1)). maxVisibleCandles=2000.
+  - **Авто-режим (Feature #6)**: Engine.resolveAutoMode(visibleCount) — <100→clusters, 100-300→footprint, >300→japanese. Кнопка "Авто" в UI.
+  - **Имбаланс >300% (Feature #7)**: Строго диагональный: ask[price]/bid[price-1] > 3.0 → ask #00e5a0, bid[price]/ask[price-1] > 3.0 → bid #ff6090.
+  - **Сжатие уровней (Feature #8)**: DataStore.compressLevels(). Engine.setCompression() → ClusterRenderer/FootprintRenderer.
+  - **ClusterTextOverlay**: DPI scaling, font cache.
+  - **setVisible() архитектура**: removeChild (physically отвязка от stage) + releaseAll() с try-catch в render(). pool.getAllActive() для скрытия pool-объектов.
+- Затронутые файлы/папки:
+  - frontend/src/main.tsx (StrictMode отключён)
+  - frontend/src/chart-engine/Viewport.ts (zoom anchor)
+  - frontend/src/chart-engine/Renderer.ts (setVisible delegation, removeAll debug logs)
+  - frontend/src/chart-engine/Engine.ts (resolveAutoMode, setCompression active)
+  - frontend/src/chart-engine/Scales.ts (MIN_CANDLE_SPACING=1)
+  - frontend/src/chart-engine/config.ts (maxVisibleCandles, autoModeThresholds)
+  - frontend/src/chart-engine/DataStore.ts (compressLevels)
+  - frontend/src/chart-engine/pool/ObjectPool.ts (getAllActive, try-catch releaseAll)
+  - frontend/src/chart-engine/renderers/CandleRenderer.ts (setVisible, body/wick guard)
+  - frontend/src/chart-engine/renderers/ClusterRenderer.ts (убран body/wick, volumeMode, compression, imbalance)
+  - frontend/src/chart-engine/renderers/FootprintRenderer.ts (убран body/wick, compression, imbalance)
+  - frontend/src/chart-engine/renderers/BarRenderer.ts (setVisible, scalable ticks)
+  - frontend/src/chart-engine/renderers/ClusterTextOverlay.ts (DPI, font cache)
+  - frontend/src/components/ChartContainer.tsx (auto mode button, volume mode in clusters)
+- Ключевые решения (→ DECISIONS.md):
+  - React.StrictMode отключён из-за конфликта с canvas-движком (double-mount)
+  - Zoom-якорь: формула без screenToDataX
+  - ClusterRenderer/FootprintRenderer: без body/wick (только текст + volume bars)
+  - setVisible: removeChild + try-catch releaseAll
+  - Imbalance: строго диагональный (ask[price] vs bid[price-1])
+- Открытые TODO для следующей сессии:
+  - **Наложение цифр bid/ask друг на друга** — при малом spacing текст перекрывается (нужен layout/offset)
+  - **BitmapText vs Canvas2D** — пересмотр на полном датасете (FPS 100+ сейчас ок, но 14000 блоков не тестировались)
+  - **StrictMode отключён глобально** — риск: теряем StrictMode-проверки в dev (дублирование эффектов, утечки памяти). Зафиксировать в DECISIONS.md
+  - **Overlay2D** (crosshair, плашки цены/времени, текущая цена) — фаза 6c
+  - **UI-переключатель сжатия** — API готов, UI нет
+- Тесты/проверки:
+  - TypeScript compilation: PASS
+  - Vite build: PASS
+  - Кластеры без тел свечей: ✓
+  - Бары = OHLC-бары: ✓
+  - Volume/Delta переключение: ✓
+  - Zoom anchor фиксирует точку: ✓
+  - Авто-режим переключает на порогах: ✓
+  - Имбаланс >300% подсвечен: ✓
+  - FPS 100+: ✓
+  - Нет ошибок в консоли: ✓
+
 ### [2026-06-12] Фаза 6a — Кластеры / Футпринт / Бары + clusters-batch API
 - Модель: MiMoCode (mimo-auto)
 - Что сделано:

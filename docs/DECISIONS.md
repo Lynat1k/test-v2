@@ -3,6 +3,42 @@
 > Сюда пишем решения, которые меняют или фиксируют архитектуру/правила.
 > Новые — сверху. Если решение противоречит спеке — сначала обнови спеку.
 
+### [2026-06-13] React.StrictMode отключён из-за конфликта с canvas-движком
+- Контекст: React StrictMode в dev mode монтирует useEffect дважды (mount → cleanup → mount). Canvas-движок создаёт PixiJS Application с WebGL canvas. Double-mount плодил два Engine (6 canvas вместо 3). Первый Engine с japanese-свечами висел под вторым → тела свечей всегда видны, бары не работают, setVisible/removeChild не работали.
+- Решение: `<StrictMode>` убран из `main.tsx`. Для canvas/WebGL-движков это легитимно — StrictMode полезен для данных и副作用, но вредит для imperative canvas-кода.
+- Альтернативы (отвергнуты):
+  - ref-guard (`initializedRef`): cleanup сбрасывал `initializedRef.current = false`, поэтому второй mount проходил guard. Не надёжно.
+  - Cleanup с `container.querySelectorAll('canvas').forEach(c => c.remove())`: удалял canvas нового engine тоже. Race condition.
+  - `app.destroy({removeView: true})`: PixiJS v8 `_cancelResize is not a function`.
+- Последствия:
+  - Один Engine, 3 canvas — всё работает корректно.
+  - Теряем StrictMode-проверки в dev (дублирование эффектов, утечки памяти). Для production это не влияет. В dev нужно следить за cleanup вручную.
+  - Записать в README/engine docs: "StrictMode отключён для canvas-движка".
+
+### [2026-06-13] Zoom-якорь: формула без screenToDataX
+- Контекст: `Viewport.screenToDataX()` = `screenX/scaleX + offsetX` не совпадает с обратной функцией `Scales.timeToScreen()` = `dataIndex*candleWidth*scaleX - offsetX`. Формула коррекции offsetX после зума давала смещение.
+- Решение: `newOffsetX = (screenX + oldOffsetX) * effectiveFactor - screenX`, где `effectiveFactor = newScaleX / oldScaleX` (после clamp). `screenToDataX()` удалён как неиспользуемый.
+- Альтернативы: переписать coordinate system Viewport → отвергнуто (меньше изменений, формула проверена математически).
+- Последствия: zoom anchor работает корректно для всех режимов.
+
+### [2026-06-12] setVisible для контейнеров рендереров
+- Контекст: при переключении режимов pool releaseAll() скрывал pool-объекты, но контейнер рендерера оставался на stage. CandleRenderer объекты оставались видимыми под кластерами.
+- Решение: `setVisible(boolean)` метод на каждом рендерере. `Renderer.renderCandles()` вызывает setVisible для всех 4 рендереров перед отрисовкой.
+- Альтернативы: destroy/recreate контейнеры — отвергнуто (дорого, pool теряется).
+- Последствия: каждый рендерер видим ТОЛЬКО в своём режиме.
+
+### [2026-06-12] Имбаланс: строго диагональный
+- Контекст: DATA_MODEL.md требует "ask[price] vs bid[price - 1 ряд]" — это диагональное сравнение, НЕ вертикальное (ask vs bid на одном уровне).
+- Решение: для каждого level[j] проверяем `ask[j] / bid[j-1] > 3.0` (ask imbalance) и `bid[j] / ask[j-1] > 3.0` (bid imbalance). При имбалансе — текст подсвечивается: ask → #00e5a0 (ярко-зелёный), bid → #ff6090 (ярко-розовый).
+- Альтернативы: вертикальное сравнение (ask vs bid на одном уровне) — отвергнуто (нарушает спеку ATAS).
+- Последствия: порог 300% из `ENGINE_CONFIG.imbalanceThreshold`, применяется в ClusterRenderer и FootprintRenderer.
+
+### [2026-06-12] Canvas2D ClusterTextOverlay — оставлен с оптимизациями
+- Контекст: DECISIONS.md от 6a помечал Canvas2D как временное, требующее пересмотра на полном датасете.
+- Решение: оставить Canvas2D, оптимизировать: DPI scaling (devicePixelRatio), кэш шрифта (set font once после clear, не в каждом drawText). Если FPS < 50 на полном датасете (700×20=14000 блоков) — вернуть BitmapText.
+- Альтернативы: BitmapText — запасной вариант (требует исправления z-ordering).
+- Последствия: требуется FPS-тест в браузере.
+
 ### [2026-06-12] BitmapText → Canvas2D ClusterTextOverlay (временное решение)
 - Контекст: PixiJS BitmapText не рендерится видимо на экране (корректные bounds/text/position, но невидим). Вероятная причина — z-ordering между PixiJS canvas и axis canvas (React strict mode дублирует engine → 4 canvas). Исправление z-index не помогло.
 - Решение:

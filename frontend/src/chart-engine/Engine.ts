@@ -3,6 +3,7 @@ import { Renderer } from './Renderer';
 import { Viewport } from './Viewport';
 import { DataStore } from './DataStore';
 import { InteractionManager } from './interaction/InteractionManager';
+import { ENGINE_CONFIG } from './config';
 
 export class Engine {
   private renderer: Renderer;
@@ -88,7 +89,6 @@ export class Engine {
 
   setMode(mode: CandleMode): void {
     this.currentMode = mode;
-    this.renderer.setMode(mode);
     this.requestRender();
   }
 
@@ -100,11 +100,19 @@ export class Engine {
 
   setCompression(level: number): void {
     this.compression = level;
+    this.renderer.setCompression(level);
     this.requestRender();
   }
 
   getMode(): CandleMode {
     return this.currentMode;
+  }
+
+  getResolvedMode(): Exclude<CandleMode, 'auto'> {
+    if (this.currentMode !== 'auto') return this.currentMode;
+    const scales = this.renderer.getScales();
+    const { start, end } = scales.getVisibleRange(this.dataStore.length);
+    return this.resolveAutoMode(end - start + 1);
   }
 
   getVolumeMode(): VolumeMode {
@@ -146,11 +154,26 @@ export class Engine {
     const firstTimestamp = candles[0]!.timestamp;
     const { min, max } = this.dataStore.getPriceRange();
 
+    const scales = this.renderer.getScales();
+    const { start, end } = scales.getVisibleRange(candles.length);
+    const visibleCount = end - start + 1;
+
+    const resolvedMode = this.currentMode === 'auto'
+      ? this.resolveAutoMode(visibleCount)
+      : this.currentMode;
+
+    this.renderer.setMode(resolvedMode);
     this.renderer.renderCandles(candles as Candle[], viewportState, firstTimestamp);
     this.renderer.renderAxis(viewportState, min, max);
 
-    const { start } = this.renderer['scales'].getVisibleRange(candles.length);
     this.dataStore.checkHistoryNeeded(start);
+  }
+
+  private resolveAutoMode(visibleCount: number): Exclude<CandleMode, 'auto'> {
+    const t = ENGINE_CONFIG.autoModeThresholds;
+    if (visibleCount < t.clusters) return 'clusters';
+    if (visibleCount <= t.footprint) return 'footprint';
+    return 'japanese';
   }
 
   pause(): void {

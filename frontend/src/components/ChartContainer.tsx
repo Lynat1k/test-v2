@@ -55,8 +55,9 @@ export function ChartContainer({ symbol, market, timeframe, chartIndex }: ChartC
   const engineRef = useRef<Engine | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const [fps, setFps] = useState(0);
-  const [mode, setModeState] = useState<CandleMode>('japanese');
+  const [mode, setModeState] = useState<CandleMode>('auto');
   const [volumeMode, setVolumeModeState] = useState<VolumeMode>('bidask');
+  const [resolvedMode, setResolvedMode] = useState<Exclude<CandleMode, 'auto'>>('japanese');
   const { getActivePalette } = useCandlePalette();
 
   const fetchClustersBatch = useCallback(async (timestamps: number[]) => {
@@ -217,6 +218,9 @@ export function ChartContainer({ symbol, market, timeframe, chartIndex }: ChartC
 
       fpsInterval = setInterval(() => {
         setFps(engine.getFPS());
+        if (engine.getMode() === 'auto') {
+          setResolvedMode(engine.getResolvedMode());
+        }
       }, 1000);
     });
 
@@ -225,10 +229,11 @@ export function ChartContainer({ symbol, market, timeframe, chartIndex }: ChartC
       if (clusterFetchTimeout) clearTimeout(clusterFetchTimeout);
       ws?.close();
       wsRef.current = null;
-      engineRef.current?.destroy();
+
+      engine.destroy();
       engineRef.current = null;
     };
-  }, [symbol, market, timeframe, chartIndex, getActivePalette, fetchClustersBatch]);
+  }, [symbol, market, timeframe, chartIndex, fetchClustersBatch]);
 
   useEffect(() => {
     engineRef.current?.setPalette(getActivePalette(chartIndex));
@@ -252,8 +257,12 @@ export function ChartContainer({ symbol, market, timeframe, chartIndex }: ChartC
     setModeState(newMode);
     engineRef.current?.setMode(newMode);
 
-    // When switching to clusters/footprint, fetch clusters for visible candles immediately
-    if (newMode === 'clusters' || newMode === 'footprint') {
+    if (newMode !== 'auto') {
+      setResolvedMode(newMode);
+    }
+
+    // When switching to clusters/footprint/auto, fetch clusters for visible candles immediately
+    if (newMode === 'clusters' || newMode === 'footprint' || newMode === 'auto') {
       const engine = engineRef.current;
       if (engine) {
         const ds = engine['dataStore'] as any;
@@ -283,18 +292,23 @@ export function ChartContainer({ symbol, market, timeframe, chartIndex }: ChartC
     <div className="relative w-full h-full">
       <div className="absolute top-2 left-2 z-10 flex items-center gap-2">
         <div className="flex items-center gap-1 liquid-glass-card rounded px-2 py-1">
-          {(['japanese', 'clusters', 'footprint', 'bars'] as CandleMode[]).map((m) => (
+          {(['auto', 'japanese', 'clusters', 'footprint', 'bars'] as CandleMode[]).map((m) => (
             <button
               key={m}
               className={`px-2 py-0.5 rounded text-xs ${mode === m ? 'bg-white/20' : 'hover:bg-white/10'}`}
-              onClick={() => handleModeChange(m)}
+              onClick={() => { handleModeChange(m); }}
             >
-              {m === 'japanese' ? 'Японские' : m === 'clusters' ? 'Кластеры' : m === 'footprint' ? 'Футпринт' : 'Бары'}
+              {m === 'auto' ? 'Авто' : m === 'japanese' ? 'Японские' : m === 'clusters' ? 'Кластеры' : m === 'footprint' ? 'Футпринт' : 'Бары'}
             </button>
           ))}
+          {mode === 'auto' && (
+            <span className="text-[10px] text-gray-500 ml-1">
+              ({resolvedMode === 'clusters' ? 'кластеры' : resolvedMode === 'footprint' ? 'футпринт' : 'японские'})
+            </span>
+          )}
         </div>
 
-        {(mode === 'clusters' || mode === 'footprint') && (
+        {(mode === 'clusters' || mode === 'footprint' || (mode === 'auto' && (resolvedMode === 'clusters' || resolvedMode === 'footprint'))) && (
           <div className="flex items-center gap-1 liquid-glass-card rounded px-2 py-1">
             {(['bidask', 'volume', 'delta'] as VolumeMode[]).map((vm) => (
               <button

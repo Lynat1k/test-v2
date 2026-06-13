@@ -16,6 +16,7 @@ interface BarGraphics {
 }
 
 export class BarRenderer {
+  private parentContainer: Container;
   private container: Container;
   private scales: Scales;
   private pool: ObjectPool<BarGraphics>;
@@ -24,6 +25,7 @@ export class BarRenderer {
   private bearColor = BEAR;
 
   constructor(parentContainer: Container, scales: Scales) {
+    this.parentContainer = parentContainer;
     this.container = new Container();
     parentContainer.addChild(this.container);
     this.scales = scales;
@@ -47,14 +49,17 @@ export class BarRenderer {
 
   private resetBarGraphics(bg: BarGraphics): void {
     bg.container.visible = false;
-    bg.wick.clear();
-    bg.openTick.clear();
-    bg.closeTick.clear();
+    try { bg.wick.clear(); } catch { /* context destroyed */ }
+    try { bg.openTick.clear(); } catch { /* context destroyed */ }
+    try { bg.closeTick.clear(); } catch { /* context destroyed */ }
   }
 
   render(candles: Candle[], startIndex: number, endIndex: number, firstTimestamp: number): void {
-    this.pool.releaseAll();
+    try { this.pool.releaseAll(); } catch {}
     this.activeItems.length = 0;
+
+    const spacing = this.scales.getCandleSpacing();
+    const tickLen = Math.max(3, Math.floor(spacing * 0.3));
 
     for (let i = startIndex; i <= endIndex; i++) {
       const candle = candles[i];
@@ -77,11 +82,11 @@ export class BarRenderer {
       bg.wick.fill(color);
 
       bg.openTick.clear();
-      bg.openTick.rect(x - 5, openY - 0.5, 5, 1);
+      bg.openTick.rect(x - tickLen, openY - 0.5, tickLen, 1);
       bg.openTick.fill(color);
 
       bg.closeTick.clear();
-      bg.closeTick.rect(x, closeY - 0.5, 5, 1);
+      bg.closeTick.rect(x, closeY - 0.5, tickLen, 1);
       bg.closeTick.fill(color);
 
       bg.container.visible = true;
@@ -95,6 +100,18 @@ export class BarRenderer {
     } else {
       this.bullColor = BULL;
       this.bearColor = BEAR;
+    }
+  }
+
+  setVisible(visible: boolean): void {
+    if (visible) {
+      if (!this.container.parent) {
+        this.parentContainer.addChild(this.container);
+      }
+    } else {
+      if (this.container.parent) {
+        this.container.parent.removeChild(this.container);
+      }
     }
   }
 

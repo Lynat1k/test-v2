@@ -16,6 +16,7 @@ interface CandleGraphics {
 }
 
 export class CandleRenderer {
+  private parentContainer: Container;
   private container: Container;
   private scales: Scales;
   private pool: ObjectPool<CandleGraphics>;
@@ -24,6 +25,7 @@ export class CandleRenderer {
   private bearColor = BEAR;
 
   constructor(parentContainer: Container, scales: Scales) {
+    this.parentContainer = parentContainer;
     this.container = new Container();
     parentContainer.addChild(this.container);
     this.scales = scales;
@@ -46,17 +48,16 @@ export class CandleRenderer {
 
   private resetCandleGraphics(cg: CandleGraphics): void {
     cg.container.visible = false;
-    cg.wick.clear();
-    cg.body.clear();
+    try { cg.wick.clear(); } catch { /* context destroyed */ }
+    try { cg.body.clear(); } catch { /* context destroyed */ }
   }
 
   render(candles: Candle[], startIndex: number, endIndex: number, firstTimestamp: number): void {
-    this.pool.releaseAll();
+    try { this.pool.releaseAll(); } catch {}
     this.activeCandles.length = 0;
 
-    // Dynamic candle width from scale: base 8px * scaleX, with gap
     const spacing = this.scales.getCandleSpacing();
-    const bodyWidth = Math.max(1, Math.floor(spacing * (1 - CANDLE_GAP)));
+    const bodyWidth = Math.max(1, Math.min(Math.floor(spacing * (1 - CANDLE_GAP)), Math.floor(spacing - 1)));
     const halfBody = bodyWidth / 2;
 
     for (let i = startIndex; i <= endIndex; i++) {
@@ -75,12 +76,10 @@ export class CandleRenderer {
       const highY = this.scales.priceToScreen(candle.high);
       const lowY = this.scales.priceToScreen(candle.low);
 
-      // Wick: 1px wide line from high to low
       cg.wick.clear();
       cg.wick.rect(x - 0.5, highY, 1, lowY - highY);
       cg.wick.fill(color);
 
-      // Body: dynamic width from spacing
       const bodyY = Math.min(openY, closeY);
       const bodyH = Math.abs(closeY - openY) || 1;
       cg.body.clear();
@@ -98,6 +97,18 @@ export class CandleRenderer {
     } else {
       this.bullColor = BULL;
       this.bearColor = BEAR;
+    }
+  }
+
+  setVisible(visible: boolean): void {
+    if (visible) {
+      if (!this.container.parent) {
+        this.parentContainer.addChild(this.container);
+      }
+    } else {
+      if (this.container.parent) {
+        this.container.parent.removeChild(this.container);
+      }
     }
   }
 

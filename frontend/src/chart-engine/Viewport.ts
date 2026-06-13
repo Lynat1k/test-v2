@@ -37,35 +37,41 @@ export class Viewport {
   }
 
   zoomAt(screenX: number, screenY: number, factorX: number, factorY: number): void {
-    const dataX = this.screenToDataX(screenX);
+    const oldOffsetX = this.state.offsetX;
+    const oldScaleX = this.state.scaleX;
     const dataY = this.screenToDataY(screenY);
 
-    let newScaleX = this.state.scaleX * factorX;
-    let newScaleY = this.state.scaleY * factorY;
+    let newScaleX = oldScaleX * factorX;
+    const newScaleY = this.state.scaleY * factorY;
 
     if (this.clampScaleX) {
       newScaleX = this.clampScaleX(newScaleX, 0);
     }
 
+    const effectiveFactor = newScaleX / oldScaleX;
+
     this.state.scaleX = newScaleX;
     this.state.scaleY = newScaleY;
 
-    this.state.offsetX = dataX - screenX / this.state.scaleX;
+    this.state.offsetX = (screenX + oldOffsetX) * effectiveFactor - screenX;
     this.state.offsetY = dataY - (this.height / 2 - screenY) / this.state.scaleY;
 
     this.notifyChange();
   }
 
   zoomX(screenX: number, factor: number): void {
-    const dataX = this.screenToDataX(screenX);
+    const oldOffsetX = this.state.offsetX;
+    const oldScaleX = this.state.scaleX;
 
-    let newScaleX = this.state.scaleX * factor;
+    let newScaleX = oldScaleX * factor;
     if (this.clampScaleX) {
       newScaleX = this.clampScaleX(newScaleX, 0);
     }
 
+    const effectiveFactor = newScaleX / oldScaleX;
+
     this.state.scaleX = newScaleX;
-    this.state.offsetX = dataX - screenX / this.state.scaleX;
+    this.state.offsetX = (screenX + oldOffsetX) * effectiveFactor - screenX;
 
     this.notifyChange();
   }
@@ -95,10 +101,6 @@ export class Viewport {
   resize(width: number, height: number): void {
     this.width = width;
     this.height = height;
-  }
-
-  private screenToDataX(screenX: number): number {
-    return screenX / this.state.scaleX + this.state.offsetX;
   }
 
   private screenToDataY(screenY: number): number {

@@ -1,6 +1,6 @@
 import type { ViewportState } from './types';
 
-const MIN_CANDLE_SPACING = 2;
+const MIN_CANDLE_SPACING = 1;
 
 export class Scales {
   private viewport: ViewportState;

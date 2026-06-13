@@ -5,6 +5,7 @@ export const ENGINE_CONFIG = {
   },
   imbalanceThreshold: 300,
   compressionLevels: 10,
+  maxVisibleCandles: 2000,
   maxBitmapTextZoom: 0.5,
   bitmapFontSize: 12,
   rightPadding: 60,

@@ -30,7 +30,7 @@ export class ObjectPool<T> {
   releaseAll(): void {
     while (this.active.length > 0) {
       const obj = this.active.pop()!;
-      this.reset(obj);
+      try { this.reset(obj); } catch { /* graphics context destroyed */ }
       this.pool.push(obj);
     }
   }
@@ -41,5 +41,9 @@ export class ObjectPool<T> {
 
   get totalCount(): number {
     return this.pool.length + this.active.length;
+  }
+
+  getAllActive(): T[] {
+    return this.active;
   }
 }
