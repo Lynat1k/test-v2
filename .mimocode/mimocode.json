@@ -1,0 +1,19 @@
+{
+  "memory": {
+    "projectMemoryFile": "MEMORY.md",
+    "autoCheckpoint": true
+  },
+  "permissions": {
+    "bash": "ask",
+    "edit": "allow"
+  },
+  "experimental": {
+    "maxMode": false
+  },
+  "mcp": {
+    "playwright": {
+      "command": "npx",
+      "args": ["@playwright/mcp"]
+    }
+  }
+}

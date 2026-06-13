@@ -1,8 +1,8 @@
-import { useEffect, useRef, useState, useCallback } from 'react';
+import { useEffect, useRef, useCallback } from 'react'
 
-import { Engine } from '@/chart-engine';
-import type { Candle, CandleMode, ClusterLevel, VolumeMode } from '@/chart-engine';
-import { useCandlePalette } from '@/contexts/CandlePaletteContext';
+import { Engine } from '@/chart-engine'
+import type { Candle, CandleMode, ClusterLevel, VolumeMode } from '@/chart-engine'
+import { useCandlePalette } from '@/contexts/CandlePaletteContext'
 
 interface ApiCandle {
   Symbol: string;
@@ -26,6 +26,12 @@ interface ChartContainerProps {
   market: string;
   timeframe: string;
   chartIndex: 0 | 1;
+  mode: CandleMode;
+  volumeMode: VolumeMode;
+  compression: number;
+  palette: 'default' | 'alternative';
+  onFpsChange?: (fps: number) => void;
+  onResolvedModeChange?: (mode: Exclude<CandleMode, 'auto'>) => void;
 }
 
 function mapCandle(c: ApiCandle): Candle {
@@ -50,33 +56,29 @@ function mapCluster(c: ApiCluster): ClusterLevel {
 const BATCH_SIZE = 100;
 const PARALLEL_LIMIT = 3;
 
-export function ChartContainer({ symbol, market, timeframe, chartIndex }: ChartContainerProps) {
+export function ChartContainer({
+  symbol, market, timeframe, chartIndex, mode, volumeMode, compression, palette,
+  onFpsChange, onResolvedModeChange,
+}: ChartContainerProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const engineRef = useRef<Engine | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
-  const [fps, setFps] = useState(0);
-  const [mode, setModeState] = useState<CandleMode>('auto');
-  const [volumeMode, setVolumeModeState] = useState<VolumeMode>('bidask');
-  const [resolvedMode, setResolvedMode] = useState<Exclude<CandleMode, 'auto'>>('japanese');
   const { getActivePalette } = useCandlePalette();
 
   const fetchClustersBatch = useCallback(async (timestamps: number[]) => {
     const engine = engineRef.current;
     if (!engine || timestamps.length === 0) return;
 
-    // Filter out already-loaded clusters (skip if DataStore has levels for this timestamp)
     const dataStore = engine['dataStore'] as any;
     const toLoad = timestamps.filter(ts => !dataStore.clusterMap?.has(ts));
 
     if (toLoad.length === 0) return;
 
-    // Chunk into batches of BATCH_SIZE
     const chunks: number[][] = [];
     for (let i = 0; i < toLoad.length; i += BATCH_SIZE) {
       chunks.push(toLoad.slice(i, i + BATCH_SIZE));
     }
 
-    // Process with limited parallelism
     for (let i = 0; i < chunks.length; i += PARALLEL_LIMIT) {
       const batch = chunks.slice(i, i + PARALLEL_LIMIT);
       await Promise.all(batch.map(async (chunk) => {
@@ -124,7 +126,6 @@ export function ChartContainer({ symbol, market, timeframe, chartIndex }: ChartC
             const candles = resp.data.candles.map(mapCandle);
             engine.setData(candles);
 
-            // Load clusters only for visible candles (first 50)
             const timestamps = candles.slice(0, 50).map(c => c.timestamp);
             fetchClustersBatch(timestamps);
           }
@@ -143,7 +144,6 @@ export function ChartContainer({ symbol, market, timeframe, chartIndex }: ChartC
           .catch(err => console.error('Failed to fetch history:', err));
       });
 
-      // Debounced viewport change: fetch clusters for visible candles
       engine.on('viewportChange', () => {
         if (clusterFetchTimeout) clearTimeout(clusterFetchTimeout);
         clusterFetchTimeout = setTimeout(() => {
@@ -151,7 +151,6 @@ export function ChartContainer({ symbol, market, timeframe, chartIndex }: ChartC
           const allCandles = ds.getCandles() ?? [];
           if (allCandles.length === 0) return;
 
-          // Get visible range from renderer's scales
           const renderer = engine['renderer'] as any;
           const scales = renderer?.scales;
           if (!scales) return;
@@ -163,7 +162,6 @@ export function ChartContainer({ symbol, market, timeframe, chartIndex }: ChartC
           if (timestamps.length > 0 && timestamps.length <= 100) {
             fetchClustersBatch(timestamps);
           } else if (timestamps.length > 100) {
-            // Take every Nth to stay under limit
             const step = Math.ceil(timestamps.length / 100);
             const sampled = timestamps.filter((_: number, i: number) => i % step === 0);
             fetchClustersBatch(sampled);
@@ -217,9 +215,10 @@ export function ChartContainer({ symbol, market, timeframe, chartIndex }: ChartC
       };
 
       fpsInterval = setInterval(() => {
-        setFps(engine.getFPS());
+        const currentFps = engine.getFPS();
+        onFpsChange?.(currentFps);
         if (engine.getMode() === 'auto') {
-          setResolvedMode(engine.getResolvedMode());
+          onResolvedModeChange?.(engine.getResolvedMode());
         }
       }, 1000);
     });
@@ -236,8 +235,20 @@ export function ChartContainer({ symbol, market, timeframe, chartIndex }: ChartC
   }, [symbol, market, timeframe, chartIndex, fetchClustersBatch]);
 
   useEffect(() => {
-    engineRef.current?.setPalette(getActivePalette(chartIndex));
-  }, [getActivePalette, chartIndex]);
+    engineRef.current?.setPalette(palette);
+  }, [palette]);
+
+  useEffect(() => {
+    engineRef.current?.setMode(mode);
+  }, [mode]);
+
+  useEffect(() => {
+    engineRef.current?.setVolumeMode(volumeMode);
+  }, [volumeMode]);
+
+  useEffect(() => {
+    engineRef.current?.setCompression(compression);
+  }, [compression]);
 
   useEffect(() => {
     const handleResize = () => {
@@ -253,16 +264,8 @@ export function ChartContainer({ symbol, market, timeframe, chartIndex }: ChartC
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
-  const handleModeChange = (newMode: CandleMode) => {
-    setModeState(newMode);
-    engineRef.current?.setMode(newMode);
-
-    if (newMode !== 'auto') {
-      setResolvedMode(newMode);
-    }
-
-    // When switching to clusters/footprint/auto, fetch clusters for visible candles immediately
-    if (newMode === 'clusters' || newMode === 'footprint' || newMode === 'auto') {
+  useEffect(() => {
+    if (mode === 'clusters' || mode === 'footprint' || mode === 'auto') {
       const engine = engineRef.current;
       if (engine) {
         const ds = engine['dataStore'] as any;
@@ -281,51 +284,10 @@ export function ChartContainer({ symbol, market, timeframe, chartIndex }: ChartC
         }
       }
     }
-  };
-
-  const handleVolumeModeChange = (newVolumeMode: VolumeMode) => {
-    setVolumeModeState(newVolumeMode);
-    engineRef.current?.setVolumeMode(newVolumeMode);
-  };
+  }, [mode, fetchClustersBatch]);
 
   return (
     <div className="relative w-full h-full">
-      <div className="absolute top-2 left-2 z-10 flex items-center gap-2">
-        <div className="flex items-center gap-1 liquid-glass-card rounded px-2 py-1">
-          {(['auto', 'japanese', 'clusters', 'footprint', 'bars'] as CandleMode[]).map((m) => (
-            <button
-              key={m}
-              className={`px-2 py-0.5 rounded text-xs ${mode === m ? 'bg-white/20' : 'hover:bg-white/10'}`}
-              onClick={() => { handleModeChange(m); }}
-            >
-              {m === 'auto' ? 'Авто' : m === 'japanese' ? 'Японские' : m === 'clusters' ? 'Кластеры' : m === 'footprint' ? 'Футпринт' : 'Бары'}
-            </button>
-          ))}
-          {mode === 'auto' && (
-            <span className="text-[10px] text-gray-500 ml-1">
-              ({resolvedMode === 'clusters' ? 'кластеры' : resolvedMode === 'footprint' ? 'футпринт' : 'японские'})
-            </span>
-          )}
-        </div>
-
-        {(mode === 'clusters' || mode === 'footprint' || (mode === 'auto' && (resolvedMode === 'clusters' || resolvedMode === 'footprint'))) && (
-          <div className="flex items-center gap-1 liquid-glass-card rounded px-2 py-1">
-            {(['bidask', 'volume', 'delta'] as VolumeMode[]).map((vm) => (
-              <button
-                key={vm}
-                className={`px-2 py-0.5 rounded text-xs ${volumeMode === vm ? 'bg-white/20' : 'hover:bg-white/10'}`}
-                onClick={() => handleVolumeModeChange(vm)}
-              >
-                {vm === 'bidask' ? 'Bid×Ask' : vm === 'volume' ? 'Volume' : 'Delta'}
-              </button>
-            ))}
-          </div>
-        )}
-
-        <div className="liquid-glass-card rounded px-2 py-1 text-xs text-gray-400">
-          {symbol} | {fps} FPS
-        </div>
-      </div>
       <div ref={containerRef} className="w-full h-full" />
     </div>
   );

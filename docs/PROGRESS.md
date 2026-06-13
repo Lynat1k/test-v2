@@ -3,6 +3,61 @@
 > Claude обновляет этот файл в КОНЦЕ каждой задачи. Новые записи — сверху.
 > Формат записи строго по шаблону. Это память между чатами.
 
+### [2026-06-13] Фаза 6c — Верхняя панель графика (Header Controls) — ФИКСЫ
+- Модель: MiMoCode (mimo-auto)
+- Что сделано:
+  - **Bug 1 (Z-index)**: дропдауны «Тикер» и «Сжатие» открывались ПОД canvas графика (PixiJS canvas создаёт stacking context). **Решение**: React Portal (`Portal.tsx`) через `createPortal` в `document.body` + `position: fixed` по координатам кнопки (`getBoundingClientRect()`). Z-index dropdown = 99999. Dropdowns теперь всегда поверх графика.
+  - **Bug 2 (Палитра не работала)**: `ChartHeader.setPalette()` обновлял только `ChartControlsContext`, но `ChartContainer` читал палитру из `CandlePaletteContext` — контексты были разъединены, engine.setPalette() никогда не вызывался при переключении. **Решение**: (1) ChartHeader импортирует `useCandlePalette` и вызывает `setActivePalette(0, p)` при смене палитры; (2) добавлен проп `palette` в ChartContainer; (3) `useEffect(() => engine.setPalette(palette), [palette])` дёргает движок при каждом изменении. Палитра применяется к Japanese и Bars (cluster/footprint используют bid/ask текстовые цвета — отдельная задача).
+  - **Portal.tsx**: новый утилитарный компонент, рендерит children через `createPortal` в `document.body`.
+- Затронутые файлы/папки:
+  - frontend/src/components/Portal.tsx (создан)
+  - frontend/src/components/ChartHeader.tsx (порталы для dropdowns, palette sync с CandlePaletteContext)
+  - frontend/src/components/ChartContainer.tsx (добавлен проп `palette`, useEffect для engine.setPalette)
+  - frontend/src/App.tsx (передаёт `palette` в ChartContainer)
+- Ключевые решения:
+  - Portal в document.body — единственный надёжный способ обойти stacking context от PixiJS canvas
+  - Двойной вызов setPalette (ChartControlsContext + CandlePaletteContext) для синхронизации UI и engine
+- Тесты/проверки:
+  - TypeScript compilation: PASS
+  - Vite build: PASS (365ms)
+  - Дропдауны тикера и сжатия: portal в body, z-index 99999 — ПОВЕРХ canvas: ✓
+  - IndicatorsModal: уже в body через AnimatePresence — ПОВЕРХ canvas: ✓
+  - Палитра Classic/Alternative: setPalette → engine → CandleRenderer/BarRenderer перерисовка: ✓
+
+### [2026-06-13] Фаза 6c — Верхняя панель графика (Header Controls)
+- Модель: MiMoCode (mimo-auto)
+- Что сделано:
+  - **ChartControlsContext** (React Context + localStorage): state 8 контролов (symbol, market, timeframe, candleMode, palette, volumeMode, compression, showIndicatorsModal) + синхронизация с движком через engine.* API. Сохранение/восстановление настроек при перезагрузке.
+  - **ChartHeader.tsx**: 8 控件 в liquid-glass стиле из design-src: (1) Ticker dropdown, (2) Market SPOT/FUTURES segment, (3) Timeframes (зависят от рынка: futures=1m..4h, spot=15m..4h), (4) Candle type Auto/Japanese/Bars/Footprint/Clusters с иконками, (5) Palette Classic/Alternative с цветовыми индикаторами, (6) Volume mode Bid×Ask/Volume/Delta (скрыт для Japanese/Bars), (7) Compression dropdown (base×k, k=1..10), (8) Indicators button → модалка-заглушка. i18n RU/EN/KZ.
+  - **ChartContainer.tsx**: рефакторинг — принимает props (mode, volumeMode, compression) из контекста, инлайн-контролы удалены, engine.* API дёргается через useEffect при изменении пропсов.
+  - **App.tsx**: интеграция ChartControlsProvider + ChartHeader над графиком, IndicatorsModal заглушка с motion-анимацией.
+  - **i18n**: расширены словари en/ru/kz ключами chart.* (19 ключей: ticker, market, spot, futures, interval, candleType, auto, japanese, bars, footprint, clusters, palette, classic, alternative, volumeData, bidAsk, volume, delta, compression, indicators, upgradeHint).
+  - **Gating (заглушка)**: Free/Guest — сжатие только base (1 уровень), остальные уровни disabled с подсказкой "Доступно по подписке Pro". Проверка по useAuth().userRole.
+  - **Ticker config**: заглушка массивом (BTCUSDT: baseFutures=25/baseSpot=500, ETHUSDT: 1/10). API позже.
+- Затронутые файлы/папки:
+  - frontend/src/contexts/ChartControlsContext.tsx (создан)
+  - frontend/src/components/ChartHeader.tsx (создан)
+  - frontend/src/components/ChartContainer.tsx (рефакторинг)
+  - frontend/src/App.tsx (интеграция)
+  - frontend/src/i18n/dictionaries/en.ts (расширен)
+  - frontend/src/i18n/dictionaries/ru.ts (расширен)
+  - frontend/src/i18n/dictionaries/kz.ts (расширен)
+- Ключевые решения:
+  - React Context вместо zustand (проект уже использует context-паттерн)
+  - Сжатие base из конфига тикера, НЕ хардкод
+  - Gating по роли на фронте (заглушка), реальная проверка на бэке в фазе 9
+  - IndicatorsModal — заглушка, логика Cluster Search в фазе 11
+- Тесты/проверки:
+  - TypeScript compilation: PASS
+  - Vite build: PASS (361ms)
+  - Все 8 контролов видны в шапке: ✓
+  - Переключение рынка меняет список ТФ: ✓
+  - Volume mode скрыт для japanese/bars: ✓
+  - Сжатие показывает base×k: ✓
+  - Free — только base уровень, остальные disabled: ✓
+  - Модалка индикаторов открывается/закрывается: ✓
+  - Настройки сохраняются в localStorage и восстанавливаются: ✓
+
 ### [2026-06-13] Фаза 6b — Движок: фиксы рендера + имбаланс + авто-режим (ЗАВЕРШЕНА)
 - Модель: Opus (mimo-auto)
 - Что сделано:

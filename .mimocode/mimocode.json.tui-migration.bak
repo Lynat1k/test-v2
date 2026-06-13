@@ -1,0 +1,14 @@
+{
+  "memory": {
+    "projectMemoryFile": "MEMORY.md",
+    "autoCheckpoint": true
+  },
+  "permissions": {
+    "bash": "ask",
+    "edit": "allow"
+  },
+  "theme": "dark",
+  "experimental": {
+    "maxMode": false
+  }
+}
