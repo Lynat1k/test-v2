@@ -3,6 +3,167 @@
 > Claude обновляет этот файл в КОНЦЕ каждой задачи. Новые записи — сверху.
 > Формат записи строго по шаблону. Это память между чатами.
 
+### [2026-06-13] Фаза 6c — Роллап 15m/30m + исправления API + загрузка спот данных
+- Модель: MiMo (mimo-free)
+- Что сделано:
+  - **Rollup добавлен 15m/30m**: `AlignToTimeframe` добавлены case `"15m"` и `"30m"` (truncate minute до 15/30 границы). `Rollup()` теперь генерирует `["15m", "30m", "1h", "4h", "1d"]` вместо `["1h", "4h", "1d"]`.
+  - **API validTimeframes**: добавлен `"30m": true` (был пропущен).
+  - **GetLatestCandles bug**: хардкодил `clusters_futures` — spot данные были невидимы. **Фикс**: добавлен параметр `market string` → `tableForMarket(market)`. Добавлен `before *int64` → серверная фильтрация `WHERE candle_open < toDateTime64(?, 3)` вместо client-side.
+  - **Interface changed**: `GetLatestCandles(ctx, symbol, timeframe, market, limit, before)` — обновлены все callers (repository, api, test, e2etest).
+  - **Loader Stats**: добавлены `Candles15m`, `Candles30m` в Stats struct + summary output.
+  - **Загружены данные**: BTCUSDT spot Jun 1-12 — 18,656,142 trades, 409,641 rows (15m: 67926, 30m: 48482, 1h: 34755, 4h: 18662, 1d: 10725).
+  - **Frontend**: spot timeframes `['15m', '30m', '1h', '4h']` — уже настроены корректно (нет 1m/1d для спота).
+- Затронутые файлы/папки:
+  - backend/internal/aggregation/rollup.go (+15m/+30m AlignToTimeframe, Rollup)
+  - backend/internal/api/candles.go (+30m validTimeframes, market+before в GetLatestCandles)
+  - backend/internal/repository/repository.go (interface GetLatestCandles +market, +before)
+  - backend/internal/repository/clickhouse/clickhouse.go (table by market, before filter)
+  - backend/internal/repository/clickhouse/clickhouse_test.go (обновлён вызов)
+  - backend/internal/history/loader.go (+Candles15m, +Candles30m, switch)
+  - backend/cmd/loader/main.go (summary 15m/30m)
+  - backend/cmd/e2etest/main.go (обновлён вызов)
+- Ключевые решения:
+  - 15m/30m rollup из 1m данных — единый путь для live и history
+  - GetLatestCandles с market параметром — проще, чем два метода
+  - Server-side before фильтр — корректная пагинация через ClickHouse
+- Тесты/проверки:
+  - go build/vet/test: ALL PASS
+  - API: 15m/30m spot candles доступны через before параметр ✅
+  - ClickHouse: 6 timeframes (15m, 30m, 1h, 4h, 1d, 1m) ✅
+
+### [2026-06-13] Фаза 6c — Фикс: Canvas lifecycle при смене ТФ (chart freeze)
+- Модель: MiMo (mimo-free)
+- Что сделано:
+  - **Корень бага**: при смене timeframe useEffect cleanup вызывал `engine.destroy()`, но `AxisRenderer.destroy()` и `ClusterTextOverlay` не удаляли свои canvas из DOM. `app.destroy(true)` в PixiJS v8 ломается (v7 API) → обёрнуто в try-catch → canvas тоже не удалялся. При `new Engine().init()` добавлялись новые 3 canvas, но `container.querySelector('canvas')!` находил **старый** мёртвый canvas (axis/cluster overlay с `pointer-events: none`) → InteractionManager вешал обработчики на него → drag/zoom не работали → chart frozen. После F5 контейнер чистый → работает.
+  - **Renderer.ts**: добавлено `pixiCanvas` поле + `getPixiCanvas()` метод. `init()` сохраняет ссылку на `this.app.canvas`. `destroy()` удаляет все canvas из DOM (`pixiCanvas.remove()`, вызов `clusterTextOverlay.destroy()`). `app.destroy()` вызывается без аргумента (v8-совместимо).
+  - **Engine.ts**: `init()` использует `this.renderer.getPixiCanvas()!` вместо `container.querySelector('canvas')!` — гарантированно привязывает InteractionManager к актуальному canvas.
+  - **AxisRenderer.ts**: `destroy()` теперь вызывает `this.canvas.remove()` (вместо комментария `// Canvas is garbage collected`).
+  - **ClusterTextOverlay.ts**: добавлен `destroy()` метод с `this.canvas.remove()`.
+  - **ChartContainer.tsx**: `fetchClustersBatch` убран из deps useEffect (через `fetchClustersRef`) — предотвращает двойной destroy+init при смене ТФ (useCallback deps `[symbol, timeframe]` менялись вместе с timeframe).
+- Затронутые файлы/папки:
+  - frontend/src/chart-engine/Renderer.ts (+pixiCanvas, +getPixiCanvas, fix init/destroy, v8 app.destroy)
+  - frontend/src/chart-engine/Engine.ts (renderer.getPixiCanvas() вместо querySelector)
+  - frontend/src/chart-engine/renderers/AxisRenderer.ts (destroy: canvas.remove())
+  - frontend/src/chart-engine/renderers/ClusterTextOverlay.ts (+destroy: canvas.remove())
+  - frontend/src/components/ChartContainer.tsx (fetchClustersRef, deps без fetchClustersBatch)
+- Ключевые решения:
+  - Хранить ссылку на PixiJS canvas в Renderer, не искать через querySelector — гарантированно правильный canvas
+  - Все canvas удаляются вручную через .remove() при destroy — нет мёртвых canvas в DOM
+  - app.destroy() без аргументов (v8 API) — removeView не нужен, canvas удаляем сами
+  - fetchClustersBatch через ref — не триггерит двойной init при смене ТФ
+- Тесты/проверки:
+  - TypeScript compilation: PASS (npx tsc --noEmit)
+  - Vite build: PASS (423ms)
+  - After TF switch: ровно 3 canvas в container (pixi + clusterText + axis), не больше
+  - Drag/zoom работают сразу после смены ТФ без F5
+
+### [2026-06-13] Фаза 6c — Фикс: candleIntervalMs вместо хардкода 60000 (ВСЕ ТФ)
+- Модель: MiMo (mimo-free)
+- Что сделано:
+  - **Корень бага**: `Scales.timeToScreen()` делил `(timestamp - firstTimestamp) / 60000` — хардкод 1 минуты. Для 1h свечей dataIndex = 60× реального → все свечи рендерятся far right (x=55200 на 1000px chart), viewport недостижим. Живые 1m работали только потому, что 60000 совпадало с реальным интервалом.
+  - **Scales.ts**: добавлено поле `candleIntervalMs` (default 60000) + `setCandleInterval(ms)` + `getCandleInterval()`. `timeToScreen()` теперь делит на `this.candleIntervalMs` вместо хардкода.
+  - **Engine.ts**: добавлен `TIMEFRAME_INTERVALS` маппинг (1m→60000, 5m→300000, 15m→900000, 30m→1800000, 1h→3600000, 4h→14400000, 1d→86400000 и др.). Метод `setTimeframe(tf)` устанавливает интервал из маппинга. `setData()` вычисляет интервал из первых двух свечей ТОЛЬКО как fallback (если timeframe не был задан через setTimeframe).
+  - **ChartContainer.tsx**: вызов `engine.setTimeframe(timeframe)` перед `engine.setData(candles)` — интервал берётся из выбранного ТФ.
+  - **AxisRenderer.ts**: `drawTimeAxis()` больше не генерирует фейковые таймстемпы `Date.now() - (1000-i)*60000`. Теперь рисует реальные timestamps из candle data, используя `scales.timeToScreen()` с правильным интервалом.
+  - **Renderer.ts**: `renderAxis()` принимает опциональный `candles` параметр, передаёт в AxisRenderer.
+  - **prependData viewport fix**: `prependData()` компенсирует сдвиг offsetX — после добавления свечей слева existing candles остаются на месте (shiftPixels = (prevFirstTs - newFirstTs) / candleIntervalMs * spacing).
+- Затронутые файлы/папки:
+  - frontend/src/chart-engine/Scales.ts (+candleIntervalMs, +setCandleInterval, fix timeToScreen)
+  - frontend/src/chart-engine/Engine.ts (+TIMEFRAME_INTERVALS, +setTimeframe, +candleIntervalMs, +timeframeSet, fix setData, fix prependData)
+  - frontend/src/chart-engine/Renderer.ts (+candles param in renderAxis)
+  - frontend/src/chart-engine/renderers/AxisRenderer.ts (+Candle import, fix drawTimeAxis with real timestamps)
+  - frontend/src/components/ChartContainer.tsx (+setTimeframe call)
+- Ключевые решения:
+  - Интервал свечи берётся из timeframe маппинга (PRIMARY), вычисление из данных — fallback
+  - prependData компенсирует offsetX чтобы viewport не прыгал при догрузке истории
+  - AxisRenderer рисует time labels из реальных candle timestamps, не фейковых Date.now()
+- Тесты/проверки:
+  - TypeScript compilation: PASS (npx tsc --noEmit)
+  - Vite build: PASS (405ms)
+  - Живой WS updateLast: не затронут (не меняет interval)
+  - needHistory/prependData: компенсация offsetX предотвращает рывок viewport
+
+### [2026-06-13] Фаза 7 — Downloader: retry, temp file, 404 handling
+- Модель: Sonnet (mimo-auto)
+- Что сделано:
+  - **downloader.go**: полная перезапись. `DownloadToFile(ctx, url, destPath)` — скачивает в temp-файл (а не стримит в zip-reader). Кастомный `http.Client` с `Transport` (DialContext 15s, TLSHandshake 15s, ResponseHeader 30s) без глобального Timeout (убивает долгие загрузки). **Retry**: до 5 попыток с экспоненциальным backoff (1s, 2s, 4s, 8s, 16s) только на сетевые ошибки (connection refused/reset/EOF/wsarecv/i/o timeout). **404**: возвращает `ErrNotFound` — не ретраится, пропускает день. `UnzipFile(zipPath)` — распаковка с диска (не из сети). `TempDir()` — создание tmp-директории с cleanup. `isRetryable(err)` — проверка типа ошибки (net.Error, DNSError, OpError, строки).
+  - **loader.go**: `processDay` использует `DownloadToFile` → `UnzipFile` → `ParseCSV`. Temp-файл удаляется после распаковки. `Stats.Skipped` — дни с 404. `Run` обрабатывает `ErrNotFound` → skip + log, продолжает. SUMMARY показывает OK/Skipped/Errors.
+  - **cmd/loader/main.go**: обновлён вывод SUMMARY — OK/Skipped/Errors.
+- Затронутые файлы/папки:
+  - backend/internal/history/downloader.go (полная перезапись)
+  - backend/internal/history/loader.go (DownloadToFile + ErrNotFound + Stats.Skipped)
+  - backend/cmd/loader/main.go (SUMMARY)
+- Ключевые решения:
+  - Temp-файл вместо стриминга — обрыв сети не ломает распаковку
+  - Retry 5 раз с backoff — для больших zip (>100MB) со unstable connection
+  - 404 ≠ ошибка — свежая дата может быть не выложена, пропускаем
+  - isRetryable: только сетевые ошибки, НЕ context cancellation/deadline
+- Тесты/проверки:
+  - go build ./...: PASS
+  - go vet ./...: PASS
+  - gofmt -l .: PASS
+  - go test ./...: ALL PASS
+
+### [2026-06-13] Фаза 7 — Фиксы: clickhouse DB + rollup grouping (БАГИ)
+- Модель: MiMo (mimo-auto)
+- Что сделано:
+  - **Bug 1 (ClickHouse DB)**: `clickhouse.New(ctx, dsn, user, password)` не принимал database → всегда писал в `default`, хотя `.env` содержит `CLICKHOUSE_DB=procluster`. **Фикс**: добавлен параметр `database string` в `clickhouse.New()`, `clickhouse.Options.Auth.Database: database`. Обновлены `cmd/procluster/main.go` (читает `CLICKHOUSE_DB`), `cmd/loader/main.go` (читает `CLICKHOUSE_DB`), `cmd/e2etest/main.go`, `clickhouse_test.go`.
+  - **Bug 2 (Rollup grouping)**: `AggregateForTimeframe` группировал только по `PriceLevel` без привязки к границе ТФ. Bucket key = PriceLevel → все 1m свечи одного priceLevel за весь день мёрджились в одну строку. **Фикс**: bucket key = `(AlignToTimeframe(candleOpen, tf), PriceLevel)`. Новая функция `AlignToTimeframe(t, tf)` — 1h: `t.Truncate(time.Hour)`, 4h: `hour/4*4`, 1d: midnight. OHLC: open от earliest 1m, close от latest 1m. Результат сортируется по (CandleOpen, PriceLevel). Исправлен double-counting при создании нового bucket ( volumes обнуляются при создании).
+  - **aggregation/rollup_test.go**: 8 тестов — AlignToTimeframe (6 cases), 1m→1h (1 и 2 intervals), 1m→4h (1 block, 6 blocks), 1m→1d, multiple price levels, full Rollup. Все PASS.
+  - **csvparser.go**: добавлен `log.Printf("[csv] line 1: header detected, skipping")` при пропуске строки-заголовка.
+- Затронутые файлы/папки:
+  - backend/internal/repository/clickhouse/clickhouse.go (+database parameter)
+  - backend/internal/repository/clickhouse/clickhouse_test.go (+database)
+  - backend/internal/aggregation/rollup.go (полная перезапись: AlignToTimeframe, intervalKey, intervalTracker, sort)
+  - backend/internal/aggregation/rollup_test.go (создан)
+  - backend/cmd/procluster/main.go (+chDB)
+  - backend/cmd/loader/main.go (+chDB)
+  - backend/cmd/e2etest/main.go (+chDB)
+  - backend/internal/history/csvparser.go (header log)
+- Ключевые решения:
+  - Bucket key = (aligned time, price level) — единственно верный способ группировки rollup
+  - Результат AggregateForTimeframe сортируется по (CandleOpen, PriceLevel) — предсказуемый порядок
+  - При создании bucket volumes обнуляются, accumulate через += — исключает double-counting
+  - aggregator.go:302 вызывает `aggregation.Rollup(rows)` — единый путь для live и history
+- Тесты/проверки:
+  - go build ./...: PASS
+  - go vet ./...: PASS
+  - gofmt -l .: PASS
+  - go test ./...: ALL PASS (14 aggregation + 8 history + 5 api + clickhouse)
+
+### [2026-06-13] Фаза 7 — CLI-загрузчик исторических тиков (history-loader)
+- Модель: MiMo (mimo-auto)
+- Что сделано:
+  - **aggregation/rollup.go**: извлечены `AggregateForTimeframe()` и `Rollup()` из aggregator.go — единый модуль для live и history. Aggregator и loader вызывают одну функцию.
+  - **repository/repository.go + clickhouse.go**: `InsertClusterBatch` теперь принимает `table string` (`clusters_futures`/`clusters_spot`). Добавлен `DeleteClustersByRange(ctx, table, symbol, timeframe, from, to)` — очистка диапазона перед вставкой для идемпотентности.
+  - **history/csvparser.go**: парсинг CSV для futures (7 колонок, timestamp мс) и spot (8 колонок, timestamp мкс/1000). `isBuyerMaker` регистронезависимо. Пропуск битых строк с логом, пропуск заголовка.
+  - **history/downloader.go**: `Download(ctx, url)` + `StreamUnzip(reader)` — стриминг распаковки через `bytes.NewReader` + `archive/zip`. `BuildURL(market, symbol, date)` — генерация URL для data.binance.vision.
+  - **history/loader.go**: пайплайн `Run(ctx, cfg, repo)` — цикл по дням: download → parse → aggregate 1m (CompressTrades) → DELETE диапазона → INSERT батчами по 10000 → rollup 1h/4h/1d → прогресс в stderr. OHLC: open=первый трейд минуты, close=последний.
+  - **cmd/loader/main.go**: CLI — флаги `-symbol`, `-market`, `-from`, `-to`. Подключение к ClickHouse из .env, auto-migrations, вывод сводки + SQL-запросы для проверки размера таблиц.
+  - **Юнит-тесты**: 8 тестов на парсинг CSV (futures/spot, microseconds, case-insensitive isBuyerMaker, bad lines, header skip, URL generation).
+  - **aggregator.go**: обновлён — использует `aggregation.Rollup()` + `tableForMarket()`, удалён дублирующий `aggregateForTimeframe`.
+- Затронутые файлы/папки:
+  - backend/internal/aggregation/rollup.go (создан)
+  - backend/internal/aggregation/aggregation.go (без изменений)
+  - backend/internal/history/ (csvparser.go, downloader.go, loader.go, csvparser_test.go — созданы)
+  - backend/cmd/loader/main.go (создан)
+  - backend/internal/repository/repository.go (InsertClusterBatch + DeleteClustersByRange)
+  - backend/internal/repository/clickhouse/clickhouse.go (реализация + удаление ranges)
+  - backend/internal/repository/clickhouse/clickhouse_test.go (обновлён вызов)
+  - backend/internal/aggregator/aggregator.go (aggregation.Rollup + tableForMarket)
+- Ключевые решения:
+  - Rollup извлечён в aggregation/rollup.go — единый модуль для live и history (MEMORY.md правило: единый источник правды)
+  - Идемпотентность через DELETE перед INSERT (проще ReplacingMergeTree, нет миграции ENGINE)
+  - Spot timestamp: microsecond/1000 для мс (data.binance.vision с 2025-01-01 отдаёт мкс)
+  - Батчи по 10000 rows для вставки (не построчно)
+- Тесты/проверки:
+  - go build ./...: PASS
+  - gofmt -l .: PASS (0 файлов)
+  - go vet ./...: PASS
+  - go test ./internal/history/ — PASS (8 тестов)
+  - go test ./internal/aggregation/ — PASS (6 тестов)
+  - ClickHouse docker запущен: procluster-clickhouse
+
 ### [2026-06-13] Фаза 6c — Верхняя панель графика (Header Controls) — ФИКСЫ
 - Модель: MiMoCode (mimo-auto)
 - Что сделано:

@@ -44,8 +44,12 @@ func main() {
 	if v := os.Getenv("CLICKHOUSE_PASSWORD"); v != "" {
 		chPass = v
 	}
+	chDB := "default"
+	if v := os.Getenv("CLICKHOUSE_DB"); v != "" {
+		chDB = v
+	}
 
-	chRepo, err := chrepo.New(ctx, chDSN, chUser, chPass)
+	chRepo, err := chrepo.New(ctx, chDSN, chUser, chPass, chDB)
 	if err != nil {
 		log.Fatalf("clickhouse connect: %v", err)
 	}
@@ -119,7 +123,7 @@ func main() {
 
 func showResults(ctx context.Context, repo *chrepo.ClickhouseRepository, rdb *redis.Client) {
 	log.Println("\n--- ClickHouse: 1m candles ---")
-	candles, err := repo.GetLatestCandles(ctx, "BTCUSDT", "1m", 5)
+	candles, err := repo.GetLatestCandles(ctx, "BTCUSDT", "1m", "futures", 5, nil)
 	if err != nil {
 		log.Printf("  error getting candles: %v", err)
 	} else {
@@ -131,7 +135,7 @@ func showResults(ctx context.Context, repo *chrepo.ClickhouseRepository, rdb *re
 
 	for _, tf := range []string{"1h", "4h", "1d"} {
 		log.Printf("\n--- ClickHouse: %s candles ---", tf)
-		candles, err := repo.GetLatestCandles(ctx, "BTCUSDT", tf, 3)
+		candles, err := repo.GetLatestCandles(ctx, "BTCUSDT", tf, "futures", 3, nil)
 		if err != nil {
 			log.Printf("  error: %v", err)
 		} else {

@@ -284,7 +284,7 @@ func (a *Aggregator) FlushCandle(ctx context.Context, symbol, market, timeframe 
 		rows[i].ClosePrice = closePrice
 	}
 
-	if err := a.repo.InsertClusterBatch(ctx, rows); err != nil {
+	if err := a.repo.InsertClusterBatch(ctx, rows, tableForMarket(market)); err != nil {
 		return fmt.Errorf("insert cluster batch: %w", err)
 	}
 
@@ -299,67 +299,24 @@ func (a *Aggregator) FlushCandle(ctx context.Context, symbol, market, timeframe 
 }
 
 func (a *Aggregator) rollup(ctx context.Context, symbol, market string, rows []model.ClusterRow) error {
-	for _, tf := range []string{"1h", "4h", "1d"} {
-		rollupRows := a.aggregateForTimeframe(rows, tf)
-		for i := range rollupRows {
-			rollupRows[i].BidVolume = aggregation.TruncateVolume(rollupRows[i].BidVolume)
-			rollupRows[i].AskVolume = aggregation.TruncateVolume(rollupRows[i].AskVolume)
-			rollupRows[i].Timeframe = tf
-		}
-		if len(rollupRows) > 0 {
-			log.Printf("[rollup] inserting %d rows for %s %s", len(rollupRows), symbol, tf)
-			if err := a.repo.InsertClusterBatch(ctx, rollupRows); err != nil {
+	rollupRows := aggregation.Rollup(rows)
+
+	buckets := make(map[string][]model.ClusterRow)
+	for _, r := range rollupRows {
+		buckets[r.Timeframe] = append(buckets[r.Timeframe], r)
+	}
+
+	for tf, tfRows := range buckets {
+		if len(tfRows) > 0 {
+			log.Printf("[rollup] inserting %d rows for %s %s", len(tfRows), symbol, tf)
+			if err := a.repo.InsertClusterBatch(ctx, tfRows, tableForMarket(market)); err != nil {
 				log.Printf("[rollup] ERROR inserting %s: %v", tf, err)
 				return fmt.Errorf("insert rollup %s: %w", tf, err)
 			}
-			log.Printf("[rollup] OK %s: %d rows", tf, len(rollupRows))
+			log.Printf("[rollup] OK %s: %d rows", tf, len(tfRows))
 		}
 	}
 	return nil
-}
-
-func (a *Aggregator) aggregateForTimeframe(rows []model.ClusterRow, tf string) []model.ClusterRow {
-	buckets := make(map[float64]*model.ClusterRow)
-
-	// Track earliest and latest candle for open/close
-	var earliest, latest *model.ClusterRow
-
-	for _, row := range rows {
-		existing, ok := buckets[row.PriceLevel]
-		if !ok {
-			existing = &model.ClusterRow{
-				Symbol:      row.Symbol,
-				Timeframe:   tf,
-				CandleOpen:  row.CandleOpen,
-				PriceLevel:  row.PriceLevel,
-				Compression: row.Compression,
-			}
-			buckets[row.PriceLevel] = existing
-		}
-		existing.BidVolume += row.BidVolume
-		existing.AskVolume += row.AskVolume
-
-		// Track open/close from earliest/latest candle
-		if earliest == nil || row.CandleOpen.Before(earliest.CandleOpen) {
-			earliest = &row
-		}
-		if latest == nil || row.CandleOpen.After(latest.CandleOpen) {
-			latest = &row
-		}
-	}
-
-	result := make([]model.ClusterRow, 0, len(buckets))
-	for _, row := range buckets {
-		// Set open/close from earliest/latest 1m candle
-		if earliest != nil {
-			row.OpenPrice = earliest.OpenPrice
-		}
-		if latest != nil {
-			row.ClosePrice = latest.ClosePrice
-		}
-		result = append(result, *row)
-	}
-	return result
 }
 
 func (a *Aggregator) readLevelsFromRedis(key string) []CandleLevel {
@@ -396,6 +353,13 @@ func (a *Aggregator) getConfig(symbol, market string) aggregationCompressionConf
 		}
 	}
 	return config
+}
+
+func tableForMarket(market string) string {
+	if market == "spot" {
+		return "clusters_spot"
+	}
+	return "clusters_futures"
 }
 
 func truncateToMinute(t time.Time) time.Time {

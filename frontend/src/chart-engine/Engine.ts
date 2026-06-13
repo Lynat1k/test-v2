@@ -5,6 +5,23 @@ import { DataStore } from './DataStore';
 import { InteractionManager } from './interaction/InteractionManager';
 import { ENGINE_CONFIG } from './config';
 
+export const TIMEFRAME_INTERVALS: Record<string, number> = {
+  '1m': 60_000,
+  '3m': 180_000,
+  '5m': 300_000,
+  '15m': 900_000,
+  '30m': 1_800_000,
+  '1h': 3_600_000,
+  '2h': 7_200_000,
+  '4h': 14_400_000,
+  '6h': 21_600_000,
+  '8h': 28_800_000,
+  '12h': 43_200_000,
+  '1d': 86_400_000,
+  '3d': 259_200_000,
+  '1w': 604_800_000,
+};
+
 export class Engine {
   private renderer: Renderer;
   private viewport: Viewport;
@@ -16,6 +33,8 @@ export class Engine {
   private currentMode: CandleMode = 'japanese';
   private volumeMode: VolumeMode = 'bidask';
   private compression: number = 1;
+  private candleIntervalMs: number = 60_000;
+  private timeframeSet: boolean = false;
 
   private onViewportChange?: (state: ViewportState) => void;
   private onNeedHistory?: (before: number) => void;
@@ -50,7 +69,7 @@ export class Engine {
     });
 
     this.interaction = new InteractionManager(
-      this.config.container.querySelector('canvas')!,
+      this.renderer.getPixiCanvas()!,
       this.viewport,
     );
 
@@ -60,12 +79,37 @@ export class Engine {
   setData(candles: Candle[]): void {
     this.dataStore.setData(candles);
 
+    if (candles.length >= 2 && !this.timeframeSet) {
+      const computedInterval = candles[1]!.timestamp - candles[0]!.timestamp;
+      if (computedInterval > 0) {
+        this.candleIntervalMs = computedInterval;
+      }
+    }
+
+    this.renderer.getScales().setCandleInterval(this.candleIntervalMs);
+
     const { min, max } = this.dataStore.getPriceRange();
     this.viewport.autoFit(min, max, this.dataStore.length, 8);
   }
 
   prependData(candles: Candle[]): void {
+    const prevCandles = this.dataStore.getCandles();
+    const prevFirstTs = prevCandles.length > 0 ? prevCandles[0]!.timestamp : 0;
+
     this.dataStore.prependData(candles);
+
+    if (prevFirstTs > 0 && candles.length > 0) {
+      const newFirstTs = this.dataStore.getCandles()[0]!.timestamp;
+      if (newFirstTs < prevFirstTs) {
+        const scales = this.renderer.getScales();
+        const spacing = scales.getCandleSpacing();
+        const shiftIndices = (prevFirstTs - newFirstTs) / this.candleIntervalMs;
+        const shiftPixels = shiftIndices * spacing;
+        const vp = this.viewport.getState();
+        vp.offsetX += shiftPixels;
+        this.requestRender();
+      }
+    }
   }
 
   updateLast(candle: Candle): void {
@@ -102,6 +146,15 @@ export class Engine {
     this.compression = level;
     this.renderer.setCompression(level);
     this.requestRender();
+  }
+
+  setTimeframe(tf: string): void {
+    const ms = TIMEFRAME_INTERVALS[tf];
+    if (ms) {
+      this.candleIntervalMs = ms;
+      this.timeframeSet = true;
+      this.renderer.getScales().setCandleInterval(ms);
+    }
   }
 
   getMode(): CandleMode {
@@ -164,7 +217,7 @@ export class Engine {
 
     this.renderer.setMode(resolvedMode);
     this.renderer.renderCandles(candles as Candle[], viewportState, firstTimestamp);
-    this.renderer.renderAxis(viewportState, min, max);
+    this.renderer.renderAxis(viewportState, min, max, candles as Candle[]);
 
     this.dataStore.checkHistoryNeeded(start);
   }

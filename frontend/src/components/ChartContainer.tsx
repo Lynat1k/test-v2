@@ -102,6 +102,9 @@ export function ChartContainer({
     }
   }, [symbol, timeframe]);
 
+  const fetchClustersRef = useRef(fetchClustersBatch);
+  fetchClustersRef.current = fetchClustersBatch;
+
   useEffect(() => {
     if (!containerRef.current) return;
 
@@ -124,10 +127,11 @@ export function ChartContainer({
         .then((resp: { ok: boolean; data: { candles: ApiCandle[] } }) => {
           if (resp.ok && resp.data?.candles) {
             const candles = resp.data.candles.map(mapCandle);
+            engine.setTimeframe(timeframe);
             engine.setData(candles);
 
             const timestamps = candles.slice(0, 50).map(c => c.timestamp);
-            fetchClustersBatch(timestamps);
+            fetchClustersRef.current(timestamps);
           }
         })
         .catch(err => console.error('Failed to fetch candles:', err));
@@ -160,11 +164,11 @@ export function ChartContainer({
           const timestamps = visibleCandles.map((c: Candle) => c.timestamp);
 
           if (timestamps.length > 0 && timestamps.length <= 100) {
-            fetchClustersBatch(timestamps);
+            fetchClustersRef.current(timestamps);
           } else if (timestamps.length > 100) {
             const step = Math.ceil(timestamps.length / 100);
             const sampled = timestamps.filter((_: number, i: number) => i % step === 0);
-            fetchClustersBatch(sampled);
+            fetchClustersRef.current(sampled);
           }
         }, 500);
       });
@@ -232,7 +236,7 @@ export function ChartContainer({
       engine.destroy();
       engineRef.current = null;
     };
-  }, [symbol, market, timeframe, chartIndex, fetchClustersBatch]);
+  }, [symbol, market, timeframe, chartIndex]);
 
   useEffect(() => {
     engineRef.current?.setPalette(palette);
@@ -278,13 +282,13 @@ export function ChartContainer({
             const visibleCandles = allCandles.slice(start, end + 1);
             const timestamps = visibleCandles.map((c: Candle) => c.timestamp);
             if (timestamps.length > 0 && timestamps.length <= 100) {
-              fetchClustersBatch(timestamps);
+              fetchClustersRef.current(timestamps);
             }
           }
         }
       }
     }
-  }, [mode, fetchClustersBatch]);
+  }, [mode]);
 
   return (
     <div className="relative w-full h-full">

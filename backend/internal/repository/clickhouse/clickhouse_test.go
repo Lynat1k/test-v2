@@ -25,10 +25,15 @@ func TestIntegration(t *testing.T) {
 		password = "clickhouse"
 	}
 
+	database := os.Getenv("CLICKHOUSE_DB")
+	if database == "" {
+		database = "default"
+	}
+
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	repo, err := New(ctx, dsn, user, password)
+	repo, err := New(ctx, dsn, user, password, database)
 	if err != nil {
 		t.Skipf("skipping integration test: %v", err)
 	}
@@ -59,11 +64,11 @@ func TestIntegration(t *testing.T) {
 		},
 	}
 
-	if err := repo.InsertClusterBatch(ctx, rows); err != nil {
+	if err := repo.InsertClusterBatch(ctx, rows, "clusters_futures"); err != nil {
 		t.Fatalf("insert clusters: %v", err)
 	}
 
-	candles, err := repo.GetLatestCandles(ctx, "BTCUSDT", "1m", 10)
+	candles, err := repo.GetLatestCandles(ctx, "BTCUSDT", "1m", "futures", 10, nil)
 	if err != nil {
 		t.Fatalf("get latest candles: %v", err)
 	}

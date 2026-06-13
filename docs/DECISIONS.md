@@ -3,6 +3,73 @@
 > Сюда пишем решения, которые меняют или фиксируют архитектуру/правила.
 > Новые — сверху. Если решение противоречит спеке — сначала обнови спеку.
 
+### [2026-06-13] Rollup: 15m/30m добавлены, GetLatestCandles: market + before
+- Контекст: Spot timeframes = [15m, 30m, 1h, 4h] в фронте, но rollup генерировал только 1h/4h/1d. API `GetLatestCandles` хардкодил `clusters_futures` (spot невидим) и `before` фильтровал client-side (historical пустой).
+- Решение: (1) `AlignToTimeframe` + `Rollup()` расширены на 15m/30m. (2) `GetLatestCandles` принимает `market` (table selection) и `before *int64` (server-side `WHERE candle_open < toDateTime64(?, 3)`). (3) `validTimeframes` + `30m`. Spot: [15m, 30m, 1h, 4h], futures: [1m, 5m, 15m, 30m, 1h, 4h].
+- Альтернативы:
+  - Отдельный метод GetCandlesBefore — отвергнут (лишний метод, один GetLatestCandles с optional before проще)
+  - Client-side фильтрация before — отвергнуто (не работает для historical: latest N = live данные, все >= before)
+- Последствия: live aggregator автоматически генерирует 15m/30m (через Rollup). Loader Summary показывает все 6 timeframes.
+
+### [2026-06-13] Canvas lifecycle: хранить ссылки, удалять вручную, не querySelector
+- Контекст: при смене timeframe Engine пересоздаётся (destroy + new). `AxisRenderer.destroy()` и `ClusterTextOverlay` не удаляли canvas из DOM, `app.destroy(true)` в PixiJS v8 ломается (v7 API) → мёртвые canvas оставались в container. `container.querySelector('canvas')!` при новом init находил старый canvas → InteractionManager на мёртвом canvas → freeze.
+- Решение: (1) Renderer хранит `pixiCanvas` ссылку, `getPixiCanvas()` возвращает её. Engine.init() использует `renderer.getPixiCanvas()!` вместо `querySelector('canvas')!`. (2) Все canvas удаляются вручную при destroy: `pixiCanvas.remove()`, `axisRenderer.canvas.remove()`, `clusterTextOverlay.canvas.remove()`. (3) `app.destroy()` вызывается без аргументов (v8 API).
+- Альтернативы:
+  - querySelector с фильтром по pointer-events — отвергнуто (хрупко, зависит от CSS)
+  - Очистка container.innerHTML — отвергнуто (агрессивно, может удалить не-наши элементы)
+- Последствия: после смены ТФ ровно 3 canvas в DOM. Drag/zoom работают сразу.
+
+### [2026-06-13] Candle interval: берётся из timeframe, не хардкод 60000
+- Контекст: `Scales.timeToScreen()` делил `(timestamp - firstTimestamp) / 60000` — хардкод 1 минуты. Для не-1m ТФ (1h, 4h, 1d, spot 15m/30m) все свечи рендерились far right, viewport недостижим. Живые 1m работали только потому, что 60000 совпадало с реальным интервалом.
+- Решение: `Scales.candleIntervalMs` — поле, устанавливаемое через `setCandleInterval(ms)`. Интервал берётся из `TIMEFRAME_INTERVALS[tf]` маппинга (Engine.setTimeframe). `setData()` вычисляет интервал из первых двух свечей ТОЛЬКО как fallback если setTimeframe не был вызван (для неизвестных/кастомных ТФ). `prependData()` компенсирует offsetX для стабильного viewport при догрузке.
+- Альтернативы:
+  - Вычислять интервал из данных всегда — отвергнуто (гепы/пропущенные свечи дают неверный интервал).
+  - Передавать interval из React пропсов — отвергнуто (Engine не должен знать о React, timeframe уже есть в ChartContainer).
+- Последствия:
+  - Все ТФ (1m..1w) рендерятся корректно.
+  - AxisRenderer рисует time labels из реальных candle timestamps, не фейковых Date.now().
+
+### [2026-06-13] ClickHouse database: явный параметр в New()
+- Контекст: `.env` содержит `CLICKHOUSE_DB=procluster`, но `clickhouse.New()` не принимал database → always `"default"`. Aggregator и loader писали в разные базы.
+- Решение: `clickhouse.New(ctx, dsn, user, password, database string)`. Все callers передают `getEnv("CLICKHOUSE_DB", "default")`.
+- Альтернативы: UseDatabase() после создания — отвергнуто (можно забыть вызвать, неявно).
+- Последствия: CLICKHOUSE_DB читается из .env, применяется во всех подключениях. Старые данные в `default` можно игнорировать.
+
+### [2026-06-13] Rollup grouping: bucket key = (aligned time, price level)
+- Контекст: `AggregateForTimeframe` группировал по `PriceLevel` без привязки к границе ТФ. Все 1m свечи одного priceLevel за день мёрджились в одну строку (1h=1 строка вместо ~24).
+- Решение: `AlignToTimeframe(t, tf)` — truncate time к границе интервала (1h→hour start, 4h→4h block, 1d→midnight). Bucket key = `(alignedTime, priceLevel)`. OHLC: open от earliest, close от latest по CandleOpen. Результат сортируется по (CandleOpen, PriceLevel).
+- Альтернативы: Группировка в SQL (GROUP BY toStartOfInterval) — отвергнута (агрегация в Go, не в CH, чтобы не дублировать live/history).
+- Последствия: rollup_test.go с 8 тестами покрывает все сценарии. Aggregator вызывает ту же `aggregation.Rollup()`.
+
+### [2026-06-13] AggregateForTimeframe: volumes обнуляются при создании bucket
+- Контекст: при `existing = &copy; row` volumes копировались из строки, затем `existing.BidVolume += row.BidVolume` добавлял ещё раз → double-counting.
+- Решение: создавать `&model.ClusterRow{}` с нулевыми volumes, accumulate через `+=`.
+- Альтернативы: пропускать `+=` для первого row — сложнее, error-prone.
+- Последствия: все тесты rollup PASS, volumes корректны.
+
+### [2026-06-13] Идемпотентность history-loader: DELETE перед INSERT
+- Контекст: повторная загрузка того же диапазона дат не должна дублировать данные в ClickHouse. Два варианта: ReplacingMergeTree (автоматическая дедупликация при merge) или предварительная очистка диапазона.
+- Решение: **DELETE перед INSERT**. Перед вставкой 1m данных за день выполняется `ALTER TABLE clusters_* DELETE WHERE symbol=? AND timeframe='1m' AND candle_open>=? AND candle_open<=?`. Затем INSERT. Для rollup (1h/4h/1d) — аналогично: DELETE + INSERT. Это проще, предсказуемее, не требует миграции ENGINE (MergeTree → ReplacingMergeTree) и версионной колонки.
+- Альтернативы:
+  - ReplacingMergeTree — отвергнута: требует миграции существующих таблиц, добавления версионной колонки, сложнее отлаживать, merge происходит асинхронно (данные могут дублироваться между merge-циклами).
+  - INSERT ... ON DUPLICATE KEY UPDATE — не поддерживается ClickHouse.
+- Последствия:
+  - Loader идемпотентен: повторный запуск перезаписывает данные без дублей.
+  - DELETE в ClickHouse — async background merge, не блокирует чтение.
+  - Для live-агрегатора не нужно: он пишет по закрытии минуты, дублей нет.
+
+### [2026-06-13] InsertClusterBatch с параметром table
+- Контекст: `InsertClusterBatch` был хардкод на `clusters_futures`. Spot-данные писались в ту же таблицу — неверно.
+- Решение: добавлен параметр `table string` в `InsertClusterBatch(ctx, rows, table)`. Агрегатор передаёт `tableForMarket(market)`, loader — `clusters_futures`/`clusters_spot` явно.
+- Альтернативы: отдельный метод `InsertSpotBatch` — отвергнут (дублирование кода, интерфейс раздувается).
+- Последствия: repository.MarketRepository интерфейс изменён. Все вызовы обновлены.
+
+### [2026-06-13] Rollup вынесен в aggregation/rollup.go
+- Контекст: `aggregator.rollup()` и `aggregator.aggregateForTimeframe()` были в aggregator.go. History-loader нужен тот же rollup — дублировать запрещено (MEMORY.md: единый модуль агрегации).
+- Решение: функции перенесены в `aggregation/rollup.go` как `Rollup(rows)` и `AggregateForTimeframe(rows, tf)`. Aggregator и loader вызывают `aggregation.Rollup()`.
+- Альтернативы: оставить в aggregator и вызывать из loader через aggregator — отвергнута (лишняя зависимость от Redis/aggregator, loader не использует Redis).
+- Последствия: единый модуль для live, истории и будущего API.
+
 ### [2026-06-13] React.StrictMode отключён из-за конфликта с canvas-движком
 - Контекст: React StrictMode в dev mode монтирует useEffect дважды (mount → cleanup → mount). Canvas-движок создаёт PixiJS Application с WebGL canvas. Double-mount плодил два Engine (6 canvas вместо 3). Первый Engine с japanese-свечами висел под вторым → тела свечей всегда видны, бары не работают, setVisible/removeChild не работали.
 - Решение: `<StrictMode>` убран из `main.tsx`. Для canvas/WebGL-движков это легитимно — StrictMode полезен для данных и副作用, но вредит для imperative canvas-кода.

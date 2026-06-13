@@ -45,4 +45,8 @@ export class ClusterTextOverlay {
     this.ctx.scale(this.dpr, this.dpr);
     this.ctx.font = '11px monospace';
   }
+
+  destroy(): void {
+    this.canvas.remove();
+  }
 }

@@ -24,6 +24,7 @@ export class Renderer {
   private frameCount: number = 0;
   private lastFpsTime: number = performance.now();
   private currentMode: CandleMode = 'japanese';
+  private pixiCanvas: HTMLCanvasElement | null = null;
 
   constructor(width: number, height: number) {
     this.width = width;
@@ -52,7 +53,8 @@ export class Renderer {
       resolution: window.devicePixelRatio || 1,
     });
 
-    container.appendChild(this.app.canvas as HTMLCanvasElement);
+    this.pixiCanvas = this.app.canvas as HTMLCanvasElement;
+    container.appendChild(this.pixiCanvas);
 
     const textCanvas = this.clusterTextOverlay.getCanvas();
     textCanvas.style.position = 'absolute';
@@ -112,9 +114,9 @@ export class Renderer {
     }
   }
 
-  renderAxis(viewport: ViewportState, minPrice: number, maxPrice: number): void {
+  renderAxis(viewport: ViewportState, minPrice: number, maxPrice: number, candles?: Candle[]): void {
     this.scales.updateViewport(viewport);
-    this.axisRenderer.render(viewport, this.scales, minPrice, maxPrice);
+    this.axisRenderer.render(viewport, this.scales, minPrice, maxPrice, candles);
   }
 
   setPalette(palette: 'default' | 'alternative'): void {
@@ -144,6 +146,10 @@ export class Renderer {
     return this.scales;
   }
 
+  getPixiCanvas(): HTMLCanvasElement | null {
+    return this.pixiCanvas;
+  }
+
   resize(width: number, height: number): void {
     this.width = width;
     this.height = height;
@@ -159,6 +165,9 @@ export class Renderer {
     this.footprintRenderer.destroy();
     this.barRenderer.destroy();
     this.axisRenderer.destroy();
-    try { this.app.destroy(true); } catch { /* PixiJS v8 compat */ }
+    this.clusterTextOverlay.destroy();
+    this.pixiCanvas?.remove();
+    this.pixiCanvas = null;
+    try { this.app.destroy(); } catch { /* PixiJS v8 compat */ }
   }
 }

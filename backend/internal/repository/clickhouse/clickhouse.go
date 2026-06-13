@@ -21,12 +21,13 @@ type ClickhouseRepository struct {
 	conn driver.Conn
 }
 
-func New(ctx context.Context, dsn, user, password string) (*ClickhouseRepository, error) {
+func New(ctx context.Context, dsn, user, password, database string) (*ClickhouseRepository, error) {
 	conn, err := clickhouse.Open(&clickhouse.Options{
 		Addr: []string{dsn},
 		Auth: clickhouse.Auth{
 			Username: user,
 			Password: password,
+			Database: database,
 		},
 	})
 	if err != nil {
@@ -117,12 +118,12 @@ func trimSpace(s string) string {
 	return s[start:end]
 }
 
-func (r *ClickhouseRepository) InsertClusterBatch(ctx context.Context, rows []model.ClusterRow) error {
+func (r *ClickhouseRepository) InsertClusterBatch(ctx context.Context, rows []model.ClusterRow, table string) error {
 	if len(rows) == 0 {
 		return nil
 	}
 
-	batch, err := r.conn.PrepareBatch(ctx, "INSERT INTO clusters_futures")
+	batch, err := r.conn.PrepareBatch(ctx, "INSERT INTO "+table)
 	if err != nil {
 		return fmt.Errorf("prepare batch: %w", err)
 	}
@@ -147,6 +148,14 @@ func (r *ClickhouseRepository) InsertClusterBatch(ctx context.Context, rows []mo
 		return fmt.Errorf("send batch: %w", err)
 	}
 
+	return nil
+}
+
+func (r *ClickhouseRepository) DeleteClustersByRange(ctx context.Context, table, symbol, timeframe string, from, to time.Time) error {
+	query := fmt.Sprintf("ALTER TABLE %s DELETE WHERE symbol = ? AND timeframe = ? AND candle_open >= ? AND candle_open <= ?", table)
+	if err := r.conn.Exec(ctx, query, symbol, timeframe, from, to); err != nil {
+		return fmt.Errorf("delete clusters by range: %w", err)
+	}
 	return nil
 }
 
@@ -180,8 +189,13 @@ func (r *ClickhouseRepository) InsertDOMSnapshotBatch(ctx context.Context, rows 
 	return nil
 }
 
-func (r *ClickhouseRepository) GetLatestCandles(ctx context.Context, symbol, timeframe string, limit int) ([]model.Candle, error) {
-	query := `
+func (r *ClickhouseRepository) GetLatestCandles(ctx context.Context, symbol, timeframe, market string, limit int, before *int64) ([]model.Candle, error) {
+	table := "clusters_futures"
+	if market == "spot" {
+		table = "clusters_spot"
+	}
+
+	query := fmt.Sprintf(`
 		SELECT
 			symbol,
 			timeframe,
@@ -195,14 +209,21 @@ func (r *ClickhouseRepository) GetLatestCandles(ctx context.Context, symbol, tim
 			sum(bid_volume - ask_volume) AS total_delta,
 			sum(bid_volume + ask_volume) AS total_volume,
 			count(*) AS trades_count
-		FROM clusters_futures
-		WHERE symbol = ? AND timeframe = ?
+		FROM %s
+		WHERE symbol = ? AND timeframe = ?%s
 		GROUP BY symbol, timeframe, candle_open
 		ORDER BY candle_open DESC
 		LIMIT ?
-	`
+	`, table, map[bool]string{true: " AND candle_open < toDateTime64(?, 3)", false: ""}[before != nil])
 
-	rows, err := r.conn.Query(ctx, query, symbol, timeframe, limit)
+	var args []interface{}
+	args = append(args, symbol, timeframe)
+	if before != nil {
+		args = append(args, time.UnixMilli(*before))
+	}
+	args = append(args, limit)
+
+	rows, err := r.conn.Query(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("query latest candles: %w", err)
 	}

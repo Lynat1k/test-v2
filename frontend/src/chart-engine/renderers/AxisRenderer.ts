@@ -1,4 +1,4 @@
-import type { ViewportState } from '../types';
+import type { ViewportState, Candle } from '../types';
 import type { Scales } from '../Scales';
 
 export class AxisRenderer {
@@ -18,10 +18,10 @@ export class AxisRenderer {
     this.ctx = this.canvas.getContext('2d')!;
   }
 
-  render(viewport: ViewportState, scales: Scales, minPrice: number, maxPrice: number): void {
+  render(viewport: ViewportState, scales: Scales, minPrice: number, maxPrice: number, candles?: Candle[]): void {
     this.ctx.clearRect(0, 0, this.width, this.height);
     this.drawPriceAxis(viewport, scales, minPrice, maxPrice);
-    this.drawTimeAxis(viewport, scales);
+    this.drawTimeAxis(viewport, scales, candles);
     this.drawGrid(viewport, scales, minPrice, maxPrice);
   }
 
@@ -41,7 +41,9 @@ export class AxisRenderer {
     }
   }
 
-  private drawTimeAxis(viewport: ViewportState, scales: Scales): void {
+  private drawTimeAxis(viewport: ViewportState, scales: Scales, candles?: Candle[]): void {
+    if (!candles || candles.length === 0) return;
+
     const axisY = this.height - this.bottomPadding + 15;
 
     this.ctx.fillStyle = '#9ca3af';
@@ -50,12 +52,12 @@ export class AxisRenderer {
 
     const candleWidth = 8 * viewport.scaleX;
     const labelInterval = Math.max(1, Math.floor(100 / candleWidth));
+    const firstTimestamp = candles[0]!.timestamp;
 
-    for (let i = 0; i < 1000; i += labelInterval) {
-      const timestamp = Date.now() - (1000 - i) * 60000;
-      const x = scales.timeToScreen(timestamp, Date.now() - 1000 * 60000);
+    for (let i = 0; i < candles.length; i += labelInterval) {
+      const x = scales.timeToScreen(candles[i]!.timestamp, firstTimestamp);
       if (x > 0 && x < this.width - this.rightPadding) {
-        const label = new Date(timestamp).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
+        const label = new Date(candles[i]!.timestamp).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
         this.ctx.fillText(label, x, axisY);
       }
     }
@@ -108,6 +110,6 @@ export class AxisRenderer {
   }
 
   destroy(): void {
-    // Canvas is garbage collected
+    this.canvas.remove();
   }
 }

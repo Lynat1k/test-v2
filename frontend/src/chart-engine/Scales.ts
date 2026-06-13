@@ -8,6 +8,7 @@ export class Scales {
   private chartHeight: number;
   private candleWidth: number = 8;
   private rightPadding: number = 60;
+  private candleIntervalMs: number = 60000;
 
   constructor(viewport: ViewportState, width: number, height: number) {
     this.viewport = viewport;
@@ -17,6 +18,16 @@ export class Scales {
 
   getCandleSpacing(): number {
     return this.candleWidth * this.viewport.scaleX;
+  }
+
+  setCandleInterval(ms: number): void {
+    if (ms > 0) {
+      this.candleIntervalMs = ms;
+    }
+  }
+
+  getCandleInterval(): number {
+    return this.candleIntervalMs;
   }
 
   clampScaleX(scaleX: number, dataLength: number): number {
@@ -32,7 +43,7 @@ export class Scales {
   }
 
   timeToScreen(timestamp: number, firstTimestamp: number): number {
-    const dataIndex = (timestamp - firstTimestamp) / 60000;
+    const dataIndex = (timestamp - firstTimestamp) / this.candleIntervalMs;
     return dataIndex * this.candleWidth * this.viewport.scaleX - this.viewport.offsetX;
   }
 

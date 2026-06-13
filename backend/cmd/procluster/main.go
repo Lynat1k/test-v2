@@ -46,8 +46,9 @@ func main() {
 	chAddr := getEnv("CLICKHOUSE_ADDR", "localhost:9000")
 	chUser := getEnv("CLICKHOUSE_USER", "default")
 	chPass := getEnv("CLICKHOUSE_PASSWORD", "")
+	chDB := getEnv("CLICKHOUSE_DB", "default")
 
-	repo, err := clickhouse.New(ctx, chAddr, chUser, chPass)
+	repo, err := clickhouse.New(ctx, chAddr, chUser, chPass, chDB)
 	if err != nil {
 		log.Fatalf("[clickhouse] connection failed: %v", err)
 	}

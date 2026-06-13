@@ -29,6 +29,7 @@ var validTimeframes = map[string]bool{
 	"1m":  true,
 	"5m":  true,
 	"15m": true,
+	"30m": true,
 	"1h":  true,
 	"4h":  true,
 	"1d":  true,
@@ -108,7 +109,7 @@ func (s *Server) handleCandles(w http.ResponseWriter, r *http.Request) {
 
 		if len(candles) < limit {
 			needed := limit - len(candles)
-			dbCandles, err := s.repo.GetLatestCandles(ctx, symbol, timeframe, needed)
+			dbCandles, err := s.repo.GetLatestCandles(ctx, symbol, timeframe, market, needed, nil)
 			if err == nil {
 				for _, dc := range dbCandles {
 					if len(candles) >= limit {
@@ -129,20 +130,17 @@ func (s *Server) handleCandles(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	} else {
-		dbCandles, err := s.repo.GetLatestCandles(ctx, symbol, timeframe, limit+1)
+		dbCandles, err := s.repo.GetLatestCandles(ctx, symbol, timeframe, market, limit+1, before)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, "DB_ERROR", "failed to fetch candles")
 			return
 		}
-		for _, dc := range dbCandles {
-			if dc.CandleOpen.UnixMilli() >= *before {
-				continue
-			}
-			if len(candles) >= limit {
-				hasMore = true
-				break
-			}
-			candles = append(candles, dc)
+		if len(dbCandles) > limit {
+			hasMore = true
+		}
+		candles = dbCandles
+		if len(candles) > limit {
+			candles = candles[:limit]
 		}
 	}
 
