@@ -159,12 +159,12 @@ func (r *ClickhouseRepository) DeleteClustersByRange(ctx context.Context, table,
 	return nil
 }
 
-func (r *ClickhouseRepository) InsertDOMSnapshotBatch(ctx context.Context, rows []model.DOMRow) error {
+func (r *ClickhouseRepository) InsertDOMSnapshotBatch(ctx context.Context, rows []model.DOMRow, table string) error {
 	if len(rows) == 0 {
 		return nil
 	}
 
-	batch, err := r.conn.PrepareBatch(ctx, "INSERT INTO clusters_futures_dom")
+	batch, err := r.conn.PrepareBatch(ctx, "INSERT INTO "+table)
 	if err != nil {
 		return fmt.Errorf("prepare batch: %w", err)
 	}

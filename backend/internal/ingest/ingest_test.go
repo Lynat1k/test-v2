@@ -48,10 +48,10 @@ func TestParseFuturesAggTrade(t *testing.T) {
 func TestParseSpotTrade(t *testing.T) {
 	now := time.Now().UnixMilli()
 	data := []byte(fmt.Sprintf(`{
-		"e": "trade",
+		"e": "aggTrade",
 		"E": %d,
 		"s": "BTCUSDT",
-		"t": 12345,
+		"a": 12345,
 		"p": "50000.25",
 		"q": "1.5",
 		"T": %d,

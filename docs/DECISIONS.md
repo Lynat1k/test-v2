@@ -3,6 +3,79 @@
 > Сюда пишем решения, которые меняют или фиксируют архитектуру/правила.
 > Новые — сверху. Если решение противоречит спеке — сначала обнови спеку.
 
+### [2026-06-14] Ingest @aggTrade для обоих рынков
+- Контекст: live-ingest был поднят только для futures. Spot-трейды не попадали в aggregator → spot OrderBook.lastPrice = 0 → стакан пуст.
+- Решение: оба рынка используют `@aggTrade`. Futures: `fstream.binance.com/market/ws/...@aggTrade`. Spot: `stream.binance.com:9443/ws/...@aggTrade`. Парсер: `tradeID = msg.AggregateTradeID` для обоих. Spot-ingest worker запущен в main.go, тот же tradesCh.
+- **КРИТИЧЕСКИ ВАЖНО**: Futures WS URL требует префикс `/market/ws/` (`wss://fstream.binance.com/market/ws/{symbol}@aggTrade`). Spot URL использует `/ws/` без префикса (`wss://stream.binance.com:9443/ws/{symbol}@aggTrade`). Причина: Binance futures и спот WS эндпоинты имеют разную структуру URI. Удаление `/market/` из futures URL приводит к silently reconnect loop без данных. Не менять эти URL.
+- Альтернативы:
+  - Spot на `@trade` (индивидуальные трейды) — отвергнуто: единый формат @aggTrade проще, тесты/парсер едины.
+  - Два tradesCh (futures/spot) — отвергнуто: aggregator мультирыночный по trade.Market, один канал достаточно.
+- Последствия: model.Trade получил `Market`/`Symbol` поля. Aggregator ведёт per-symbol:market candle buffers.
+
+### [2026-06-14] Aggregator мультирыночный: candleState per symbol:market
+- Контекст: aggregator хардкодил "BTCUSDT"/"futures" в Run/processTrade/FlushCandle. Spot-трейды попадали бы в futures-буферы.
+- Решение: `Run()` хранит `map[string]*candleState` по ключу `BookKey(symbol, market)`. Каждый symbol:market имеет свои currentCandleOpen, live, lastUpdateTime. FlushCandle вызывается для каждого активного по границе минуты. Live candles → `tableForMarket(market)`: futures → clusters_futures, spot → clusters_spot.
+- Альтернативы:
+  - Два отдельных aggregator instance — отвергнуто: лишняя сложность, общий tradesCh.
+  - Один state с проверкой market — отвергнуто: невозможно вести две свечи параллельно.
+- Последствия: spot/futures live-данные полностью изолированы. Rollup для каждого рынка отдельно.
+
+### [2026-06-14] LastPrice в OrderBook: питается из aggregator trade-потока
+- Контекст: `LiveDOMBroadcaster.broadcastAll()` пропускала все тики (`centerPrice <= 0`). `OrderBook.lastPrice` был всегда 0 — `SetLastPrice()` нигде не вызывался в production-коде.
+- Причина: Binance depth stream (`@depth`) содержит **только лимитные ордера** (bids/asks), но **НЕ содержит цену последнего трейда**. Depth-события обновляют bids/asks, но не меняют lastPrice.
+- Решение: `aggregator.processTrade()` вызывает `ob.SetLastPrice(trade.Price)` при каждом трейде. Aggregator хранит `orderBooks map[string]LastPriceSetter` (interface — избегает import cycle aggregator→depth). Общий инстанс `*depth.OrderBook` передаётся из main.go через `agg.SetOrderBooks()`.
+- Альтернативы:
+  - Depth-sync подключается к `@trade`/`@aggTrade` параллельно — отвергнуто: лишнее WS-соединение, дублирование логики.
+  - Отдельный trade-stream goroutine — отвергнуто: aggregator уже обрабатывает trades, проще расширить его.
+- Последствия: `BookKey(symbol, market)` унифицирован для aggregator, depth-sync, snapshotter, livedom. Проверка `ob, ok := a.orderBooks[key]; ok` — нет паники при отсутствии OrderBook.
+
+### [2026-06-14] Depth-sync OrderBook: sync.RWMutex, не atomic/copy
+- Контекст: depth-горутина пишет на каждое WS-событие (~100-500/сек), snapshotter и liveDOM читают ~1/сек. Нужна потокобезопасность.
+- Решение: `sync.RWMutex`. Depth пишет (write lock), snapshotter/liveDOM читают (read lock). `lastPrice` хранится под тем же RWMutex (проще, чем atomic.Float64 через math.Float64bits). Contention минимальный: 2 reads/сек vs 100+ writes/сек, write операции быстрые (map assign/delete).
+- Альтернативы:
+  - `atomic.Float64` для `lastPrice` — отвергнуто: в Go нет встроенного atomic.Float64, requires math.Float64bits/Float64frombits + atomic.Uint64. Сложнее, без преимуществ.
+  - Copy-on-read (полная копия maps на каждое чтение) — отвергнуто: избыточно при 2 reads/сек, 16KB копирований/сек незначительны.
+  - `atomic.Value` для всего OrderBook — отвергнуто: нужна атомарность bids+asks+lastUpd together.
+- Последствия: depth writes блокируют reads на microseconds (map assign), не критично.
+
+### [2026-06-14] DOM snapshot timing: futures через CandleCloseCh, spot по таймеру
+- Контекст: снапшот должен быть point-in-time на закрытие свечи. Futures: aggregator делает FlushCandle на границе минуты. Spot: нет live 15m candle close (rollup идёт из 1m, не в реальном времени).
+- Решение: `CandleCloseCh` канал от aggregator → snapshotter. Futures: снапшот при каждом сигнале (каждую минуту). Spot: таймер проверяет `minute%15==0 && second==0`. Spot snapshot НЕ привязан к несуществующему 15m close сигналу — работает по wall clock.
+- Альтернативы:
+  - Отдельный таймер и для futures — отвергнуто: дублирование логики, нет гарантии синхронизации с FlushCandle.
+  - Snapshot в aggregator после FlushCandle — отвергнуто: нарушает разделение обязанностей, aggregator не должен знать про DOM.
+- Последствия: futures DOM-снапшоты точно привязаны к закрытию минутных свечей. Spot — по времени.
+
+### [2026-06-14] Live DOM: WS push 1/сек, не REST polling
+- Контекст: N клиентов × REST polling 1/сек = нагрузка. Уже есть WS hub infrastructure.
+- Решение: `LiveDOMBroadcaster` goroutine, раз в секунду рассылает `dom_update` всем подписчикам активного символа. Channel key: `dom:{symbol}:{market}`. Фильтрация ±5% от `lastPrice` ПЕРЕД отправкой (не слать 1000 уровней).
+- Альтернативы:
+  - REST polling 1/сек — отвергнуто: N запросов/сек, латентность.
+  - WS push на каждый depth diff — отвергнуто: слишком много сообщений, 250ms diffs × N символов.
+- Последствия: экономия трафика и RAM на 8GB сервере. 1 push/сек на клиента.
+
+### [2026-06-14] F&G: fetch каждые 60 мин, cache TTL 24h, fallback
+- Контекст: alternative.me бесплатный, может быть недоступен. Нужна устойчивость.
+- Решение: `FNGFetcher` fetch каждые 60 минут (дешевле перестраховаться). Redis hash `fng:current` с TTL 24h. При старте — fetch. При ошибке fetch — fallback на кэш. REST `/api/v1/fng` читает из кэша, если кэша нет — fetch напрямую.
+- Альтернативы:
+  - Fetch раз в 24h — отвергнуто: при падении в 00:00 данные протухнут до следующего дня.
+  - Fetch на каждый запрос — отвергнуто: rate limiting, нагрузка на внешний API.
+- Последствия: данные могут быть до 60 минут задержкой от alternative.me. При полном падении — последние закэшированные.
+
+### [2026-06-14] Symbol config: единый `config/symbols.go`
+- Контекст: хардкод `BTCUSDT`/`futures` в aggregator.go, main.go. Depth-sync/snapshotter нужна та же конфигурация.
+- Решение: `config/symbols.go` — `SymbolConfig` с `Symbol`, `Market`, `PriceTick`, `BaseLevel`, `SnapInterval`. Методы: `CompressionConfig()`, `DOMTable()`, `Key()`. `DefaultSymbols` slice + `SymbolMap()` helper.
+- Альтернативы:
+  - JSON/YAML конфиг файл — отвергнуто: на старте project, достаточно Go-констант.
+  - Админка/БД — отвергнуто: избыточно для 2 символов на старте.
+- Последствия: aggregator, depth-sync, snapshotter, livedom берут конфиги из одного источника.
+
+### [2026-06-14] InsertDOMSnapshotBatch: параметр table
+- Контекст: хардкод `clusters_futures_dom`. Spot DOM-снапшоты писались бы в futures таблицу.
+- Решение: `InsertDOMSnapshotBatch(ctx, rows, table string)`. Аналогично `InsertClusterBatch`. `config.SymbolConfig.DOMTable()` возвращает имя таблицы.
+- Альтернативы: отдельный метод `InsertSpotDOMBatch` — отвергнуто (дублирование).
+- Последствия: repository interface изменён. Все callers обновлены.
+
 ### [2026-06-13] Rollup: 15m/30m добавлены, GetLatestCandles: market + before
 - Контекст: Spot timeframes = [15m, 30m, 1h, 4h] в фронте, но rollup генерировал только 1h/4h/1d. API `GetLatestCandles` хардкодил `clusters_futures` (spot невидим) и `before` фильтровал client-side (historical пустой).
 - Решение: (1) `AlignToTimeframe` + `Rollup()` расширены на 15m/30m. (2) `GetLatestCandles` принимает `market` (table selection) и `before *int64` (server-side `WHERE candle_open < toDateTime64(?, 3)`). (3) `validTimeframes` + `30m`. Spot: [15m, 30m, 1h, 4h], futures: [1m, 5m, 15m, 30m, 1h, 4h].

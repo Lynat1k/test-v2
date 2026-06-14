@@ -10,7 +10,7 @@ import (
 type MarketRepository interface {
 	InsertClusterBatch(ctx context.Context, rows []model.ClusterRow, table string) error
 	DeleteClustersByRange(ctx context.Context, table, symbol, timeframe string, from, to time.Time) error
-	InsertDOMSnapshotBatch(ctx context.Context, rows []model.DOMRow) error
+	InsertDOMSnapshotBatch(ctx context.Context, rows []model.DOMRow, table string) error
 	GetLatestCandles(ctx context.Context, symbol, timeframe, market string, limit int, before *int64) ([]model.Candle, error)
 	GetClusters(ctx context.Context, symbol, timeframe string, candleOpen int64) ([]model.ClusterRow, error)
 	GetClustersBatch(ctx context.Context, symbol, timeframe string, candleOpens []int64) (map[int64][]model.ClusterRow, error)

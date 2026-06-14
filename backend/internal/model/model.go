@@ -15,6 +15,8 @@ type Trade struct {
 	IsBuyerMaker bool
 	TradeID      int64
 	Time         time.Time
+	Market       string
+	Symbol       string
 }
 
 type ClusterRow struct {

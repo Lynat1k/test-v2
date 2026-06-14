@@ -24,7 +24,7 @@ func New(symbol string, market MarketType, tradesCh chan model.Trade) *IngestWor
 	if market == MarketFutures {
 		url = fmt.Sprintf("wss://fstream.binance.com/market/ws/%s@aggTrade", toLower(symbol))
 	} else {
-		url = fmt.Sprintf("wss://stream.binance.com:9443/ws/%s@trade", toLower(symbol))
+		url = fmt.Sprintf("wss://stream.binance.com:9443/ws/%s@aggTrade", toLower(symbol))
 	}
 
 	w := &IngestWorker{
@@ -59,6 +59,8 @@ func (w *IngestWorker) handleMessage(data []byte) {
 	w.lastID = trade.TradeID
 	w.mu.Unlock()
 
+	trade.Market = string(w.market)
+	trade.Symbol = w.symbol
 	w.tradesCh <- *trade
 }
 

@@ -96,6 +96,18 @@ const ru = {
     layoutHorizontal: '2 Графика H',
     layoutVertical: '2 Графика V',
   },
+  fng: {
+    title: 'Страх и жадность',
+    loading: 'Загрузка F&G...',
+  },
+  dom: {
+    bidSize: 'Бид',
+    askSize: 'Аск',
+    price: 'Цена',
+    noData: 'Ожидание данных...',
+    collapse: 'Свернуть стакан',
+    expand: 'Развернуть стакан',
+  },
 } as const
 
 export default ru

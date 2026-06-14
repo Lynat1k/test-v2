@@ -50,12 +50,7 @@ func ParseMessage(data []byte, market MarketType) (*model.Trade, error) {
 		return nil, fmt.Errorf("parse quantity %q: %w", msg.Quantity, err)
 	}
 
-	var tradeID int64
-	if market == MarketFutures {
-		tradeID = msg.AggregateTradeID
-	} else {
-		tradeID = msg.TradeID
-	}
+	tradeID := msg.AggregateTradeID
 
 	if tradeID == 0 {
 		return nil, fmt.Errorf("zero tradeId")

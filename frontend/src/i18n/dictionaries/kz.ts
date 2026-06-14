@@ -96,6 +96,18 @@ const kz = {
     layoutHorizontal: '2 График H',
     layoutVertical: '2 График V',
   },
+  fng: {
+    title: 'Қорқыныш және ашкөздік',
+    loading: 'F&G жүктелуде...',
+  },
+  dom: {
+    bidSize: 'Бид',
+    askSize: 'Аск',
+    price: 'Баға',
+    noData: 'Деректер күтуде...',
+    collapse: 'Стаканды жинау',
+    expand: 'Стаканды кеңейту',
+  },
 } as const
 
 export default kz

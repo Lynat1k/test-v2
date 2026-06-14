@@ -3,6 +3,87 @@
 > Claude обновляет этот файл в КОНЦЕ каждой задачи. Новые записи — сверху.
 > Формат записи строго по шаблону. Это память между чатами.
 
+### [2026-06-14] Фаза 8 — FIX: мультирыночный aggregator + spot ingest + @aggTrade для обоих рынков
+- Модель: Sonnet
+- Что сделано:
+  - **model.Trade**: добавлены поля `Market string` и `Symbol string`. Ingest worker заполняет `trade.Market = string(w.market)` и `trade.Symbol = w.symbol` перед отправкой в tradesCh.
+  - **Aggregator мультирыночный**: `Run()` ведёт `map[string]*candleState` по ключу `BookKey(symbol, market)`. Каждый symbol:market имеет свои буферы (currentCandleOpen, live, lastUpdateTime). `processTrade()` берёт symbol/market из `trade.Symbol`/`trade.Market`. `FlushCandle()` вызывается для каждого активного symbol:market по границе минуты. Live-данные futures → clusters_futures, spot → clusters_spot (через `tableForMarket(market)`).
+  - **Ingest URL**: оба рынка используют `@aggTrade`. Futures: `wss://fstream.binance.com/ws/btcusdt@aggTrade`. Spot: `wss://stream.binance.com:9443/ws/btcusdt@aggTrade`. Парсер: `tradeID = msg.AggregateTradeID` для обоих рынков.
+  - **Spot ingest worker**: добавлен в main.go рядом с futures, тот же `tradesCh`. Спот-трейды идут в aggregator → `ob.SetLastPrice(trade.Price)` для spot OrderBook → LiveDOMBroadcaster/snapshotter不再跳过 BTCUSDT:spot.
+  - **Тесты**: TestParseSpotTrade обновлён — event `"aggTrade"` с полем `"a"` вместо `"trade"` с `"t"`.
+- Затронутые файлы:
+  - `backend/internal/model/model.go` (+Market, +Symbol в Trade)
+  - `backend/internal/ingest/ingest.go` (+trade.Market/Symbol, spot URL @aggTrade)
+  - `backend/internal/ingest/parser.go` (tradeID = AggregateTradeID для обоих)
+  - `backend/internal/ingest/ingest_test.go` (TestParseSpotTrade: aggTrade event)
+  - `backend/internal/aggregator/aggregator.go` (полная перезапись Run/processTrade: multi-market states map)
+  - `backend/cmd/procluster/main.go` (+spotWorker)
+- Ключевые решения:
+  - model.Trade несёт Market/Symbol — aggregator резолвит OrderBook и конфиг без хардкода
+  - candleState per symbol:market — изоляция буферов, spot/futures не путаются
+  - @aggTrade для spot: единый формат сообщения, парсер не нуждается в различии
+- Тесты: go build/vet/gofmt PASS, go test ./... ALL PASS.
+
+### [2026-06-14] Фаза 8 — FIX: lastPrice в OrderBook питается из aggregator trade-потока
+- Модель: Sonnet
+- Что сделано:
+  - **Корень бага**: `OrderBook.lastPrice` был всегда `0` — `SetLastPrice()` вызывался только в тестах. `LiveDOMBroadcaster.broadcastAll()` пропускал все тики из-за `centerPrice <= 0`. Depth-события Binance `@depth` не содержат цену трейда (только лимитные ордера).
+  - **Фикс**: добавлен интерфейс `LastPriceSetter` в aggregator + поле `orderBooks map[string]LastPriceSetter`. Метод `SetOrderBooks()` передаёт общий `map[string]*depth.OrderBook` из main.go. В `processTrade()`, при каждом трейде, вызывается `ob.SetLastPrice(trade.Price)` для соответствующего OrderBook. Ключ `BookKey(symbol, market)` унифицирован (`"BTCUSDT:futures"`).
+  - **Wiring**: в main.go создаётся `aggOrderBooks` (копия указателей из `orderBooks`) и передаётся через `agg.SetOrderBooks(aggOrderBooks)`. Тот же инстанс `*depth.OrderBook`, что используется в depth-sync, snapshotter, livedom.
+  - **Диагностические логи** `[livedom-debug]` удалены.
+- Затронутые файлы:
+  - `backend/internal/aggregator/aggregator.go` (+LastPriceSetter interface, +orderBooks field, +SetOrderBooks, +BookKey, +SetLastPrice call в processTrade)
+  - `backend/cmd/procluster/main.go` (+aggOrderBooks wiring)
+  - `backend/internal/depth/livedom.go` (-debug logs, -tickCnt)
+- Тесты: go build/vet/gofmt PASS, go test ./... ALL PASS.
+- Ключевое решение: depth @depth stream НЕ содержит цену трейда (только лимитные ордера). lastPrice питается из aggregator trade-потока (aggTrade/@trade).
+
+### [2026-06-14] Фаза 8 — Стакан DOM + Fear&Greed + Снапшоты
+- Модель: Opus (depth-sync + snapshotter), Sonnet (UI стакана)
+- Что сделано:
+  - **Depth-sync (backend)**: `depth/orderbook.go` — OrderBook в памяти с `sync.RWMutex`. Depth-горутина пишет, snapshotter/liveDOM читают. Методы: `SnapshotFromREST`, `ApplyFuturesUpdate` (pu-цепочка), `ApplySpotUpdate` (U==prev_u+1), `GetAggregatedLevels` (±5% от цены, base-сжатие, TRUNCATE). `depth/sync.go` — DepthSync: REST snapshot `limit=1000`, WS `@depth` stream, автоматический reconnect с exponential backoff (1s→30s). Futures: `U<=lastUpdateId && u>=lastUpdateId`, далее `pu==prev_u`. Spot: `U<=lastUpdateId+1 && u>=lastUpdateId+1`, далее `U==prev_u+1`.
+  - **DOM-снапшоты (backend)**: `depth/snapshotter.go` — слушает `CandleCloseCh` от aggregator для futures (каждую минуту). Spot: таймер `minute%15==0 && second==0` (нет live 15m candle close). Агрегация ±5% от `lastPrice` по `baseStep` (BTC futures 2.5$, spot 5$). TRUNCATE до 1 знака. Запись в `clusters_futures_dom`/`clusters_spot_dom`.
+  - **Live DOM (backend)**: `depth/livedom.go` — WS push `dom_update` раз в секунду. Фильтрация ±5% ПЕРЕД отправкой (не 1000 уровней). Channel key `dom:{symbol}:{market}`. REST `/api/v1/fng` из Redis кэша.
+  - **Fear & Greed (backend)**: `fng/fetcher.go` — `alternative.me/api/fng/?limit=1`. Кэш в Redis hash `fng:current` с TTL 24h. Фетч каждые 60 минут. Graceful fallback на кэш при недоступности источника.
+  - **Aggregator changes**: `CandleCloseCh` канал + `SetCandleCloseCh()`. Сигнал `CandleCloseSignal` отправляется после `FlushCandle` (non-blocking select).
+  - **Repository**: `InsertDOMSnapshotBatch` параметризован по `table` (был хардкод `clusters_futures_dom`).
+  - **Symbol config**: `config/symbols.go` — единый конфиг символов (PriceTick, BaseLevel, SnapInterval, DOMTable). Убран хардкод в aggregator.
+  - **API**: `api/dom.go` — REST `GET /api/v1/fng` + WS `dom_subscribe`/`dom_unsubscribe`. Client получил поле `domSubscribed`.
+  - **Frontend**: `DOMSidebar` — панель справа от графика. FearGreedPanel (индекс 0-100, цветовая полоса), OrderBookTable (bid/ask строки ±5%, горизонтальные бары объёмов, авто-центрирование через 1с). Сворачивание в край (кнопка «/»), при сворачивании график растягивается. Привязка к `activeSlot` (symbol/market).
+  - **i18n**: ключи `fng.*`, `dom.*` добавлены в en/ru/kz словари.
+  - **Unit-тесты**: 12 тестов — SnapshotFromREST, ApplyFuturesUpdate, FuturesPUMismatch, FuturesDeleteLevel, ApplySpotUpdate, SpotUSequenceMismatch, GetAggregatedLevelsPercentRange, GetAggregatedLevelsTruncation, GetAggregatedLevelsAggregation, Clear, SetGetLastPrice, InvalidPriceIgnored. Все PASS.
+- Затронутые файлы/папки:
+  - `backend/internal/depth/` (создан: orderbook.go, sync.go, snapshotter.go, livedom.go, orderbook_test.go)
+  - `backend/internal/fng/` (создан: fetcher.go)
+  - `backend/internal/config/` (создан: symbols.go)
+  - `backend/internal/api/` (создан: dom.go; изменён: server.go, hub.go)
+  - `backend/internal/aggregator/aggregator.go` (+CandleCloseCh, +CandleCloseSignal, +SetCandleCloseCh)
+  - `backend/internal/repository/repository.go` (InsertDOMSnapshotBatch +table)
+  - `backend/internal/repository/clickhouse/clickhouse.go` (+table param)
+  - `backend/internal/repository/clickhouse/clickhouse_test.go` (обновлён вызов)
+  - `backend/cmd/procluster/main.go` (подключены depth-sync, snapshotter, livedom, fng)
+  - `frontend/src/types/dom.ts` (создан)
+  - `frontend/src/hooks/useDOM.ts` (создан)
+  - `frontend/src/components/DOMSidebar/` (создан: index.tsx, FearGreedPanel.tsx, OrderBookTable.tsx)
+  - `frontend/src/App.tsx` (+DOMSidebar в terminal view)
+  - `frontend/src/i18n/dictionaries/{en,ru,kz}.ts` (+fng.*, dom.*)
+- Ключевые решения:
+  - sync.RWMutex для OrderBook — depth пишет, snapshotter/liveDOM читают, contention минимальный (2 reads/сек)
+  - Snapshot timing: futures по CandleCloseCh от aggregator, spot по таймеру (minute%15==0)
+  - Live DOM: WS push 1/сек, не REST polling — экономия трафика, ±5% фильтрация перед отправкой
+  - F&G: fetch каждые 60 мин, cache TTL 24h, fallback на кэш
+  - Symbol config: единый `config/symbols.go` вместо хардкода в нескольких местах
+- Тесты/проверки:
+  - go build ./...: PASS
+  - go vet ./...: PASS
+  - gofmt -l .: PASS (0 файлов)
+  - go test ./internal/depth/: PASS (12 тестов)
+  - go test ./internal/aggregation/: PASS (14 тестов)
+  - go test ./internal/history/: PASS
+  - go test ./internal/api/: PASS
+  - TypeScript compilation: PASS (npx tsc --noEmit)
+  - Vite build: PASS (454ms)
+
 ### [2026-06-13] Фаза 7 — Layouts: фикс 3 багов dual-mode
 - Модель: Sonnet (mimo-auto)
 - Что сделано:

@@ -8,6 +8,7 @@ import (
 
 	"github.com/procluster/procluster/internal/aggregator"
 	"github.com/procluster/procluster/internal/cache"
+	"github.com/procluster/procluster/internal/fng"
 	"github.com/procluster/procluster/internal/repository"
 )
 
@@ -18,6 +19,7 @@ type Server struct {
 	cache          *cache.CandleCache
 	agg            *aggregator.Aggregator
 	sessionManager *SessionManager
+	fngFetcher     *fng.FNGFetcher
 	cfg            ServerConfig
 }
 
@@ -43,6 +45,7 @@ func NewServer(
 	cfg ServerConfig,
 	restLimiter *RateLimiter,
 	wsLimiter *RateLimiter,
+	fngFetcher *fng.FNGFetcher,
 ) *Server {
 	hub := NewHub()
 
@@ -52,6 +55,7 @@ func NewServer(
 		agg:            agg,
 		sessionManager: sm,
 		hub:            hub,
+		fngFetcher:     fngFetcher,
 		cfg:            cfg,
 	}
 
@@ -65,6 +69,7 @@ func NewServer(
 	mux.Handle("GET /api/v1/candles", RateLimitMiddleware(restLimiter, withMiddleware(candlesHandler)))
 	mux.Handle("GET /api/v1/candles/{symbol}/clusters/{candleOpen}", RateLimitMiddleware(restLimiter, withMiddleware(clusterHandler)))
 	mux.Handle("GET /api/v1/candles/{symbol}/clusters-batch", RateLimitMiddleware(restLimiter, withMiddleware(clustersBatchHandler)))
+	mux.Handle("GET /api/v1/fng", RateLimitMiddleware(restLimiter, withMiddleware(http.HandlerFunc(s.handleFNG))))
 	mux.Handle("GET /ws", WSRateLimitMiddleware(wsLimiter, withMiddleware(wsHandler)))
 
 	s.httpServer = &http.Server{

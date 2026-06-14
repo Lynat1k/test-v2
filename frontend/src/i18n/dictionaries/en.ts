@@ -96,6 +96,18 @@ const en = {
     layoutHorizontal: '2 Charts H',
     layoutVertical: '2 Charts V',
   },
+  fng: {
+    title: 'Fear & Greed',
+    loading: 'Loading F&G...',
+  },
+  dom: {
+    bidSize: 'Bid',
+    askSize: 'Ask',
+    price: 'Price',
+    noData: 'Waiting for data...',
+    collapse: 'Collapse DOM',
+    expand: 'Expand DOM',
+  },
 } as const
 
 export default en

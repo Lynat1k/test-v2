@@ -37,6 +37,7 @@ type Client struct {
 	hub           *Hub
 	send          chan []byte
 	subscribed    string
+	domSubscribed string
 	sessionActive bool
 	mu            sync.Mutex
 }
@@ -257,6 +258,10 @@ func (s *Server) handleWSMessage(c *Client, raw []byte) {
 		s.handleHeartbeat(c)
 	case "chart_unsubscribe":
 		s.handleChartUnsubscribe(c)
+	case "dom_subscribe":
+		s.handleDOMSubscribe(c, msg)
+	case "dom_unsubscribe":
+		s.handleDOMUnsubscribe(c)
 	default:
 		s.sendWSError(c, "unknown message type: "+msg.Type)
 	}

@@ -1,0 +1,231 @@
+package depth
+
+import (
+	"testing"
+)
+
+func TestSnapshotFromREST(t *testing.T) {
+	ob := NewOrderBook("BTCUSDT", "futures")
+	bids := []PriceLevel{{Price: 84900, Qty: 1.5}, {Price: 84800, Qty: 2.0}}
+	asks := []PriceLevel{{Price: 85000, Qty: 0.5}, {Price: 85100, Qty: 3.0}}
+	ob.SnapshotFromREST(100, bids, asks)
+
+	if ob.GetLastUpdateID() != 100 {
+		t.Errorf("lastUpdateId = %d, want 100", ob.GetLastUpdateID())
+	}
+
+	levels := ob.GetAggregatedLevels(85000, 0.05, 100)
+	if len(levels) == 0 {
+		t.Fatal("expected levels, got 0")
+	}
+
+	found := false
+	for _, l := range levels {
+		if l.PriceLevel == 84900 {
+			if l.BidSize != 1.5 {
+				t.Errorf("bidSize = %f, want 1.5", l.BidSize)
+			}
+			found = true
+		}
+	}
+	if !found {
+		t.Error("price level 84900 not found")
+	}
+}
+
+func TestApplyFuturesUpdate(t *testing.T) {
+	ob := NewOrderBook("BTCUSDT", "futures")
+	ob.SnapshotFromREST(100, nil, nil)
+
+	ok := ob.ApplyFuturesUpdate(101, 102, 100,
+		[][2]string{{"84900.0", "1.5"}},
+		[][2]string{{"85000.0", "0.5"}},
+	)
+	if !ok {
+		t.Fatal("ApplyFuturesUpdate returned false")
+	}
+
+	if ob.GetLastUpdateID() != 102 {
+		t.Errorf("lastUpdateId = %d, want 102", ob.GetLastUpdateID())
+	}
+
+	levels := ob.GetAggregatedLevels(85000, 0.05, 100)
+	found := false
+	for _, l := range levels {
+		if l.PriceLevel == 84900 {
+			if l.BidSize != 1.5 {
+				t.Errorf("bidSize = %f, want 1.5", l.BidSize)
+			}
+			found = true
+		}
+	}
+	if !found {
+		t.Error("price level 84900 not found")
+	}
+}
+
+func TestFuturesPUMismatch(t *testing.T) {
+	ob := NewOrderBook("BTCUSDT", "futures")
+	ob.SnapshotFromREST(100, nil, nil)
+
+	ob.ApplyFuturesUpdate(101, 102, 100, nil, nil)
+
+	ok := ob.ApplyFuturesUpdate(103, 104, 999, nil, nil)
+	if ok {
+		t.Error("expected false for pu mismatch")
+	}
+}
+
+func TestFuturesDeleteLevel(t *testing.T) {
+	ob := NewOrderBook("BTCUSDT", "futures")
+	ob.SnapshotFromREST(100,
+		[]PriceLevel{{Price: 84900, Qty: 1.5}},
+		nil,
+	)
+
+	ob.ApplyFuturesUpdate(101, 102, 100,
+		[][2]string{{"84900.0", "0"}},
+		nil,
+	)
+
+	levels := ob.GetAggregatedLevels(85000, 0.05, 100)
+	for _, l := range levels {
+		if l.PriceLevel == 84900 && l.BidSize != 0 {
+			t.Errorf("bidSize should be 0 after delete, got %f", l.BidSize)
+		}
+	}
+}
+
+func TestApplySpotUpdate(t *testing.T) {
+	ob := NewOrderBook("BTCUSDT", "spot")
+	ob.SnapshotFromREST(100, nil, nil)
+
+	ok := ob.ApplySpotUpdate(101, 102,
+		[][2]string{{"84900.00", "2.0"}},
+		[][2]string{{"85000.00", "1.0"}},
+	)
+	if !ok {
+		t.Fatal("ApplySpotUpdate returned false")
+	}
+
+	if ob.GetLastUpdateID() != 102 {
+		t.Errorf("lastUpdateId = %d, want 102", ob.GetLastUpdateID())
+	}
+}
+
+func TestSpotUSequenceMismatch(t *testing.T) {
+	ob := NewOrderBook("BTCUSDT", "spot")
+	ob.SnapshotFromREST(100, nil, nil)
+
+	ob.ApplySpotUpdate(101, 102, nil, nil)
+
+	ok := ob.ApplySpotUpdate(999, 1000, nil, nil)
+	if ok {
+		t.Error("expected false for U mismatch")
+	}
+}
+
+func TestGetAggregatedLevelsPercentRange(t *testing.T) {
+	ob := NewOrderBook("BTCUSDT", "futures")
+	bids := []PriceLevel{
+		{Price: 84900, Qty: 1.0},
+		{Price: 80000, Qty: 5.0},
+	}
+	asks := []PriceLevel{
+		{Price: 85000, Qty: 1.0},
+		{Price: 90000, Qty: 5.0},
+	}
+	ob.SnapshotFromREST(1, bids, asks)
+
+	levels := ob.GetAggregatedLevels(85000, 0.05, 100)
+	for _, l := range levels {
+		if l.PriceLevel == 80000 || l.PriceLevel == 90000 {
+			t.Errorf("level %f should be filtered out by ±5%%", l.PriceLevel)
+		}
+	}
+}
+
+func TestGetAggregatedLevelsTruncation(t *testing.T) {
+	ob := NewOrderBook("BTCUSDT", "futures")
+	bids := []PriceLevel{
+		{Price: 84900, Qty: 1.56},
+	}
+	ob.SnapshotFromREST(1, bids, nil)
+
+	levels := ob.GetAggregatedLevels(85000, 0.05, 100)
+	for _, l := range levels {
+		if l.PriceLevel == 84900 {
+			if l.BidSize != 1.5 {
+				t.Errorf("bidSize = %f, want 1.5 (truncated)", l.BidSize)
+			}
+		}
+	}
+}
+
+func TestGetAggregatedLevelsAggregation(t *testing.T) {
+	ob := NewOrderBook("BTCUSDT", "futures")
+	bids := []PriceLevel{
+		{Price: 84900, Qty: 1.56},
+		{Price: 84950, Qty: 2.34},
+	}
+	ob.SnapshotFromREST(1, bids, nil)
+
+	levels := ob.GetAggregatedLevels(85000, 0.05, 100)
+	found := false
+	for _, l := range levels {
+		if l.PriceLevel == 84900 {
+			if l.BidSize != 3.9 {
+				t.Errorf("bidSize = %f, want 3.9 (sum 1.56+2.34 truncated)", l.BidSize)
+			}
+			found = true
+		}
+	}
+	if !found {
+		t.Error("price level 84900 not found")
+	}
+}
+
+func TestClear(t *testing.T) {
+	ob := NewOrderBook("BTCUSDT", "futures")
+	ob.SnapshotFromREST(100,
+		[]PriceLevel{{Price: 84900, Qty: 1.0}},
+		[]PriceLevel{{Price: 85000, Qty: 1.0}},
+	)
+	ob.Clear()
+
+	if ob.GetLastUpdateID() != 0 {
+		t.Errorf("lastUpdateId = %d, want 0 after clear", ob.GetLastUpdateID())
+	}
+
+	levels := ob.GetAggregatedLevels(85000, 0.05, 100)
+	if len(levels) != 0 {
+		t.Errorf("expected 0 levels after clear, got %d", len(levels))
+	}
+}
+
+func TestSetGetLastPrice(t *testing.T) {
+	ob := NewOrderBook("BTCUSDT", "futures")
+	ob.SetLastPrice(85000.12)
+
+	if ob.GetLastPrice() != 85000.12 {
+		t.Errorf("lastPrice = %f, want 85000.12", ob.GetLastPrice())
+	}
+}
+
+func TestInvalidPriceIgnored(t *testing.T) {
+	ob := NewOrderBook("BTCUSDT", "futures")
+	ob.SnapshotFromREST(100, nil, nil)
+
+	ok := ob.ApplyFuturesUpdate(101, 102, 100,
+		[][2]string{{"-100", "1.0"}, {"0", "1.0"}},
+		[][2]string{{"abc", "1.0"}},
+	)
+	if !ok {
+		t.Fatal("should return true even with invalid data")
+	}
+
+	levels := ob.GetAggregatedLevels(85000, 0.05, 100)
+	if len(levels) != 0 {
+		t.Errorf("expected 0 levels for invalid prices, got %d", len(levels))
+	}
+}

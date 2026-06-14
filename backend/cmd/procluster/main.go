@@ -14,6 +14,9 @@ import (
 	"github.com/procluster/procluster/internal/aggregator"
 	"github.com/procluster/procluster/internal/api"
 	"github.com/procluster/procluster/internal/cache"
+	"github.com/procluster/procluster/internal/config"
+	"github.com/procluster/procluster/internal/depth"
+	"github.com/procluster/procluster/internal/fng"
 	"github.com/procluster/procluster/internal/ingest"
 	"github.com/procluster/procluster/internal/model"
 	"github.com/procluster/procluster/internal/repository/clickhouse"
@@ -55,6 +58,11 @@ func main() {
 	defer repo.Close()
 	log.Println("[clickhouse] connected")
 
+	if err := repo.ApplyMigrations(ctx); err != nil {
+		log.Fatalf("[clickhouse] migrations failed: %v", err)
+	}
+	log.Println("[clickhouse] migrations applied")
+
 	candleCache := cache.New(rdb)
 	agg := aggregator.New(repo, rdb)
 	sm := api.NewSessionManager(rdb)
@@ -67,25 +75,60 @@ func main() {
 	restLimiter := api.NewRateLimiter(rdb, time.Minute, 60)
 	wsLimiter := api.NewRateLimiter(rdb, time.Minute, 5)
 
-	srv := api.NewServer(repo, candleCache, agg, sm, apiCfg, restLimiter, wsLimiter)
+	fngFetcher := fng.NewFNGFetcher(rdb)
+
+	srv := api.NewServer(repo, candleCache, agg, sm, apiCfg, restLimiter, wsLimiter, fngFetcher)
 
 	hub := srv.Hub()
 	go hub.Run(ctx)
 
-	// Wire aggregator → WS hub for live candle_update broadcasts
 	updatesCh := make(chan aggregator.CandleUpdate, 64)
 	agg.SetUpdatesCh(updatesCh)
 	go hub.ListenToAggregator(ctx, updatesCh)
 
-	// Wire ingest → aggregator
+	candleCloseCh := make(chan aggregator.CandleCloseSignal, 64)
+	agg.SetCandleCloseCh(candleCloseCh)
+
+	symbolConfigs := config.SymbolMap()
+	orderBooks := make(map[string]*depth.OrderBook)
+	for key, sc := range symbolConfigs {
+		orderBooks[key] = depth.NewOrderBook(sc.Symbol, sc.Market)
+	}
+
+	aggOrderBooks := make(map[string]aggregator.LastPriceSetter, len(orderBooks))
+	for key, ob := range orderBooks {
+		aggOrderBooks[key] = ob
+	}
+	agg.SetOrderBooks(aggOrderBooks)
+
+	for _, sc := range symbolConfigs {
+		ob := orderBooks[sc.Key()]
+		depthSync := depth.NewDepthSync(sc.Symbol, sc.Market, ob, sc.CompressionConfig())
+		go depthSync.Run(ctx)
+		log.Printf("[depth-sync] started %s:%s", sc.Symbol, sc.Market)
+	}
+
+	snapshotter := depth.NewSnapshotter(repo, orderBooks, candleCloseCh, symbolConfigs)
+	go snapshotter.Run(ctx)
+	log.Println("[snapshotter] started")
+
+	liveDOM := depth.NewLiveDOMBroadcaster(hub, orderBooks, symbolConfigs)
+	go liveDOM.Run(ctx)
+	log.Println("[livedom] started")
+
+	go fngFetcher.Run(ctx)
+	log.Println("[fng-fetcher] started")
+
 	tradesCh := make(chan model.Trade, 1024)
 	go agg.Run(ctx, tradesCh)
 
-	// Start ingest workers
 	futuresWorker := ingest.New("BTCUSDT", ingest.MarketFutures, tradesCh)
 	go futuresWorker.Run(ctx)
+	log.Println("[ingest] BTCUSDT futures @aggTrade")
 
-	log.Println("[ingest] BTCUSDT futures connected to Binance @aggTrade")
+	spotWorker := ingest.New("BTCUSDT", ingest.MarketSpot, tradesCh)
+	go spotWorker.Run(ctx)
+	log.Println("[ingest] BTCUSDT spot @aggTrade")
 
 	go func() {
 		if err := srv.ListenAndServe(); err != nil && err.Error() != "http: Server closed" {

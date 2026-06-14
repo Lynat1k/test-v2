@@ -97,7 +97,7 @@ func TestIntegration(t *testing.T) {
 		},
 	}
 
-	if err := repo.InsertDOMSnapshotBatch(ctx, domRows); err != nil {
+	if err := repo.InsertDOMSnapshotBatch(ctx, domRows, "clusters_futures_dom"); err != nil {
 		t.Fatalf("insert DOM snapshot: %v", err)
 	}
 

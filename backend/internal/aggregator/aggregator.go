@@ -14,18 +14,31 @@ import (
 	"github.com/procluster/procluster/internal/repository"
 )
 
+type LastPriceSetter interface {
+	SetLastPrice(price float64)
+}
+
 type Aggregator struct {
-	repo      repository.MarketRepository
-	rdb       *redis.Client
-	configs   map[string]aggregationCompressionConfig
-	mu        sync.Mutex
-	UpdatesCh chan<- CandleUpdate
+	repo          repository.MarketRepository
+	rdb           *redis.Client
+	configs       map[string]aggregationCompressionConfig
+	orderBooks    map[string]LastPriceSetter
+	mu            sync.Mutex
+	UpdatesCh     chan<- CandleUpdate
+	CandleCloseCh chan<- CandleCloseSignal
 }
 
 type CandleLevel struct {
 	PriceLevel float64 `json:"priceLevel"`
 	BidVolume  float64 `json:"bidVolume"`
 	AskVolume  float64 `json:"askVolume"`
+}
+
+type CandleCloseSignal struct {
+	Symbol     string
+	Market     string
+	Timeframe  string
+	CandleOpen time.Time
 }
 
 type CandleUpdate struct {
@@ -57,6 +70,12 @@ type liveCandle struct {
 	tradesCount uint64
 }
 
+type candleState struct {
+	currentCandleOpen time.Time
+	live              liveCandle
+	lastUpdateTime    time.Time
+}
+
 func New(repo repository.MarketRepository, rdb *redis.Client) *Aggregator {
 	a := &Aggregator{
 		repo:    repo,
@@ -82,11 +101,20 @@ func (a *Aggregator) SetUpdatesCh(ch chan<- CandleUpdate) {
 	a.UpdatesCh = ch
 }
 
-func (a *Aggregator) Run(ctx context.Context, trades <-chan model.Trade) {
-	var currentCandleOpen time.Time
-	var live liveCandle
-	var lastUpdateTime time.Time
+func (a *Aggregator) SetCandleCloseCh(ch chan<- CandleCloseSignal) {
+	a.CandleCloseCh = ch
+}
 
+func (a *Aggregator) SetOrderBooks(books map[string]LastPriceSetter) {
+	a.orderBooks = books
+}
+
+func BookKey(symbol, market string) string {
+	return symbol + ":" + market
+}
+
+func (a *Aggregator) Run(ctx context.Context, trades <-chan model.Trade) {
+	states := make(map[string]*candleState)
 	flushTimer := time.NewTimer(time.Until(nextMinute()))
 	defer flushTimer.Stop()
 
@@ -95,42 +123,60 @@ func (a *Aggregator) Run(ctx context.Context, trades <-chan model.Trade) {
 		case <-ctx.Done():
 			return
 		case <-flushTimer.C:
-			if !currentCandleOpen.IsZero() {
-				if err := a.FlushCandle(ctx, "BTCUSDT", "futures", "1m", currentCandleOpen); err != nil {
-					log.Printf("[aggregator] flush error: %v", err)
+			now := time.Now()
+			for key, st := range states {
+				if !st.currentCandleOpen.IsZero() {
+					symbol, market := splitBookKey(key)
+					if err := a.FlushCandle(ctx, symbol, market, "1m", st.currentCandleOpen); err != nil {
+						log.Printf("[aggregator] flush error %s: %v", key, err)
+					}
 				}
+				st.currentCandleOpen = time.Time{}
+				st.live = liveCandle{}
+				st.lastUpdateTime = time.Time{}
+				_ = now
 			}
 			flushTimer.Reset(time.Until(nextMinute()))
 		case trade, ok := <-trades:
 			if !ok {
 				return
 			}
+			key := BookKey(trade.Symbol, trade.Market)
+			st, exists := states[key]
+			if !exists {
+				st = &candleState{}
+				states[key] = st
+			}
+
 			candleOpen := truncateToMinute(trade.Time)
-			if candleOpen != currentCandleOpen {
-				if !currentCandleOpen.IsZero() {
-					if err := a.FlushCandle(ctx, "BTCUSDT", "futures", "1m", currentCandleOpen); err != nil {
-						log.Printf("[aggregator] flush error: %v", err)
+			if candleOpen != st.currentCandleOpen {
+				if !st.currentCandleOpen.IsZero() {
+					if err := a.FlushCandle(ctx, trade.Symbol, trade.Market, "1m", st.currentCandleOpen); err != nil {
+						log.Printf("[aggregator] flush error %s: %v", key, err)
 					}
 				}
-				currentCandleOpen = candleOpen
-				live = liveCandle{}
-				lastUpdateTime = time.Time{}
-				flushTimer.Reset(time.Until(nextMinute()))
+				st.currentCandleOpen = candleOpen
+				st.live = liveCandle{}
+				st.lastUpdateTime = time.Time{}
 			}
-			a.processTrade(trade, &live, &lastUpdateTime)
+			a.processTrade(trade, &st.live, &st.lastUpdateTime)
 		}
 	}
 }
 
 func (a *Aggregator) processTrade(trade model.Trade, live *liveCandle, lastUpdateTime *time.Time) {
 	candleOpen := truncateToMinute(trade.Time)
-	config := a.getConfig("BTCUSDT", "futures")
+	config := a.getConfig(trade.Symbol, trade.Market)
+
+	if ob, ok := a.orderBooks[BookKey(trade.Symbol, trade.Market)]; ok {
+		ob.SetLastPrice(trade.Price)
+	}
 
 	level := aggregation.CompressPrice(trade.Price, config.BaseLevel*config.PriceTick)
 	side := aggregation.InterpretTrade(trade.IsBuyerMaker)
 	volume := aggregation.TruncateVolume(trade.Qty)
 
-	key := fmt.Sprintf("cluster:levels:%s:%s:1m:%d", "BTCUSDT", "futures", candleOpen.UnixMilli())
+	key := fmt.Sprintf("cluster:levels:%s:%s:1m:%d", trade.Symbol, trade.Market, candleOpen.UnixMilli())
 
 	field := fmt.Sprintf("%f", level)
 
@@ -153,9 +199,8 @@ func (a *Aggregator) processTrade(trade model.Trade, live *liveCandle, lastUpdat
 	a.rdb.HSet(context.Background(), key, field, fmt.Sprintf("%f,%f", bidVol, askVol))
 	a.rdb.Expire(context.Background(), key, 2*time.Minute)
 
-	metaKey := fmt.Sprintf("cluster:hot:%s:%s:1m:%d", "BTCUSDT", "futures", candleOpen.UnixMilli())
+	metaKey := fmt.Sprintf("cluster:hot:%s:%s:1m:%d", trade.Symbol, trade.Market, candleOpen.UnixMilli())
 
-	// Track first/last trade price by trade time (tradeId as tie-breaker)
 	firstPrice, _ := a.rdb.HGet(context.Background(), metaKey, "first_price").Float64()
 	firstTime, _ := a.rdb.HGet(context.Background(), metaKey, "first_trade_time").Int64()
 	lastPrice, _ := a.rdb.HGet(context.Background(), metaKey, "last_price").Float64()
@@ -171,14 +216,13 @@ func (a *Aggregator) processTrade(trade model.Trade, live *liveCandle, lastUpdat
 	}
 
 	a.rdb.HSet(context.Background(), metaKey,
-		"symbol", "BTCUSDT",
+		"symbol", trade.Symbol,
 		"timeframe", "1m",
 		"candle_open", candleOpen.UnixMilli(),
 		"last_trade_time", tradeTimeMs,
 	)
 	a.rdb.Expire(context.Background(), metaKey, 2*time.Minute)
 
-	// Update running OHLC
 	live.close = trade.Price
 	live.totalVolume += volume
 	live.tradesCount++
@@ -192,17 +236,15 @@ func (a *Aggregator) processTrade(trade model.Trade, live *liveCandle, lastUpdat
 		live.low = trade.Price
 	}
 
-	// Throttled broadcast: max once per 200ms
 	if a.UpdatesCh != nil && time.Since(*lastUpdateTime) >= 200*time.Millisecond {
 		*lastUpdateTime = time.Now()
 
-		// Read current cluster levels from Redis for the live candle
 		levels := a.readLevelsFromRedis(key)
 
 		select {
 		case a.UpdatesCh <- CandleUpdate{
-			Symbol:      "BTCUSDT",
-			Market:      "futures",
+			Symbol:      trade.Symbol,
+			Market:      trade.Market,
 			Timeframe:   "1m",
 			CandleOpen:  candleOpen.UnixMilli(),
 			Open:        live.open,
@@ -227,7 +269,6 @@ func (a *Aggregator) FlushCandle(ctx context.Context, symbol, market, timeframe 
 	metaKey := fmt.Sprintf("cluster:hot:%s:%s:%s:%d", symbol, market, timeframe, candleOpen.UnixMilli())
 	levelsKey := fmt.Sprintf("cluster:levels:%s:%s:%s:%d", symbol, market, timeframe, candleOpen.UnixMilli())
 
-	// Read first/last trade prices from Redis (original trade prices, not bucket centers)
 	openPrice, _ := a.rdb.HGet(ctx, metaKey, "first_price").Float64()
 	closePrice, _ := a.rdb.HGet(ctx, metaKey, "last_price").Float64()
 
@@ -294,6 +335,18 @@ func (a *Aggregator) FlushCandle(ctx context.Context, symbol, market, timeframe 
 
 	a.rdb.Del(ctx, levelsKey, metaKey)
 
+	if a.CandleCloseCh != nil {
+		select {
+		case a.CandleCloseCh <- CandleCloseSignal{
+			Symbol:     symbol,
+			Market:     market,
+			Timeframe:  timeframe,
+			CandleOpen: candleOpen,
+		}:
+		default:
+		}
+	}
+
 	log.Printf("[aggregator] flushed candle %s %s %s at %v (%d rows, open=%.2f close=%.2f)", symbol, market, timeframe, candleOpen, len(rows), openPrice, closePrice)
 	return nil
 }
@@ -308,12 +361,12 @@ func (a *Aggregator) rollup(ctx context.Context, symbol, market string, rows []m
 
 	for tf, tfRows := range buckets {
 		if len(tfRows) > 0 {
-			log.Printf("[rollup] inserting %d rows for %s %s", len(tfRows), symbol, tf)
+			log.Printf("[rollup] inserting %d rows for %s %s %s", len(tfRows), symbol, market, tf)
 			if err := a.repo.InsertClusterBatch(ctx, tfRows, tableForMarket(market)); err != nil {
-				log.Printf("[rollup] ERROR inserting %s: %v", tf, err)
+				log.Printf("[rollup] ERROR inserting %s %s %s: %v", symbol, market, tf, err)
 				return fmt.Errorf("insert rollup %s: %w", tf, err)
 			}
-			log.Printf("[rollup] OK %s: %d rows", tf, len(tfRows))
+			log.Printf("[rollup] OK %s %s %s: %d rows", symbol, market, tf, len(tfRows))
 		}
 	}
 	return nil
@@ -360,6 +413,15 @@ func tableForMarket(market string) string {
 		return "clusters_spot"
 	}
 	return "clusters_futures"
+}
+
+func splitBookKey(key string) (string, string) {
+	for i := 0; i < len(key); i++ {
+		if key[i] == ':' {
+			return key[:i], key[i+1:]
+		}
+	}
+	return key, ""
 }
 
 func truncateToMinute(t time.Time) time.Time {
