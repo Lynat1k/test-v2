@@ -8,6 +8,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/joho/godotenv"
 	"github.com/redis/go-redis/v9"
 
 	"github.com/procluster/procluster/internal/aggregator"
@@ -17,9 +18,27 @@ import (
 	chrepo "github.com/procluster/procluster/internal/repository/clickhouse"
 )
 
+func getEnv(key, fallback string) string {
+	if v := os.Getenv(key); v != "" {
+		return v
+	}
+	return fallback
+}
+
 func main() {
+	if err := godotenv.Load(); err != nil {
+		log.Println("[env] .env not loaded (using system env)")
+	} else {
+		log.Println("[env] .env loaded")
+	}
+
 	log.SetFlags(log.Ltime | log.Lmicroseconds)
 	log.Println("=== E2E TEST: ingest + aggregator + rollup ===")
+
+	log.Printf("[config] effective settings: CLICKHOUSE_ADDR=%s CLICKHOUSE_DB=%s",
+		getEnv("CLICKHOUSE_ADDR", "localhost:9000"),
+		getEnv("CLICKHOUSE_DB", "default"),
+	)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 	defer cancel()
@@ -32,22 +51,10 @@ func main() {
 		cancel()
 	}()
 
-	chDSN := "localhost:9000"
-	if v := os.Getenv("CLICKHOUSE_DSN"); v != "" {
-		chDSN = v
-	}
-	chUser := "default"
-	if v := os.Getenv("CLICKHOUSE_USER"); v != "" {
-		chUser = v
-	}
-	chPass := "clickhouse"
-	if v := os.Getenv("CLICKHOUSE_PASSWORD"); v != "" {
-		chPass = v
-	}
-	chDB := "default"
-	if v := os.Getenv("CLICKHOUSE_DB"); v != "" {
-		chDB = v
-	}
+	chDSN := getEnv("CLICKHOUSE_ADDR", "localhost:9000")
+	chUser := getEnv("CLICKHOUSE_USER", "default")
+	chPass := getEnv("CLICKHOUSE_PASSWORD", "clickhouse")
+	chDB := getEnv("CLICKHOUSE_DB", "default")
 
 	chRepo, err := chrepo.New(ctx, chDSN, chUser, chPass, chDB)
 	if err != nil {
@@ -61,7 +68,7 @@ func main() {
 	}
 	log.Println("[ok] Migrations applied")
 
-	rdb := redis.NewClient(&redis.Options{Addr: "localhost:6379"})
+	rdb := redis.NewClient(&redis.Options{Addr: getEnv("REDIS_ADDR", "localhost:6379")})
 	if err := rdb.Ping(ctx).Err(); err != nil {
 		log.Fatalf("redis connect: %v", err)
 	}

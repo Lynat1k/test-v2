@@ -53,7 +53,14 @@ func main() {
 
 	if err := godotenv.Load(); err != nil {
 		log.Println("[env] .env not loaded (using system env)")
+	} else {
+		log.Println("[env] .env loaded")
 	}
+
+	log.Printf("[config] effective settings: CLICKHOUSE_ADDR=%s CLICKHOUSE_DB=%s",
+		getEnv("CLICKHOUSE_ADDR", "localhost:9000"),
+		getEnv("CLICKHOUSE_DB", "default"),
+	)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()

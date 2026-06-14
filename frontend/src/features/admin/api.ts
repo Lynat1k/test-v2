@@ -144,6 +144,27 @@ export async function apiDeleteTicker(id: string): Promise<void> {
   await request(`/admin/tickers/${id}`, { method: 'DELETE' })
 }
 
+// --- Default Compressions ---
+
+export interface DefaultCompression {
+  id: string
+  symbol: string
+  market: string
+  timeframe: string
+  multiplier: number
+}
+
+export async function apiGetCompressions(symbol: string): Promise<DefaultCompression[]> {
+  return request<DefaultCompression[]>(`/admin/compressions?symbol=${encodeURIComponent(symbol)}`)
+}
+
+export async function apiUpsertCompressions(symbol: string, compressions: DefaultCompression[]): Promise<void> {
+  await request('/admin/compressions', {
+    method: 'PUT',
+    body: JSON.stringify({ symbol, compressions }),
+  })
+}
+
 // --- History Download ---
 
 export interface DownloadJob {

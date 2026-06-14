@@ -32,6 +32,15 @@ func main() {
 		log.Println("[env] .env loaded")
 	}
 
+	chDB := getEnv("CLICKHOUSE_DB", "default")
+	log.Printf("[config] effective settings: CLICKHOUSE_ADDR=%s CLICKHOUSE_DB=%s REDIS_ADDR=%s SQLITE_PATH=%s APP_PORT=%s",
+		getEnv("CLICKHOUSE_ADDR", "localhost:9000"),
+		chDB,
+		getEnv("REDIS_ADDR", "localhost:6379"),
+		getEnv("SQLITE_PATH", "./data/procluster.db"),
+		getEnv("APP_PORT", "8080"),
+	)
+
 	logBuf := admin.NewLogBuffer(200)
 	log.SetOutput(io.MultiWriter(os.Stderr, logBuf))
 
@@ -55,7 +64,7 @@ func main() {
 	chAddr := getEnv("CLICKHOUSE_ADDR", "localhost:9000")
 	chUser := getEnv("CLICKHOUSE_USER", "default")
 	chPass := getEnv("CLICKHOUSE_PASSWORD", "")
-	chDB := getEnv("CLICKHOUSE_DB", "default")
+	// chDB already set above
 
 	repo, err := clickhouse.New(ctx, chAddr, chUser, chPass, chDB)
 	if err != nil {
@@ -80,6 +89,17 @@ func main() {
 		log.Fatalf("[sqlite] migrations failed: %v", err)
 	}
 	log.Println("[sqlite] connected and migrated")
+
+	if err := admin.SeedDefaultTickers(ctx, sqliteDB); err != nil {
+		log.Printf("[main] seed tickers: %v", err)
+	} else {
+		log.Println("[main] seed tickers: ok")
+	}
+	if err := admin.SeedDefaultCompressions(ctx, sqliteDB); err != nil {
+		log.Printf("[main] seed compressions: %v", err)
+	} else {
+		log.Println("[main] seed compressions: ok")
+	}
 
 	authCfg := auth.LoadAuthConfig()
 
@@ -118,7 +138,18 @@ func main() {
 	candleCloseCh := make(chan aggregator.CandleCloseSignal, 64)
 	agg.SetCandleCloseCh(candleCloseCh)
 
-	symbolConfigs := config.SymbolMap()
+	dbTickers, err := admin.ListTickers(ctx, sqliteDB)
+	var symbolConfigs map[string]config.SymbolConfig
+	if err != nil {
+		log.Printf("[main] failed to list tickers: %v, using defaults", err)
+		symbolConfigs = config.SymbolMap()
+	} else {
+		symbolConfigs = admin.SymbolConfigsFromTickers(dbTickers)
+		if len(symbolConfigs) == 0 {
+			log.Println("[main] no active tickers found, using defaults")
+			symbolConfigs = config.SymbolMap()
+		}
+	}
 	orderBooks := make(map[string]*depth.OrderBook)
 	for key, sc := range symbolConfigs {
 		orderBooks[key] = depth.NewOrderBook(sc.Symbol, sc.Market)
@@ -130,8 +161,8 @@ func main() {
 	}
 	agg.SetOrderBooks(aggOrderBooks)
 
-	for _, sc := range symbolConfigs {
-		ob := orderBooks[sc.Key()]
+	for key, sc := range symbolConfigs {
+		ob := orderBooks[key]
 		depthSync := depth.NewDepthSync(sc.Symbol, sc.Market, ob, sc.CompressionConfig())
 		go depthSync.Run(ctx)
 		log.Printf("[depth-sync] started %s:%s", sc.Symbol, sc.Market)
@@ -151,13 +182,11 @@ func main() {
 	tradesCh := make(chan model.Trade, 1024)
 	go agg.Run(ctx, tradesCh)
 
-	futuresWorker := ingest.New("BTCUSDT", ingest.MarketFutures, tradesCh)
-	go futuresWorker.Run(ctx)
-	log.Println("[ingest] BTCUSDT futures @aggTrade")
-
-	spotWorker := ingest.New("BTCUSDT", ingest.MarketSpot, tradesCh)
-	go spotWorker.Run(ctx)
-	log.Println("[ingest] BTCUSDT spot @aggTrade")
+	for _, sc := range symbolConfigs {
+		worker := ingest.New(sc.Symbol, ingest.MarketType(sc.Market), tradesCh)
+		go worker.Run(ctx)
+		log.Printf("[ingest] started %s %s @aggTrade", sc.Symbol, sc.Market)
+	}
 
 	go func() {
 		if err := srv.ListenAndServe(); err != nil && err.Error() != "http: Server closed" {

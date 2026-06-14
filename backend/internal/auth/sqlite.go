@@ -151,6 +151,51 @@ func Migrate(db *sql.DB) error {
 		}
 	}
 
+	// Phase 12 Etapa 3: tickers, default_compressions, download_jobs tables
+	etapa3Queries := []string{
+		`CREATE TABLE IF NOT EXISTS tickers (
+			id TEXT PRIMARY KEY,
+			symbol TEXT UNIQUE NOT NULL,
+			name TEXT NOT NULL DEFAULT '',
+			price_tick_spot REAL NOT NULL DEFAULT 0.01,
+			price_tick_futures REAL NOT NULL DEFAULT 0.1,
+			compression_spot INTEGER NOT NULL DEFAULT 500,
+			compression_futures INTEGER NOT NULL DEFAULT 25,
+			is_active INTEGER NOT NULL DEFAULT 1,
+			created_at TEXT NOT NULL,
+			updated_at TEXT NOT NULL
+		)`,
+		`CREATE TABLE IF NOT EXISTS default_compressions (
+			id TEXT PRIMARY KEY,
+			symbol TEXT NOT NULL,
+			market TEXT NOT NULL,
+			timeframe TEXT NOT NULL,
+			multiplier INTEGER NOT NULL,
+			updated_at TEXT NOT NULL,
+			UNIQUE(symbol, market, timeframe)
+		)`,
+		`CREATE TABLE IF NOT EXISTS download_jobs (
+			id TEXT PRIMARY KEY,
+			symbol TEXT NOT NULL,
+			market TEXT NOT NULL,
+			start_date TEXT NOT NULL,
+			end_date TEXT NOT NULL,
+			status TEXT NOT NULL DEFAULT 'pending',
+			progress REAL NOT NULL DEFAULT 0,
+			step_detail TEXT NOT NULL DEFAULT '',
+			error TEXT NOT NULL DEFAULT '',
+			total_ticks INTEGER NOT NULL DEFAULT 0,
+			created_at TEXT NOT NULL,
+			updated_at TEXT NOT NULL,
+			completed_at TEXT
+		)`,
+	}
+	for _, q := range etapa3Queries {
+		if _, err := db.Exec(q); err != nil {
+			return fmt.Errorf("migration etapa3: %w", err)
+		}
+	}
+
 	log.Println("[auth] sqlite migrations applied")
 	return nil
 }

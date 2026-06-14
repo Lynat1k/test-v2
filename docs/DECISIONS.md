@@ -3,6 +3,19 @@
 > Сюда пишем решения, которые меняют или фиксируют архитектуру/правила.
 > Новые — сверху. Если решение противоречит спеке — сначала обнови спеку.
 
+### [2026-06-15] .env автозагрузка: godotenv.Load() во всех cmd
+- Контекст: При запуске `.\procluster.exe` из PowerShell без ручного `$env:` экспорта Go сам .env не читает → все getEnv() срабатывают с фолбэками. CLICKHOUSE_DB=default вместо procluster → live-данные утекали в базу "default" вместо "procluster".
+- Решение:
+  - **godotenv.Load() (не Overload)**: Вызывается в самом начале main() во всех трёх cmd (procluster, loader, e2etest). `Load()` НЕ перезаписывает уже установленные системные ENV — это позволяет Docker/прод-окружению переопределять переменные. Вручную заданные `$env:HISTORY_LOADER_PROXY` не затираются.
+  - **Логирование конфига**: При старте `[config] effective settings: CLICKHOUSE_ADDR=... CLICKHOUSE_DB=... REDIS_ADDR=... SQLITE_PATH=... APP_PORT=...` — сразу видно, к какой базе реально подключились. Пароли/секреты не логируются.
+  - **e2etest**: Добавлен `godotenv.Load()` + единая `getEnv()` (были разрозненные `os.Getenv` с фолбэками). REDIS_ADDR читается из env.
+- Подтверждение: `godotenv v1.5.1` уже в go.mod/go.sum от joho. `Load()` не перезаписывает существующие ENV (godotenv документация). `Overload` не используется.
+- Последствия:
+  - Все три бинарника при старте загружают .env из рабочей директории.
+  - Строка лога `[config] effective settings:` показывает CLICKHOUSE_DB=procluster (из .env) при запуске без ручного экспорта.
+  - Старые данные в `default.clusters_*` (34 строки live) — мусор от запусков до фикса. Не удаляем из кода, можно очистить вручную.
+- Файлы: `cmd/procluster/main.go`, `cmd/loader/main.go`, `cmd/e2etest/main.go`
+
 ### [2026-06-14] Фаза 12 Этап 1 Fix v2: ClickHouse size uint64 + layout + charts
 - Контекст: ClickHouse size query падал с ошибкой "converting UInt64 to *int64 is unsupported, try using *uint64". toInt64() в SQL не помогает — драйвер проверяет тип на уровне протокола. Суточные графики показывали "Collecting data..." при 1 точке. Пустоты по высоте в раскладке.
 - Решения:
@@ -478,6 +491,27 @@
   - **УДАЛИТЬ ПРИ ПЕНОСЕ**: paper-trading логика из DOMSidebar (~200 строк) — бизнес-логика, вернём позже.
 - Альтернативы: перенести всё как есть (отвергнуто — слишком много бизнес-логики и старого движка) или писать UI с нуля (отвергнуто — design-src уже содержит готовый дизайн).
 - Последствия: компоненты переносятся как заглушки/референсы. Полная интеграция (подключение к движку, WebSocket, данные) — в следующих фазах.
+
+## Шаблон записи
+
+### [2026-06-14] Фаза 12 Этап 3: Ticker Registry + Default Compressions + History-Loader
+- Контекст: Тикеры захардкожены в config.SymbolMap() (BTCUSDT×2). Default compressions не существуют. History-загрузки с Binance Vision нет.
+- Решения:
+  - **Ticker Registry**: Тикеры хранятся в SQLite (tickers table). CRUD через admin API. SeedDefaultTickers создаёт BTCUSDT если БД пуста. SymbolConfigsFromTickers конвертирует []Ticker→map[string]SymbolConfig для main.go. Variant A: изменения生效 после рестарта.
+  - **Default Compressions**: Хранятся в SQLite (default_compressions table, UNIQUE на symbol+market+timeframe). Глобальные для всех пользователей. ValidateCompressionMultiplier проверяет multiplier ≥ base compression (чтобы не было мульти-агрегации). Тарифные лимиты отложены на Этап 2.
+  - **History-Loader**: HistoryClickHouse interface (не импортирует clickhouse пакет — избегает цикла). JobRegistry в памяти + SQLite (download_jobs) для выживания при рестарте. StartDownload запускает goroutine (не блокирует HTTP). CSV с Binance Vision парсится, 1m свечи агрегируются через CompressTrades+Rollup, вставка идемпотентная (DeleteClustersByRange перед InsertClusterBatch). Сервер не падает при ошибках скачивания.
+  - **main.go refactor**: Hардкод ingest.New("BTCUSDT",...)×2 заменён на цикл по тикерам из БД. Seed при старте.
+- Альтернативы:
+  - Live hot-reload тикеров (отвергнуто — сложно, restart вариант A достаточен на старте).
+  - Compressions в Redis (отвергнуто — SQLite проще, нет кэширования, данные критичны для startup).
+  - In-memory only download jobs (отвергнуто — теряются при рестарте, SQLite надёжнее).
+  - Generic Exec() на ClickHouse (отвергнуто — DeleteClustersByRange и InsertClusterBatch уже существуют).
+- Последствия:
+  - `admin/tickers.go`, `admin/compressions.go`, `admin/historyloader.go` — новые файлы.
+  - `admin/handlers.go` — stubs заменены на реальные реализации.
+  - `auth/sqlite.go` — 3 новые таблицы в Migrate().
+  - `main.go` — динамический старт ingest workers по тикерам из БД.
+  - Frontend: DatabaseTab с 3-колоночным layout (tickers, compressions, history download).
 
 ## Шаблон записи
 ### [ГГГГ-ММ-ДД] <решение>

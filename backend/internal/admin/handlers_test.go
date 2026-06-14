@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -150,5 +151,174 @@ func TestAuditLog_WrittenOnMutation(t *testing.T) {
 	}
 	if count != 1 {
 		t.Errorf("expected 1 audit log entry, got %d", count)
+	}
+}
+
+// --- History Download endpoint tests (admin-only) ---
+
+func TestHistoryDownload_NoToken_401(t *testing.T) {
+	db := setupTestDB(t)
+	defer db.Close()
+
+	cfg := setupTestConfig()
+	rdb, cleanup := setupTestRedis(t)
+	defer cleanup()
+
+	h := NewAdminHandler(db, cfg, nil, rdb, NewLogBuffer(100), NewMetricsHistory())
+
+	req := httptest.NewRequest("POST", "/api/v1/admin/history/download", strings.NewReader(`{"symbol":"BTCUSDT","market":"futures","startDate":"2024-01-01","endDate":"2024-01-02"}`))
+	w := httptest.NewRecorder()
+
+	handler := withAdminMiddleware(h.rl, h.authCfg, http.HandlerFunc(h.handleStartDownload))
+	handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusUnauthorized {
+		t.Errorf("expected 401, got %d", w.Code)
+	}
+}
+
+func TestHistoryDownload_NonAdmin_403(t *testing.T) {
+	db := setupTestDB(t)
+	defer db.Close()
+
+	cfg := setupTestConfig()
+	rdb, cleanup := setupTestRedis(t)
+	defer cleanup()
+
+	h := NewAdminHandler(db, cfg, nil, rdb, NewLogBuffer(100), NewMetricsHistory())
+
+	token := createAdminToken(t, cfg, "user-123", "free")
+
+	req := httptest.NewRequest("POST", "/api/v1/admin/history/download", strings.NewReader(`{"symbol":"BTCUSDT","market":"futures","startDate":"2024-01-01","endDate":"2024-01-02"}`))
+	req.Header.Set("Authorization", "Bearer "+token)
+	w := httptest.NewRecorder()
+
+	handler := withAdminMiddleware(h.rl, h.authCfg, http.HandlerFunc(h.handleStartDownload))
+	handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusForbidden {
+		t.Errorf("expected 403, got %d", w.Code)
+	}
+}
+
+func TestHistoryJobs_NoToken_401(t *testing.T) {
+	db := setupTestDB(t)
+	defer db.Close()
+
+	cfg := setupTestConfig()
+	rdb, cleanup := setupTestRedis(t)
+	defer cleanup()
+
+	h := NewAdminHandler(db, cfg, nil, rdb, NewLogBuffer(100), NewMetricsHistory())
+
+	req := httptest.NewRequest("GET", "/api/v1/admin/history/jobs", nil)
+	w := httptest.NewRecorder()
+
+	handler := withAdminMiddleware(h.rl, h.authCfg, http.HandlerFunc(h.handleGetJobs))
+	handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusUnauthorized {
+		t.Errorf("expected 401, got %d", w.Code)
+	}
+}
+
+func TestHistoryJobs_NonAdmin_403(t *testing.T) {
+	db := setupTestDB(t)
+	defer db.Close()
+
+	cfg := setupTestConfig()
+	rdb, cleanup := setupTestRedis(t)
+	defer cleanup()
+
+	h := NewAdminHandler(db, cfg, nil, rdb, NewLogBuffer(100), NewMetricsHistory())
+
+	token := createAdminToken(t, cfg, "user-123", "free")
+
+	req := httptest.NewRequest("GET", "/api/v1/admin/history/jobs", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	w := httptest.NewRecorder()
+
+	handler := withAdminMiddleware(h.rl, h.authCfg, http.HandlerFunc(h.handleGetJobs))
+	handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusForbidden {
+		t.Errorf("expected 403, got %d", w.Code)
+	}
+}
+
+func TestHistoryJobStatus_NoToken_401(t *testing.T) {
+	db := setupTestDB(t)
+	defer db.Close()
+
+	cfg := setupTestConfig()
+	rdb, cleanup := setupTestRedis(t)
+	defer cleanup()
+
+	h := NewAdminHandler(db, cfg, nil, rdb, NewLogBuffer(100), NewMetricsHistory())
+
+	req := httptest.NewRequest("GET", "/api/v1/admin/history/jobs/test-id", nil)
+	w := httptest.NewRecorder()
+
+	handler := withAdminMiddleware(h.rl, h.authCfg, http.HandlerFunc(h.handleGetJobStatus))
+	handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusUnauthorized {
+		t.Errorf("expected 401, got %d", w.Code)
+	}
+}
+
+func TestHistoryDownload_Admin_200(t *testing.T) {
+	db := setupTestDB(t)
+	defer db.Close()
+
+	cfg := setupTestConfig()
+	rdb, cleanup := setupTestRedis(t)
+	defer cleanup()
+
+	h := NewAdminHandler(db, cfg, nil, rdb, NewLogBuffer(100), NewMetricsHistory())
+
+	// Seed a ticker for the download handler
+	_, err := db.Exec(`INSERT INTO tickers (id, symbol, name, price_tick_spot, price_tick_futures, compression_spot, compression_futures, is_active, created_at, updated_at)
+		VALUES ('test-ticker', 'BTCUSDT', 'Bitcoin', 0.01, 0.1, 500, 25, 1, '2024-01-01T00:00:00Z', '2024-01-01T00:00:00Z')`)
+	if err != nil {
+		t.Fatalf("seed ticker: %v", err)
+	}
+
+	token := createAdminToken(t, cfg, "admin-001", "admin")
+
+	req := httptest.NewRequest("POST", "/api/v1/admin/history/download",
+		strings.NewReader(`{"symbol":"BTCUSDT","market":"futures","startDate":"2024-01-01","endDate":"2024-01-01"}`))
+	req.Header.Set("Authorization", "Bearer "+token)
+	w := httptest.NewRecorder()
+
+	handler := withAdminMiddleware(h.rl, h.authCfg, http.HandlerFunc(h.handleStartDownload))
+	handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestHistoryJobs_Admin_200(t *testing.T) {
+	db := setupTestDB(t)
+	defer db.Close()
+
+	cfg := setupTestConfig()
+	rdb, cleanup := setupTestRedis(t)
+	defer cleanup()
+
+	h := NewAdminHandler(db, cfg, nil, rdb, NewLogBuffer(100), NewMetricsHistory())
+
+	token := createAdminToken(t, cfg, "admin-001", "admin")
+
+	req := httptest.NewRequest("GET", "/api/v1/admin/history/jobs", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	w := httptest.NewRecorder()
+
+	handler := withAdminMiddleware(h.rl, h.authCfg, http.HandlerFunc(h.handleGetJobs))
+	handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("expected 200, got %d: %s", w.Code, w.Body.String())
 	}
 }

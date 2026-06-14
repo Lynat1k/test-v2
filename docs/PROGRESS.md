@@ -1088,3 +1088,33 @@
   - Фаза 1: Интеграция дизайн-репозитория
   - Добавить Makefile или task runner для удобства
 - Тесты/проверки: Go компилируется, frontend собирается без ошибок
+
+### [2026-06-14] Фаза 12 Этап 3: Ticker Registry + Default Compressions + History-Loader Binance Vision
+- Модель: Opus (mimo-v2.5-free)
+- Что сделано:
+  - **Ticker Registry**: `admin/tickers.go` — CRUD (AddTicker, GetTickerByID, ListTickers, UpdateTicker, DeleteTicker), ValidateTicker (regex, uniqueness, priceTick>0, compression>0), SeedDefaultTickers (BTCUSDT), SymbolConfigsFromTickers ([]Ticker→map[string]SymbolConfig), boolToInt/intToBool helpers.
+  - **Default Compressions**: `admin/compressions.go` — CRUD (GetDefaultCompressions, UpsertDefaultCompression, UpsertDefaultCompressionsBatch), ValidateCompressionMultiplier (multiplier ≥ base compression of ticker for market), SeedDefaultCompressions (BTCUSDT: futures 1m=25/5m=25/15m=50/30m=50/1h=100/4h=100, spot 15m=500/30m=500/1h=1000/4h=1000).
+  - **History-Loader Binance Vision**: `admin/historyloader.go` — DownloadJob struct, HistoryClickHouse interface (avoid import cycle), JobRegistry (SQLite-backed, survives restarts), StartDownload goroutine (non-blocking), downloadWorker (download zip → unzip → parse CSV → aggregate 1m via CompressTrades → Rollup → idempotent insert via DeleteClustersByRange+InsertClusterBatch), progress/ETA per day, status tracking.
+  - **Handlers**: `admin/handlers.go` — Replaced 6 stubs (handleAddTicker, handleGetTickers, handleUpdateTicker, handleDeleteTicker, handleStartDownload, handleGetJobs, handleGetJobStatus) with real implementations. Added handleGetCompressions + handleUpsertCompressions + routes.
+  - **SQLite migrations**: `auth/sqlite.go` — Added tickers, default_compressions, download_jobs tables to Migrate().
+  - **main.go refactor**: SeedDefaultTickers/SeedDefaultCompressions on startup, load tickers from DB via ListTickers, SymbolConfigsFromTickers, ingest workers in loop over DB tickers (no more hardcoded BTCUSDT).
+  - **Frontend**: DatabaseTab with 3-column layout (TickerBlock: list+add+edit+delete, CompressionBlock: grid of multipliers per market/timeframe, HistoryBlock: download form + jobs list with progress).
+  - **Frontend api.ts**: DefaultCompression interface + apiGetCompressions + apiUpsertCompressions.
+  - **Frontend i18n**: 30+ database.* keys added to en.ts, ru.ts, kz.ts.
+- Затронутые файлы:
+  - `backend/internal/admin/tickers.go` (NEW)
+  - `backend/internal/admin/compressions.go` (NEW)
+  - `backend/internal/admin/historyloader.go` (NEW)
+  - `backend/internal/admin/handlers.go` (rewritten stubs → real)
+  - `backend/internal/auth/sqlite.go` (new tables in Migrate)
+  - `backend/cmd/procluster/main.go` (ticker loop, seed)
+  - `frontend/src/features/admin/api.ts` (compression types)
+  - `frontend/src/components/AdminPanel.tsx` (DatabaseTab)
+  - `frontend/src/i18n/dictionaries/en.ts, ru.ts, kz.ts` (database.* keys)
+- Ключевые решения:
+  - Variant A для тикеров: изменения生效 после рестарта сервера.
+  - Default compressions хранятся в SQLite (глобальные, не привязаны к пользователям). Тарифные лимиты — Этап 2.
+  - HistoryClickHouse interface для historyloader — избегает import cycle.
+  - Задачи загрузки хранятся в SQLite (download_jobs) — выживают после рестарта.
+  - CSV формат: aggTradeId,price,quantity,firstTradeId,lastTradeId,timestamp,isBuyerMaker.
+- Тесты/проверки: `go build`, `go vet`, `go test ./...` — all pass. `tsc --noEmit` — clean. `vite build` — success.

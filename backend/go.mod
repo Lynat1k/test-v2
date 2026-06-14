@@ -10,8 +10,10 @@ require (
 	github.com/gorilla/websocket v1.5.3
 	github.com/joho/godotenv v1.5.1
 	github.com/redis/go-redis/v9 v9.20.1
+	github.com/shirou/gopsutil/v3 v3.24.5
 	github.com/shopspring/decimal v1.4.0
 	golang.org/x/crypto v0.48.0
+	golang.org/x/net v0.50.0
 	modernc.org/sqlite v1.52.0
 )
 
@@ -32,7 +34,6 @@ require (
 	github.com/power-devops/perfstat v0.0.0-20210106213030-5aafc221ea8c // indirect
 	github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec // indirect
 	github.com/segmentio/asm v1.2.1 // indirect
-	github.com/shirou/gopsutil/v3 v3.24.5 // indirect
 	github.com/shoenig/go-m1cpu v0.1.6 // indirect
 	github.com/tklauser/go-sysconf v0.3.12 // indirect
 	github.com/tklauser/numcpus v0.6.1 // indirect

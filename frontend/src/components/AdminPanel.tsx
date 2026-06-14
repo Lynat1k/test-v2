@@ -11,8 +11,15 @@ import {
   Users,
   BarChart2,
   Activity,
+  Plus,
+  Trash2,
+  Pencil,
+  Save,
+  X,
+  Download,
+  RefreshCw,
 } from 'lucide-react'
-import { apiGetMetrics, apiGetMetricsHistory, type ServerMetrics, type MetricsHistoryPoint } from '@/features/admin/api'
+import { apiGetMetrics, apiGetMetricsHistory, apiGetTickers, apiAddTicker, apiUpdateTicker, apiDeleteTicker, apiGetCompressions, apiUpsertCompressions, apiStartDownload, apiGetJobs, type ServerMetrics, type MetricsHistoryPoint, type Ticker, type DefaultCompression, type DownloadJob } from '@/features/admin/api'
 
 type AdminTab = 'server' | 'database' | 'users' | 'stats'
 
@@ -109,7 +116,7 @@ export function AdminPanel({ onClose }: AdminPanelProps) {
           className="flex-1 flex flex-col gap-6 min-h-0"
         >
           {activeTab === 'server' && <ServerTab isLight={isLight} />}
-          {activeTab === 'database' && <DatabaseTabPlaceholder isLight={isLight} />}
+          {activeTab === 'database' && <DatabaseTab isLight={isLight} />}
           {activeTab === 'users' && <UsersTabPlaceholder isLight={isLight} />}
           {activeTab === 'stats' && <StatsTabPlaceholder isLight={isLight} />}
         </motion.div>
@@ -403,14 +410,528 @@ function formatBytes(bytes: number): string {
 
 // --- Placeholder tabs (to be implemented in subsequent phases) ---
 
-function DatabaseTabPlaceholder({ isLight }: { isLight: boolean }) {
+// --- Database Tab ---
+
+function DatabaseTab({ isLight }: { isLight: boolean }) {
   return (
-    <div className={`p-5 rounded-2xl border ${isLight ? 'bg-white border-slate-200' : 'liquid-glass-card'}`}>
-      <div className="flex items-center gap-2 text-xs font-bold font-mono text-emerald-500 uppercase">
+    <div className="flex-1 grid grid-cols-1 xl:grid-cols-3 gap-6 min-h-0">
+      <TickerBlock isLight={isLight} />
+      <CompressionBlock isLight={isLight} />
+      <HistoryBlock isLight={isLight} />
+    </div>
+  )
+}
+
+const FUTURES_TIMEFRAMES = ['1m', '5m', '15m', '30m', '1h', '4h'] as const
+const SPOT_TIMEFRAMES = ['15m', '30m', '1h', '4h'] as const
+
+function TickerBlock({ isLight }: { isLight: boolean }) {
+  const { t } = useTranslation()
+  const [tickers, setTickers] = useState<Ticker[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const [editing, setEditing] = useState<string | null>(null)
+  const [form, setForm] = useState({ symbol: '', name: '', priceTickSpot: 0.01, priceTickFutures: 0.1, compressionSpot: 500, compressionFutures: 25 })
+  const [editForm, setEditForm] = useState<Partial<Ticker>>({})
+
+  const fetchTickers = useCallback(async () => {
+    try {
+      const data = await apiGetTickers()
+      setTickers(data)
+      setError(null)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : JSON.stringify(e))
+    }
+    setLoading(false)
+  }, [])
+
+  useEffect(() => { fetchTickers() }, [fetchTickers])
+
+  const handleAdd = async () => {
+    if (!form.symbol.trim()) return
+    try {
+      await apiAddTicker(form)
+      setForm({ symbol: '', name: '', priceTickSpot: 0.01, priceTickFutures: 0.1, compressionSpot: 500, compressionFutures: 25 })
+      setError(null)
+      fetchTickers()
+    } catch (e: any) {
+      const msg = e?.code === 'TICKER_EXISTS' ? t('admin.database.tickerExists') : (e?.message || JSON.stringify(e))
+      setError(msg)
+    }
+  }
+
+  const handleUpdate = async (id: string) => {
+    try {
+      await apiUpdateTicker(id, editForm)
+      setEditing(null)
+      fetchTickers()
+    } catch (e) {
+      alert(e instanceof Error ? e.message : 'Failed')
+    }
+  }
+
+  const handleDelete = async (id: string, symbol: string) => {
+    if (!confirm(`Delete ${symbol}?`)) return
+    try {
+      await apiDeleteTicker(id)
+      fetchTickers()
+    } catch (e) {
+      alert(e instanceof Error ? e.message : 'Failed')
+    }
+  }
+
+  const card = isLight ? 'bg-white border-slate-200' : 'liquid-glass-card'
+  const input = isLight
+    ? 'bg-slate-50 border-slate-200 text-slate-900 focus:border-emerald-500'
+    : 'bg-white/[0.03] border-white/10 text-white focus:border-emerald-500'
+
+  return (
+    <div className={`p-5 rounded-2xl border flex flex-col gap-4 ${card}`}>
+      <div className="flex items-center gap-2 text-xs font-bold font-mono text-emerald-500 uppercase shrink-0">
         <Database className="w-4 h-4" />
-        Tickers & History Loader — Coming in Phase 3
+        {t('admin.database.addTicker')}
       </div>
-      <p className="text-sm text-slate-500 mt-3">Add tickers, configure compressions, download history from Binance Vision.</p>
+
+      <div className={`flex-1 overflow-y-auto rounded-xl border p-3 space-y-2 text-xs font-mono ${
+        isLight ? 'border-slate-200 bg-slate-50/50' : 'border-white/5 bg-white/[0.01]'
+      }`}>
+        {loading ? (
+          <div className="text-slate-400 text-center py-6">{t('admin.database.loading')}</div>
+        ) : error ? (
+          <div className="text-red-400 text-center py-6 text-xs font-mono">{t('admin.database.fetchError')}: {error}</div>
+        ) : tickers.length === 0 ? (
+          <div className="text-slate-400 text-center py-6">{t('admin.database.noTickers')}</div>
+        ) : (
+          tickers.map((tk) => (
+            <div key={tk.id} className={`p-3 rounded-lg border flex flex-col gap-2 ${
+              isLight ? 'bg-white border-slate-200' : 'bg-white/[0.02] border-white/5'
+            }`}>
+              {editing === tk.id ? (
+                <div className="flex flex-col gap-2">
+                  <div className="flex flex-col gap-1">
+                    <label className={`text-[10px] font-mono font-bold uppercase tracking-wider ${isLight ? 'text-slate-600' : 'text-slate-400'}`}>{t('admin.database.symbol')}</label>
+                    <input className={`px-2 py-1 rounded border text-xs ${input}`} value={editForm.symbol ?? tk.symbol} onChange={(e) => setEditForm({ ...editForm, symbol: e.target.value })} />
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div className="flex flex-col gap-1">
+                      <label className={`text-[9px] font-mono uppercase ${isLight ? 'text-slate-500' : 'text-slate-500'}`}>{t('admin.database.priceTickSpot')}</label>
+                      <input className={`px-2 py-1 rounded border text-xs ${input}`} type="number" step="0.01" value={editForm.priceTickSpot ?? tk.priceTickSpot} onChange={(e) => setEditForm({ ...editForm, priceTickSpot: +e.target.value })} />
+                    </div>
+                    <div className="flex flex-col gap-1">
+                      <label className={`text-[9px] font-mono uppercase ${isLight ? 'text-slate-500' : 'text-slate-500'}`}>{t('admin.database.priceTickFutures')}</label>
+                      <input className={`px-2 py-1 rounded border text-xs ${input}`} type="number" step="0.1" value={editForm.priceTickFutures ?? tk.priceTickFutures} onChange={(e) => setEditForm({ ...editForm, priceTickFutures: +e.target.value })} />
+                    </div>
+                    <div className="flex flex-col gap-1">
+                      <label className={`text-[9px] font-mono uppercase ${isLight ? 'text-slate-500' : 'text-slate-500'}`}>{t('admin.database.compressionSpot')}</label>
+                      <input className={`px-2 py-1 rounded border text-xs ${input}`} type="number" value={editForm.compressionSpot ?? tk.compressionSpot} onChange={(e) => setEditForm({ ...editForm, compressionSpot: +e.target.value })} />
+                    </div>
+                    <div className="flex flex-col gap-1">
+                      <label className={`text-[9px] font-mono uppercase ${isLight ? 'text-slate-500' : 'text-slate-500'}`}>{t('admin.database.compressionFutures')}</label>
+                      <input className={`px-2 py-1 rounded border text-xs ${input}`} type="number" value={editForm.compressionFutures ?? tk.compressionFutures} onChange={(e) => setEditForm({ ...editForm, compressionFutures: +e.target.value })} />
+                    </div>
+                  </div>
+                  <div className="flex gap-2">
+                    <button onClick={() => handleUpdate(tk.id)} className="px-3 py-1 rounded-lg bg-emerald-500 text-white font-bold hover:bg-emerald-600 cursor-pointer flex items-center gap-1"><Save className="w-3 h-3" />{t('admin.database.save')}</button>
+                    <button onClick={() => setEditing(null)} className={`px-3 py-1 rounded-lg border font-bold cursor-pointer flex items-center gap-1 ${isLight ? 'border-slate-200 hover:bg-slate-100' : 'border-white/10 hover:bg-white/5'}`}><X className="w-3 h-3" />{t('admin.database.cancel')}</button>
+                  </div>
+                </div>
+              ) : (
+                <>
+                  <div className="flex items-center justify-between">
+                    <span className={`font-black text-sm ${isLight ? 'text-slate-900' : 'text-white'}`}>{tk.symbol}</span>
+                    <div className="flex gap-1">
+                      <button onClick={() => { setEditing(tk.id); setEditForm({}) }} className={`p-1 rounded cursor-pointer ${isLight ? 'hover:bg-slate-100 text-slate-500' : 'hover:bg-white/5 text-slate-400'}`}><Pencil className="w-3 h-3" /></button>
+                      <button onClick={() => handleDelete(tk.id, tk.symbol)} className="p-1 rounded cursor-pointer hover:bg-red-500/10 text-red-400"><Trash2 className="w-3 h-3" /></button>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-[10px]">
+                    <span className="text-slate-500">Tick Spot:</span><span className="font-bold">{tk.priceTickSpot}</span>
+                    <span className="text-slate-500">Tick Futures:</span><span className="font-bold">{tk.priceTickFutures}</span>
+                    <span className="text-slate-500">Comp Spot:</span><span className="font-bold">{tk.compressionSpot}</span>
+                    <span className="text-slate-500">Comp Futures:</span><span className="font-bold">{tk.compressionFutures}</span>
+                  </div>
+                </>
+              )}
+            </div>
+          ))
+        )}
+      </div>
+
+      <div className={`flex flex-col gap-2 p-3 rounded-xl border ${isLight ? 'bg-slate-50 border-slate-200' : 'bg-white/[0.01] border-white/5'}`}>
+        <div className="flex items-center gap-2 text-[10px] font-bold font-mono text-slate-400 uppercase">
+          <Plus className="w-3 h-3" />{t('admin.database.add')}
+        </div>
+        <div className="flex flex-col gap-3">
+          <div className="flex flex-col gap-1">
+            <label className={`text-[10px] font-mono font-bold uppercase tracking-wider ${isLight ? 'text-slate-600' : 'text-slate-400'}`}>
+              {t('admin.database.symbol')} <span className="text-slate-400 font-normal lowercase">(e.g. SOLUSDT)</span>
+            </label>
+            <input className={`px-2 py-1.5 rounded-lg border text-xs ${input}`} value={form.symbol} onChange={(e) => setForm({ ...form, symbol: e.target.value.toUpperCase() })} />
+          </div>
+          <div className="flex flex-col gap-1">
+            <label className={`text-[10px] font-mono font-bold uppercase tracking-wider ${isLight ? 'text-slate-600' : 'text-slate-400'}`}>
+              {t('admin.database.name')}
+            </label>
+            <input className={`px-2 py-1.5 rounded-lg border text-xs ${input}`} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
+          </div>
+          <div className="flex flex-col gap-1">
+            <label className={`text-[10px] font-mono font-bold uppercase tracking-wider ${isLight ? 'text-slate-600' : 'text-slate-400'}`}>
+              {t('admin.database.priceTickSpot')} <span className="text-slate-400 font-normal">(Tick Size)</span>
+            </label>
+            <input className={`px-2 py-1.5 rounded-lg border text-xs ${input}`} type="number" step="0.01" value={form.priceTickSpot} onChange={(e) => setForm({ ...form, priceTickSpot: +e.target.value })} />
+          </div>
+          <div className="flex flex-col gap-1">
+            <label className={`text-[10px] font-mono font-bold uppercase tracking-wider ${isLight ? 'text-slate-600' : 'text-slate-400'}`}>
+              {t('admin.database.priceTickFutures')} <span className="text-slate-400 font-normal">(Tick Size)</span>
+            </label>
+            <input className={`px-2 py-1.5 rounded-lg border text-xs ${input}`} type="number" step="0.1" value={form.priceTickFutures} onChange={(e) => setForm({ ...form, priceTickFutures: +e.target.value })} />
+          </div>
+          <div className="flex flex-col gap-1">
+            <label className={`text-[10px] font-mono font-bold uppercase tracking-wider ${isLight ? 'text-slate-600' : 'text-slate-400'}`}>
+              {t('admin.database.compressionDefaults')} — {t('admin.database.futures')} / {t('admin.database.spot')}
+            </label>
+            <div className="grid grid-cols-2 gap-2">
+              <div className="flex flex-col gap-1">
+                <label className={`text-[9px] font-mono uppercase ${isLight ? 'text-slate-500' : 'text-slate-500'}`}>
+                  {t('admin.database.compressionFutures')}
+                </label>
+                <input className={`px-2 py-1.5 rounded-lg border text-xs ${input}`} type="number" value={form.compressionFutures} onChange={(e) => setForm({ ...form, compressionFutures: +e.target.value })} />
+              </div>
+              <div className="flex flex-col gap-1">
+                <label className={`text-[9px] font-mono uppercase ${isLight ? 'text-slate-500' : 'text-slate-500'}`}>
+                  {t('admin.database.compressionSpot')}
+                </label>
+                <input className={`px-2 py-1.5 rounded-lg border text-xs ${input}`} type="number" value={form.compressionSpot} onChange={(e) => setForm({ ...form, compressionSpot: +e.target.value })} />
+              </div>
+            </div>
+          </div>
+        </div>
+        {error && (
+          <div className="px-3 py-2 rounded-lg bg-red-500/10 border border-red-500/20 text-red-400 text-xs font-mono">
+            {error}
+          </div>
+        )}
+        <button onClick={handleAdd} className="px-4 py-2 rounded-xl bg-emerald-500 text-white font-bold text-xs hover:bg-emerald-600 cursor-pointer transition-colors mt-1">
+          {t('admin.database.add')}
+        </button>
+      </div>
+    </div>
+  )
+}
+
+function CompressionBlock({ isLight }: { isLight: boolean }) {
+  const { t } = useTranslation()
+  const [tickers, setTickers] = useState<Ticker[]>([])
+  const [selected, setSelected] = useState<string>('')
+  const [compressions, setCompressions] = useState<Record<string, Record<string, number>>>({})
+  const [loading, setLoading] = useState(false)
+  const [saveMsg, setSaveMsg] = useState<string | null>(null)
+  const [saveErr, setSaveErr] = useState<string | null>(null)
+
+  const fetchTickers = useCallback(async () => {
+    try {
+      const data = await apiGetTickers()
+      setTickers(data)
+      if (data.length > 0 && !selected) setSelected(data[0]!.symbol)
+    } catch { /* ignore */ }
+  }, [selected])
+
+  useEffect(() => { fetchTickers() }, [fetchTickers])
+
+  useEffect(() => {
+    if (!selected) return
+    setLoading(true)
+    setSaveMsg(null)
+    setSaveErr(null)
+    apiGetCompressions(selected).then((data) => {
+      const tk = tickers.find((t) => t.symbol === selected)
+      const futuresBase = tk?.compressionFutures ?? 25
+      const spotBase = tk?.compressionSpot ?? 500
+      const map: Record<string, Record<string, number>> = {
+        futures: {
+          '1m': futuresBase,
+          '5m': futuresBase,
+          '15m': futuresBase * 2,
+          '30m': futuresBase * 2,
+          '1h': futuresBase * 4,
+          '4h': futuresBase * 4,
+        },
+        spot: {
+          '15m': spotBase,
+          '30m': spotBase,
+          '1h': spotBase * 2,
+          '4h': spotBase * 2,
+        },
+      }
+      data.forEach((c) => {
+        if (!map[c.market]) map[c.market] = {}
+        map[c.market]![c.timeframe] = c.multiplier
+      })
+      setCompressions(map)
+      setLoading(false)
+    }).catch(() => setLoading(false))
+  }, [selected, tickers])
+
+  const handleSave = async () => {
+    if (!selected) return
+    setSaveMsg(null)
+    setSaveErr(null)
+    const all: DefaultCompression[] = []
+    for (const market of ['futures', 'spot'] as const) {
+      const tfs = market === 'spot' ? SPOT_TIMEFRAMES : FUTURES_TIMEFRAMES
+      for (const tf of tfs) {
+        const val = compressions[market]?.[tf]
+        if (val !== undefined && val >= 1) {
+          all.push({ id: '', symbol: selected, market, timeframe: tf, multiplier: val })
+        }
+      }
+    }
+    if (all.length === 0) {
+      setSaveErr(t('admin.database.noCompressions'))
+      return
+    }
+    try {
+      await apiUpsertCompressions(selected, all)
+      setSaveMsg(t('admin.database.compressionsSaved'))
+    } catch (e: any) {
+      setSaveErr(e?.message || JSON.stringify(e))
+    }
+  }
+
+  const updateMult = (market: string, tf: string, val: number) => {
+    setCompressions((prev) => ({
+      ...prev,
+      [market]: { ...prev[market], [tf]: val },
+    }))
+    setSaveMsg(null)
+    setSaveErr(null)
+  }
+
+  const baseComp = (market: string) => {
+    const tk = tickers.find((t) => t.symbol === selected)
+    return market === 'futures' ? tk?.compressionFutures ?? 25 : tk?.compressionSpot ?? 500
+  }
+
+  const card = isLight ? 'bg-white border-slate-200' : 'liquid-glass-card'
+  const input = isLight
+    ? 'bg-slate-50 border-slate-200 text-slate-900 focus:border-emerald-500'
+    : 'bg-white/[0.03] border-white/10 text-white focus:border-emerald-500'
+
+  return (
+    <div className={`p-5 rounded-2xl border flex flex-col gap-4 ${card}`}>
+      <div className="flex items-center gap-2 text-xs font-bold font-mono text-blue-500 uppercase shrink-0">
+        <Database className="w-4 h-4" />
+        {t('admin.database.compressionDefaults')}
+      </div>
+
+      <select
+        className={`px-3 py-2 rounded-xl border text-xs font-mono ${input}`}
+        value={selected}
+        onChange={(e) => setSelected(e.target.value)}
+      >
+        {tickers.map((tk) => (
+          <option key={tk.id} value={tk.symbol}>{tk.symbol}</option>
+        ))}
+      </select>
+
+      {loading ? (
+        <div className="text-slate-400 text-center py-6 text-xs font-mono">{t('admin.database.loading')}</div>
+      ) : selected ? (
+        <div className="flex flex-col gap-4">
+          {(['futures', 'spot'] as const).map((market) => {
+            const tfs = market === 'spot' ? SPOT_TIMEFRAMES : FUTURES_TIMEFRAMES
+            return (
+              <div key={market}>
+                <div className="text-[10px] font-bold font-mono text-slate-400 uppercase mb-2">
+                  {market === 'futures' ? t('admin.database.futures') : t('admin.database.spot')}
+                  <span className="ml-2 text-slate-500">({t('admin.database.base')}: {baseComp(market)})</span>
+                </div>
+                <div className={`grid gap-2 ${market === 'spot' ? 'grid-cols-4' : 'grid-cols-3'}`}>
+                  {tfs.map((tf) => {
+                    const val = compressions[market]?.[tf]
+                    const hasValue = val !== undefined && val >= 1
+                    const belowBase = hasValue && val! < baseComp(market)
+                    return (
+                      <div key={tf} className={`flex flex-col gap-1 p-2 rounded-lg border ${isLight ? 'bg-slate-50 border-slate-200' : 'bg-white/[0.01] border-white/5'}`}>
+                        <span className="text-[10px] font-mono font-bold text-slate-500">{tf}</span>
+                        <input
+                          className={`px-2 py-1 rounded border text-xs font-mono ${input}`}
+                          type="number"
+                          min={baseComp(market)}
+                          value={val ?? ''}
+                          onChange={(e) => updateMult(market, tf, +e.target.value)}
+                        />
+                        {belowBase && (
+                          <span className="text-[9px] text-red-400 font-mono">{t('admin.database.validationError')}</span>
+                        )}
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+            )
+          })}
+          {saveMsg && (
+            <div className="px-3 py-2 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs font-mono">
+              {saveMsg}
+            </div>
+          )}
+          {saveErr && (
+            <div className="px-3 py-2 rounded-lg bg-red-500/10 border border-red-500/20 text-red-400 text-xs font-mono">
+              {saveErr}
+            </div>
+          )}
+          <button onClick={handleSave} className="px-4 py-2 rounded-xl bg-blue-500 text-white font-bold text-xs hover:bg-blue-600 cursor-pointer transition-colors flex items-center gap-2 justify-center">
+            <Save className="w-3 h-3" />{t('admin.database.save')}
+          </button>
+        </div>
+      ) : (
+        <div className="text-slate-400 text-center py-6 text-xs font-mono">{t('admin.database.noCompressions')}</div>
+      )}
+    </div>
+  )
+}
+
+function HistoryBlock({ isLight }: { isLight: boolean }) {
+  const { t } = useTranslation()
+  const [tickers, setTickers] = useState<Ticker[]>([])
+  const [symbol, setSymbol] = useState('')
+  const [market, setMarket] = useState('futures')
+  const [startDate, setStartDate] = useState('')
+  const [endDate, setEndDate] = useState('')
+  const [jobs, setJobs] = useState<DownloadJob[]>([])
+  const [submitting, setSubmitting] = useState(false)
+  const [startErr, setStartErr] = useState<string | null>(null)
+
+  const fetchTickers = useCallback(async () => {
+    try {
+      const data = await apiGetTickers()
+      setTickers(data)
+      if (data.length > 0 && !symbol) setSymbol(data[0]!.symbol)
+    } catch { /* ignore */ }
+  }, [symbol])
+
+  useEffect(() => { fetchTickers() }, [fetchTickers])
+
+  const fetchJobs = useCallback(async () => {
+    try {
+      const data = await apiGetJobs()
+      setJobs(data)
+    } catch { /* ignore */ }
+  }, [])
+
+  useEffect(() => {
+    fetchJobs()
+    const hasActive = jobs.some((j) => isActiveStatus(j.status))
+    const iv = setInterval(fetchJobs, hasActive ? 1500 : 5000)
+    return () => clearInterval(iv)
+  }, [fetchJobs, jobs])
+
+  const handleStart = async () => {
+    if (!symbol || !startDate || !endDate) return
+    setSubmitting(true)
+    setStartErr(null)
+    try {
+      await apiStartDownload({ symbol, market, startDate, endDate })
+      fetchJobs()
+    } catch (e: any) {
+      setStartErr(e?.message || JSON.stringify(e))
+    }
+    setSubmitting(false)
+  }
+
+  const statusColor = (s: string) => {
+    if (s === 'completed' || s === 'done') return 'text-emerald-500'
+    if (s === 'failed') return 'text-red-500'
+    if (s === 'downloading' || s === 'parsing' || s === 'aggregating' || s === 'inserting' || s === 'running') return 'text-amber-500'
+    return 'text-slate-400'
+  }
+
+  const isActiveStatus = (s: string) =>
+    s === 'downloading' || s === 'parsing' || s === 'aggregating' || s === 'inserting' || s === 'running' || s === 'pending'
+
+  const card = isLight ? 'bg-white border-slate-200' : 'liquid-glass-card'
+  const input = isLight
+    ? 'bg-slate-50 border-slate-200 text-slate-900 focus:border-emerald-500'
+    : 'bg-white/[0.03] border-white/10 text-white focus:border-emerald-500'
+
+  return (
+    <div className={`p-5 rounded-2xl border flex flex-col gap-4 ${card}`}>
+      <div className="flex items-center gap-2 text-xs font-bold font-mono text-purple-500 uppercase shrink-0">
+        <Download className="w-4 h-4" />
+        {t('admin.database.historyDownload')}
+      </div>
+
+      <div className={`flex flex-col gap-3 p-3 rounded-xl border ${isLight ? 'bg-slate-50 border-slate-200' : 'bg-white/[0.01] border-white/5'}`}>
+        <select className={`px-3 py-2 rounded-xl border text-xs font-mono ${input}`} value={symbol} onChange={(e) => setSymbol(e.target.value)}>
+          {tickers.map((tk) => <option key={tk.id} value={tk.symbol}>{tk.symbol}</option>)}
+        </select>
+
+        <div className="flex gap-2">
+          <select className={`flex-1 px-3 py-2 rounded-xl border text-xs font-mono ${input}`} value={market} onChange={(e) => setMarket(e.target.value)}>
+            <option value="futures">{t('admin.database.futures')}</option>
+            <option value="spot">{t('admin.database.spot')}</option>
+          </select>
+        </div>
+
+        <div className="grid grid-cols-2 gap-2">
+          <div>
+            <span className="text-[10px] font-mono text-slate-400 uppercase mb-1 block">{t('admin.database.startDate')}</span>
+            <input className={`w-full px-2 py-1.5 rounded-lg border text-xs font-mono ${input}`} type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
+          </div>
+          <div>
+            <span className="text-[10px] font-mono text-slate-400 uppercase mb-1 block">{t('admin.database.endDate')}</span>
+            <input className={`w-full px-2 py-1.5 rounded-lg border text-xs font-mono ${input}`} type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} />
+          </div>
+        </div>
+
+        <button
+          onClick={handleStart}
+          disabled={submitting || !symbol || !startDate || !endDate}
+          className="px-4 py-2 rounded-xl bg-purple-500 text-white font-bold text-xs hover:bg-purple-600 disabled:opacity-50 cursor-pointer transition-colors flex items-center gap-2 justify-center"
+        >
+          <Download className="w-3 h-3" />
+          {submitting ? t('admin.database.loading') : t('admin.database.startDownload')}
+        </button>
+        {startErr && (
+          <div className="px-3 py-2 rounded-lg bg-red-500/10 border border-red-500/20 text-red-400 text-xs font-mono">
+            {startErr}
+          </div>
+        )}
+      </div>
+
+      <div className="flex-1 overflow-y-auto rounded-xl border p-3 space-y-2 text-xs font-mono min-h-0 max-h-[400px] xl:max-h-none">
+        <div className="flex items-center justify-between mb-2">
+          <span className="text-[10px] font-bold font-mono text-slate-400 uppercase">{t('admin.database.jobs')}</span>
+          <button onClick={fetchJobs} className={`p-1 rounded cursor-pointer ${isLight ? 'hover:bg-slate-100 text-slate-500' : 'hover:bg-white/5 text-slate-400'}`}>
+            <RefreshCw className="w-3 h-3" />
+          </button>
+        </div>
+        {jobs.length === 0 ? (
+          <div className="text-slate-400 text-center py-6">{t('admin.database.noData')}</div>
+        ) : (
+          jobs.map((job) => (
+            <div key={job.id} className={`p-3 rounded-lg border flex flex-col gap-1.5 ${
+              isLight ? 'bg-white border-slate-200' : 'bg-white/[0.02] border-white/5'
+            }`}>
+              <div className="flex items-center justify-between">
+                <span className={`font-black ${isLight ? 'text-slate-900' : 'text-white'}`}>{job.symbol} <span className="text-slate-400 font-normal">{job.market}</span></span>
+                <span className={`text-[10px] font-bold uppercase ${statusColor(job.status)}`}>{t(`admin.database.${job.status}` as any) || job.status}</span>
+              </div>
+              <div className="text-[10px] text-slate-500">{job.startDate} → {job.endDate}</div>
+              {isActiveStatus(job.status) && (
+                <div className={`h-1.5 w-full rounded-full overflow-hidden ${isLight ? 'bg-slate-200' : 'bg-slate-800'}`}>
+                  <div className="h-full bg-amber-500 transition-all duration-300 rounded-full" style={{ width: `${Math.min(job.progress, 100)}%` }} />
+                </div>
+              )}
+              <div className="text-[10px] text-slate-500 font-mono">{Math.round(job.progress)}%</div>
+              {job.stepDetail && <div className="text-[10px] text-slate-500 truncate">{t('admin.database.stepDetail')}: {job.stepDetail}</div>}
+              {job.error && <div className="text-[10px] text-red-400 truncate">{job.error}</div>}
+              {job.totalTicks > 0 && <div className="text-[10px] text-slate-500">{t('admin.database.totalTicks')}: {job.totalTicks.toLocaleString()}</div>}
+            </div>
+          ))
+        )}
+      </div>
     </div>
   )
 }
