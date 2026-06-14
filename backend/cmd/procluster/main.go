@@ -13,6 +13,7 @@ import (
 
 	"github.com/procluster/procluster/internal/aggregator"
 	"github.com/procluster/procluster/internal/api"
+	"github.com/procluster/procluster/internal/auth"
 	"github.com/procluster/procluster/internal/cache"
 	"github.com/procluster/procluster/internal/config"
 	"github.com/procluster/procluster/internal/depth"
@@ -63,9 +64,23 @@ func main() {
 	}
 	log.Println("[clickhouse] migrations applied")
 
+	sqliteDSN := getEnv("SQLITE_PATH", "./data/procluster.db")
+	sqliteDB, err := auth.OpenSQLite(sqliteDSN)
+	if err != nil {
+		log.Fatalf("[sqlite] connection failed: %v", err)
+	}
+	defer sqliteDB.Close()
+
+	if err := auth.Migrate(sqliteDB); err != nil {
+		log.Fatalf("[sqlite] migrations failed: %v", err)
+	}
+	log.Println("[sqlite] connected and migrated")
+
+	authCfg := auth.LoadAuthConfig()
+
 	candleCache := cache.New(rdb)
 	agg := aggregator.New(repo, rdb)
-	sm := api.NewSessionManager(rdb)
+	sm := api.NewSessionManager(rdb, authCfg.SessionLimits)
 
 	apiCfg := api.DefaultServerConfig()
 	if port := getEnv("APP_PORT", ""); port != "" {
@@ -77,7 +92,10 @@ func main() {
 
 	fngFetcher := fng.NewFNGFetcher(rdb)
 
-	srv := api.NewServer(repo, candleCache, agg, sm, apiCfg, restLimiter, wsLimiter, fngFetcher)
+	srv := api.NewServer(repo, candleCache, agg, sm, apiCfg, restLimiter, wsLimiter, fngFetcher, authCfg)
+
+	authHandler := auth.NewHandler(authCfg, sqliteDB, auth.NewAuthRateLimiter(rdb, authCfg))
+	authHandler.RegisterRoutes(srv.Mux())
 
 	hub := srv.Hub()
 	go hub.Run(ctx)

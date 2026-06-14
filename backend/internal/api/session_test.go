@@ -26,11 +26,12 @@ func setupTestRedis(t *testing.T) (*redis.Client, *miniredis.Miniredis) {
 
 func TestSessionLimit_NoRaceOverflow(t *testing.T) {
 	rdb, _ := setupTestRedis(t)
-	sm := NewSessionManager(rdb)
+	limits := map[string]int{"guest": 1, "free": 1, "pro": 2, "vip": 2, "admin": -1}
+	sm := NewSessionManager(rdb, limits)
 
 	userId := "test-user-1"
 	tier := "free"
-	limit := sessionLimits[tier]
+	limit := limits[tier]
 	if limit != 1 {
 		t.Fatalf("expected limit 1 for free tier, got %d", limit)
 	}
@@ -95,7 +96,8 @@ func TestSessionLimit_NoRaceOverflow(t *testing.T) {
 
 func TestSessionLimit_LastWins(t *testing.T) {
 	rdb, _ := setupTestRedis(t)
-	sm := NewSessionManager(rdb)
+	limits := map[string]int{"guest": 1, "free": 1, "pro": 2, "vip": 2, "admin": -1}
+	sm := NewSessionManager(rdb, limits)
 
 	userId := "test-user-2"
 	tier := "free"
@@ -130,7 +132,8 @@ func TestSessionLimit_LastWins(t *testing.T) {
 
 func TestSessionLimit_Heartbeat(t *testing.T) {
 	rdb, _ := setupTestRedis(t)
-	sm := NewSessionManager(rdb)
+	limits := map[string]int{"guest": 1, "free": 1, "pro": 2, "vip": 2, "admin": -1}
+	sm := NewSessionManager(rdb, limits)
 
 	userId := "test-user-3"
 	tier := "free"
@@ -153,7 +156,8 @@ func TestSessionLimit_Heartbeat(t *testing.T) {
 
 func TestSessionLimit_RemoveSession(t *testing.T) {
 	rdb, _ := setupTestRedis(t)
-	sm := NewSessionManager(rdb)
+	limits := map[string]int{"guest": 1, "free": 1, "pro": 2, "vip": 2, "admin": -1}
+	sm := NewSessionManager(rdb, limits)
 
 	userId := "test-user-4"
 	tier := "free"
@@ -176,7 +180,8 @@ func TestSessionLimit_RemoveSession(t *testing.T) {
 
 func TestSessionLimit_HeartbeatExpiry(t *testing.T) {
 	rdb, mr := setupTestRedis(t)
-	sm := NewSessionManager(rdb)
+	limits := map[string]int{"guest": 1, "free": 1, "pro": 2, "vip": 2, "admin": -1}
+	sm := NewSessionManager(rdb, limits)
 
 	userId := "test-user-5"
 	tier := "free"

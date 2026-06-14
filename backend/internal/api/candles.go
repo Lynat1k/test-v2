@@ -5,7 +5,9 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
+	"github.com/procluster/procluster/internal/auth"
 	"github.com/procluster/procluster/internal/model"
 )
 
@@ -89,6 +91,18 @@ func (s *Server) handleCandles(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		before = &parsed
+	}
+
+	role, _, _ := auth.ExtractUserFromRequest(s.authCfg, r)
+	if role == "" {
+		role = "guest"
+	}
+	depth := maxDepthForRole(role, s.authCfg)
+	if depth >= 0 && before != nil {
+		cutoff := time.Now().Add(-depth).UnixMilli()
+		if *before < cutoff {
+			*before = cutoff
+		}
 	}
 
 	ctx := r.Context()
@@ -257,4 +271,15 @@ func writeError(w http.ResponseWriter, status int, code, message string) {
 			Message: message,
 		},
 	})
+}
+
+func maxDepthForRole(role string, cfg auth.AuthConfig) time.Duration {
+	switch role {
+	case "guest":
+		return cfg.HistoryMaxGuest
+	case "free":
+		return cfg.HistoryMaxFree
+	default:
+		return -1
+	}
 }

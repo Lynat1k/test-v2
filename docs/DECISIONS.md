@@ -3,6 +3,73 @@
 > Сюда пишем решения, которые меняют или фиксируют архитектуру/правила.
 > Новые — сверху. Если решение противоречит спеке — сначала обнови спеку.
 
+### [2026-06-14] Фаза 9 Этап 3: Frontend auth + user settings sync
+- Контекст: Этапы 1-2 дали JWT auth + rate-limit/lockout на бэке. Нет frontend auth flow, нет user settings persistence.
+- Решение:
+  - **Silent-login**: при старте приложения `AuthProvider` вызывает `POST /auth/refresh`. Если refresh cookie валиден → получаем access token + user data. Не требует interaction от пользователя. Если refresh невалиден → guest mode.
+  - **Auto-refresh**: таймер обновляет access token за 2 минуты до истечения (13 минут из 15). При ошибке — очистка state (logout).
+  - **accessToken в памяти**: хранится в `useState` внутри `AuthProvider`, не в localStorage/cookie. При закрытии вкладки — теряется, восстанавливается через refresh.
+  - **AuthUser lowercase roles**: `guest`, `free`, `pro`, `vip`, `admin` — консистентно с JWT на бэке. Старые `Guest`/`Free`/`Pro`/`VIP`/`Admin` (PascalCase) из `useAuth.ts` удалены.
+  - **UserSettings sync**: для залогиненных — API (`GET/PUT /api/v1/user/settings`), debounce 500ms. Для гостя — localStorage. При логине — мерж localStorage → API (одноразово). При logout — localStorage сохраняется для следующего гостя.
+  - **Modal z-index**: модалки auth на z-index 99999 (как Portal.tsx), VerifyEmailBanner на 99998 (под модалками).
+  - **Google OAuth**: disabled кнопка в обеих модалках + tooltip "Скоро". Не ломает UI, показывает roadmap.
+- Альтернативы:
+  - Access token в localStorage — отвергнуто: XSS vulnerability, автоматически отправляется с каждым запросом.
+  - Access token в cookie — отвергнуто: CSRF vulnerability, SameSite не 100% защита.
+  - Refresh каждые N минут по таймеру без привязки к TTL — отвергнуто:浪费 токенов, если пользователь неактивен.
+  - Settings в localStorage для всех — отвергнуто: нет синхронизации между устройствами для залогиненных.
+- Последствия:
+  - `features/auth/useAuth.ts` (старый localStorage-based хук) — deprecated, заменён на `AuthContext`.
+  - `App.tsx` provider tree расширен: AuthProvider > UserSettingsProvider.
+  - ChartHeader использует `useAuthContext()` вместо `useAuth()`.
+  - Roles: все lowercase, без PascalCase.
+
+### [2026-06-14] Фаза 9 Этап 2: Auth rate-limit/lockout + history gating + session limits из config
+- Контекст: Этап 1 дал JWT auth, но нет защиты от brute-force, нет server-side history gating по тарифу, session limits были hardcoded.
+- Решение:
+  - **Rate-limit**: Redis sorted set sliding window. Ключи: `rl:login:{ip}:{email}`, `rl:register:{ip}`, `rl:recovery:{email}`. Лимиты из `AuthConfig`/env (10 login/5min, 5 register/hour, 3 recovery/hour). При превышении — HTTP 429 + Retry-After.
+  - **Lockout**: 5 неудачных логинов → 15мин блокировка (`lockout:{user_id}`). Progressive delay перед lockout: 1→0s, 2→1s, 3→2s, 4→4s. При успехе — полный сброс (`ClearFailures`).
+  - **History gating**: `maxDepthForRole()` — guest: 7d, free: 180d, pro/vip/admin: unlimited. `before` параметр (unix ms) сервер-сайд clamp к cutoff. Роль из JWT через `auth.ExtractUserFromRequest`.
+  - **Session limits**: `NewSessionManager(rdb, limits)` — limits передаются из `AuthConfig.SessionLimits` (из env: `SESSION_LIMIT_GUEST/FREE/PRO/VIP`). Guest=1, Free=1, Pro=2, VIP=2, Admin=-1.
+  - **Recovery**: `POST /api/v1/auth/recovery` — rate-limit, всегда OK (email enumeration protection).
+  - **User role**: `"free"` (lowercase) при register — консистентность с JWT roles.
+- Альтернативы:
+  - In-memory rate-limit (sync.Map) — отвергнуто: не работает при нескольких инстансах, нет TTL.
+  - Trust client для history gating — отвергнуто: клиент может врать, сервер доверяет только JWT.
+  - Hardcoded session limits — отвергнуто: настройка без перекомпиляции через env.
+- Последствия:
+  - `AuthConfig` расширена (9 новых полей). `NewHandler` принимает `*AuthRateLimiter`.
+  - `handleCandles` извлекает role из JWT, clamp `before` по cutoff.
+  - Тесты: 43+ auth + 5 api — все PASS.
+
+### [2026-06-14] Фаза 9: Авторизация — серверные сессии, access JWT, refresh в SQLite
+- Контекст: нужна полноценная авторизация (регистрация/вход/email-верификация/роли) с безопасным хранением сессий. Фаза 4 имела заглушку `extractUserID` из query param / IP. Redis-лимиты графических сессий работали по фейковому userId.
+- Решение:
+  - **Серверные сессии**: refresh-токен хранится в SQLite (таблица `sessions` с хешем SHA-256), отдаётся в httpOnly + Secure + SameSite=Lax cookie. Access — короткий JWT (HS256, 15 минут) в `Authorization: Bearer` header. Access НЕ хранится в cookie/SQLite — только в памяти фронта.
+  - **Ротация refresh**: при каждом использовании `POST /auth/refresh` старый refresh помечается `rotated=1`, выдаётся новый. Refresh reuse detection: если приходит уже использованный refresh (помечен rotated) — инвалидировать ВСЕ сессии пользователя, вернуть 401.
+  - **modernc.org/sqlite**: чистый Go-драйвер без CGO (в отличие от mattn/go-sqlite3). Кросс-платформенная сборка (Windows/Linux/Docker). `database/sql` интерфейс тот же.
+  - **Правило access-vs-refresh**: Авторизация любых запросов и WS определяется ТОЛЬКО по ACCESS-токену (JWT из `Authorization: Bearer` header; для WS — query `?token=<access>`). Refresh-cookie (pc_refresh_token) используется ИСКЛЮЧИТЕЛЬНО эндпоинтом `POST /auth/refresh`. Никакой другой эндпоинт и WS НЕ читают refresh-cookie для авторизации.
+  - **Email-verification**: в dev-режиме (`EMAIL_MODE=log`) ссылка подтверждения печатается в лог, SMTP не используется. Интерфейс `EmailSender` с будущей SMTP-реализацией.
+  - **Google OAuth**: за фиче-флагом `GOOGLE_OAUTH_ENABLED=false`. Только интерфейс + заглушка, эндпоинт возвращает 501 NOT_IMPLEMENTED.
+  - **Валидация ввода**: email regex, password ≥ 8, nickname 2-30. Одинаковое сообщение при неверном email/пароле (не раскрывать существование аккаунта). `http.MaxBytesReader` на теле auth-запросов (4KB).
+- Альтернативы:
+  - mattn/go-sqlite3 — отвергнут: требует CGO (gcc), ломает сборку на Windows без MinGW.
+  - JWT в cookie (access+refresh) — отвергнут: access в cookie уязвим к CSRF, SameSite не 100% защита. Access в памяти фронта + refresh в httpOnly cookie — безопаснее.
+  - Полное удаление старого refresh при ротации — отвергнут: невозможно обнаружить reuse (старый токен удалён, пользователь неidentифицируем). Soft-delete (rotated=1) позволяет обнаружить reuse и инвалидировать все сессии.
+- Последствия:
+  - `extractUserID()` в hub.go заменён на `JWTUserIDExtractor` (парсинг JWT из Authorization header). WS подключения теперь авторизуются по access-токену.
+  - `handleChartSubscribe` использует реальную роль из JWT вместо хардкода `"free"`.
+  - `api.NewServer()` принимает `auth.AuthConfig` + имеет `Mux()` метод для регистрации auth-маршрутов.
+  - Тесты: 33 теста (password, jwt, sqlite, handlers) — все PASS.
+
+### [2026-06-14] Vite dev-proxy для кросс-_ORIGIN cookie
+
+### [2026-06-14] Vite dev-proxy для кросс-ORIGIN cookie
+- Контекст: фронт на `:5173`, бэкенд на `:8080` — разные origin. httpOnly cookie не работают при cross-origin (SameSite=Lax блокирует). Нужен dev-proxy для same-origin.
+- Решение: Vite dev server проксирует `/api/*` и `/ws` на `http://localhost:8080` с `changeOrigin: true`. Клиент обращается к `/api/v1/auth/refresh`, Vite проксирует на бэкенд → cookie устанавливается на `localhost:5173` (same-origin). `COOKIE_SECURE=false` в dev. В продакшене оба сервиса за Caddy на одном домене — proxy не нужен.
+- Альтернативы: CORS + `SameSite=None; Secure` — отвергнуто (требует HTTPS даже в dev, сложнее отладка). Отдельный домен для API — отвергнуто (избыточно для VPS).
+- Последствия: frontend/vite.config.ts обновлён с `changeOrigin: true` для обоих прокси.
+
 ### [2026-06-14] Ingest @aggTrade для обоих рынков
 - Контекст: live-ingest был поднят только для futures. Spot-трейды не попадали в aggregator → spot OrderBook.lastPrice = 0 → стакан пуст.
 - Решение: оба рынка используют `@aggTrade`. Futures: `fstream.binance.com/market/ws/...@aggTrade`. Spot: `stream.binance.com:9443/ws/...@aggTrade`. Парсер: `tradeID = msg.AggregateTradeID` для обоих. Spot-ingest worker запущен в main.go, тот же tradesCh.

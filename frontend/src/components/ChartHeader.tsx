@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 import { useTranslation } from '@/i18n'
-import { useAuth } from '@/features/auth/useAuth'
+import { useAuthContext } from '@/features/auth/AuthContext'
 import {
   useChartControls,
   AVAILABLE_TICKERS,
@@ -39,7 +39,7 @@ interface ChartHeaderProps {
 
 export function ChartHeader({ fps = 0 }: ChartHeaderProps) {
   const { t } = useTranslation()
-  const { userRole } = useAuth()
+  const { user } = useAuthContext()
   const {
     activeSlot, setActiveSlot, getSlot,
     setSymbol, setMarket, setTimeframe, setCandleMode, setPalette: setControlsPalette,
@@ -63,7 +63,7 @@ export function ChartHeader({ fps = 0 }: ChartHeaderProps) {
 
   const tickerConfig = getTickerConfig()
   const compressionLevels = getCompressionLevels()
-  const isFree = userRole === 'Free' || userRole === 'Guest'
+  const isFree = (user?.role ?? 'guest') === 'free' || (user?.role ?? 'guest') === 'guest'
   const baseCompression = market === 'futures' ? tickerConfig.baseFutures : tickerConfig.baseSpot
 
   const resolvedMode = candleMode === 'auto' ? 'japanese' : candleMode

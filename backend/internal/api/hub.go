@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
+	"github.com/procluster/procluster/internal/auth"
 )
 
 var upgrader = websocket.Upgrader{
@@ -32,6 +33,7 @@ type Hub struct {
 type Client struct {
 	id            string
 	userId        string
+	userRole      string
 	sessionID     string
 	conn          *websocket.Conn
 	hub           *Hub
@@ -177,14 +179,15 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	userID := extractUserID(r)
+	userID, role := s.extractUserID(r)
 
 	client := &Client{
-		id:     generateID(),
-		userId: userID,
-		conn:   conn,
-		hub:    s.hub,
-		send:   make(chan []byte, 256),
+		id:       generateID(),
+		userId:   userID,
+		userRole: role,
+		conn:     conn,
+		hub:      s.hub,
+		send:     make(chan []byte, 256),
 	}
 
 	s.hub.Register(client)
@@ -282,7 +285,7 @@ func (s *Server) handleChartSubscribe(c *Client, msg WSMessage) {
 	result, err := s.sessionManager.RegisterSession(
 		context.Background(),
 		c.userId,
-		"free",
+		c.userRole,
 		c.sessionID,
 	)
 	if err != nil {
@@ -406,16 +409,17 @@ func generateID() string {
 	return "client-" + time.Now().Format("20060102150405.000000000")
 }
 
-func extractUserID(r *http.Request) string {
-	if uid := r.URL.Query().Get("userId"); uid != "" {
-		return uid
+func (s *Server) extractUserID(r *http.Request) (string, string) {
+	userID, role, err := auth.ExtractUserFromRequest(s.authCfg, r)
+	if err != nil {
+		ip := r.Header.Get("X-Forwarded-For")
+		if ip == "" {
+			ip = r.Header.Get("X-Real-IP")
+		}
+		if ip == "" {
+			ip = r.RemoteAddr
+		}
+		return "guest:" + ip, "guest"
 	}
-	ip := r.Header.Get("X-Forwarded-For")
-	if ip == "" {
-		ip = r.Header.Get("X-Real-IP")
-	}
-	if ip == "" {
-		ip = r.RemoteAddr
-	}
-	return "guest:" + ip
+	return userID, role
 }

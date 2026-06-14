@@ -4,25 +4,33 @@ import { I18nProvider } from '@/i18n'
 import { CandlePaletteProvider } from '@/contexts/CandlePaletteContext'
 import { ChartControlsProvider, useChartControls } from '@/contexts/ChartControlsContext'
 import { LayoutProvider, useLayout } from '@/contexts/LayoutContext'
+import { UserSettingsProvider } from '@/contexts/UserSettingsContext'
+import { AuthProvider, useAuthContext } from '@/features/auth/AuthContext'
+import { LoginModal } from '@/features/auth/LoginModal'
+import { RegisterModal } from '@/features/auth/RegisterModal'
+import { VerifyEmailBanner } from '@/features/auth/VerifyEmailBanner'
 import { ChartContainer } from '@/components/ChartContainer'
 import { ChartPanel } from '@/components/ChartPanel'
 import { ChartHeader } from '@/components/ChartHeader'
 import { Splitter } from '@/components/Splitter'
 import { DOMSidebar } from '@/components/DOMSidebar'
-import { useAuth } from '@/features/auth/useAuth'
 import type { CandleMode } from '@/chart-engine'
 import { AnimatePresence, motion } from 'motion/react'
+import { useTranslation } from '@/i18n'
 
 type View = 'terminal' | 'admin' | 'profile'
 
 function AppShell() {
-  const { userRole } = useAuth()
+  const { user, logout } = useAuthContext()
+  const { t } = useTranslation()
   const { showIndicatorsModal, setShowIndicatorsModal, getSlot, activeSlot, setActiveSlot } = useChartControls()
   const { layoutMode, splitRatio, setSplitRatio } = useLayout()
   const [currentView, setCurrentView] = useState<View>('terminal')
   const [fps, setFps] = useState(0)
   const handleFpsChange = useCallback((f: number) => setFps(f), [])
   const handleResolvedModeChange = useCallback((_m: Exclude<CandleMode, 'auto'>) => {}, [])
+  const [loginOpen, setLoginOpen] = useState(false)
+  const [registerOpen, setRegisterOpen] = useState(false)
 
   const chartAreaRef = useRef<HTMLDivElement>(null)
 
@@ -39,8 +47,12 @@ function AppShell() {
   const slot0 = getSlot(0)
   const slot1 = getSlot(1)
 
+  const userRole = user?.role ?? 'guest'
+
   return (
     <div className="h-screen w-screen flex flex-col overflow-hidden bg-black text-white">
+      <VerifyEmailBanner />
+
       {/* Main app header */}
       <header className="h-12 flex items-center px-4 liquid-glass-card border-b border-white/5 shrink-0">
         <span className="font-display font-bold text-lg tracking-tight">PROCLUSTER</span>
@@ -52,7 +64,7 @@ function AppShell() {
           >
             Terminal
           </button>
-          {userRole === 'Admin' && (
+          {userRole === 'admin' && (
             <button
               className="liquid-glass-button px-3 py-1 rounded text-xs"
               onClick={() => setCurrentView('admin')}
@@ -60,12 +72,29 @@ function AppShell() {
               Admin
             </button>
           )}
-          <button
-            className="liquid-glass-button px-3 py-1 rounded text-xs"
-            onClick={() => setCurrentView('profile')}
-          >
-            Profile
-          </button>
+          {user ? (
+            <div className="flex items-center gap-2">
+              <button
+                className="liquid-glass-button px-3 py-1 rounded text-xs"
+                onClick={() => setCurrentView('profile')}
+              >
+                {user.nickname}
+              </button>
+              <button
+                className="liquid-glass-button px-3 py-1 rounded text-xs text-slate-400 hover:text-white"
+                onClick={() => logout()}
+              >
+                {t('header.logout')}
+              </button>
+            </div>
+          ) : (
+            <button
+              className="px-3 py-1 rounded text-xs font-bold bg-amber-500/20 text-amber-400 border border-amber-500/30 hover:bg-amber-500/30 cursor-pointer"
+              onClick={() => setLoginOpen(true)}
+            >
+              {t('header.login')}
+            </button>
+          )}
         </div>
       </header>
 
@@ -219,6 +248,9 @@ function AppShell() {
           </div>
         )}
       </AnimatePresence>
+
+      <LoginModal open={loginOpen} onClose={() => setLoginOpen(false)} onSwitchToRegister={() => { setLoginOpen(false); setRegisterOpen(true) }} />
+      <RegisterModal open={registerOpen} onClose={() => setRegisterOpen(false)} onSwitchToLogin={() => { setRegisterOpen(false); setLoginOpen(true) }} />
     </div>
   )
 }
@@ -227,13 +259,17 @@ export default function App() {
   return (
     <ThemeProvider>
       <I18nProvider>
-        <CandlePaletteProvider>
-          <ChartControlsProvider>
-            <LayoutProvider>
-              <AppShell />
-            </LayoutProvider>
-          </ChartControlsProvider>
-        </CandlePaletteProvider>
+        <AuthProvider>
+          <UserSettingsProvider>
+            <CandlePaletteProvider>
+              <ChartControlsProvider>
+                <LayoutProvider>
+                  <AppShell />
+                </LayoutProvider>
+              </ChartControlsProvider>
+            </CandlePaletteProvider>
+          </UserSettingsProvider>
+        </AuthProvider>
       </I18nProvider>
     </ThemeProvider>
   )

@@ -10,13 +10,6 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
-var sessionLimits = map[string]int{
-	"free":  1,
-	"pro":   2,
-	"vip":   2,
-	"admin": -1,
-}
-
 const (
 	heartbeatInterval = 10 * time.Second
 	sessionTTL        = 30 * time.Second
@@ -77,10 +70,19 @@ type SessionManager struct {
 	limits map[string]int
 }
 
-func NewSessionManager(rdb *redis.Client) *SessionManager {
+func NewSessionManager(rdb *redis.Client, limits map[string]int) *SessionManager {
+	if limits == nil {
+		limits = map[string]int{
+			"guest": 1,
+			"free":  1,
+			"pro":   2,
+			"vip":   2,
+			"admin": -1,
+		}
+	}
 	return &SessionManager{
 		rdb:    rdb,
-		limits: sessionLimits,
+		limits: limits,
 	}
 }
 

@@ -3,6 +3,133 @@
 > Claude обновляет этот файл в КОНЦЕ каждой задачи. Новые записи — сверху.
 > Формат записи строго по шаблону. Это память между чатами.
 
+### [2026-06-14] Фаза 9 — Этап 3: Frontend auth + user settings
+- Модель: MiMo (mimo-v2.5-free)
+- Что сделано:
+  - **Backend user_settings** (`auth/user_settings.go`): SQLite таблица `user_settings` (user_id PK, settings_json TEXT, updated_at). `GetUserSettings()`, `UpsertUserSettings()` (INSERT ON CONFLICT DO UPDATE). Migration добавлена в `Migrate()`. Эндпоинты `GET /api/v1/user/settings` и `PUT /api/v1/user/settings` под `RequireAuth`. PUT: `MaxBytesReader(10KB)`, JSON string body.
+  - **auth/api.ts**: `apiLogin`, `apiRegister`, `apiLogout`, `apiRefresh`, `apiVerifyEmail`, `apiResendVerification`, `apiGetSettings`, `apiPutSettings`. Все через `fetch` с `credentials: 'include'` для cookie. Базовый путь `/api/v1`.
+  - **AuthContext.tsx** (`features/auth/`): `AuthProvider` + `useAuthContext()`. State: `user: AuthUser | null`, `accessToken: string | null`, `loading: boolean`. При старте — `POST /auth/refresh` (silent-login через httpOnly cookie). Auto-refresh по таймеру (обновление за 2 минуты до истечения). `logout()` — вызов API + очистка state.
+  - **LoginModal.tsx**: email+password, кнопка Войти, Google кнопка (disabled, tooltip "Скоро"), ссылка на регистрацию. Inline-ошибки: INVALID_CREDENTIALS → t('auth.errorInvalidCredentials'), ACCOUNT_LOCKED → t('auth.errorAccountLocked'), RATE_LIMITED → t('auth.errorRateLimited'). Закрытие: Escape, backdrop, крестик. Анимации: motion/react scale+opacity.
+  - **RegisterModal.tsx**: nickname+email+password+confirm. Клиент-валидация (email regex, password>=8, совпадение). После успеха → экран "Проверьте email" (Mail icon + текст + кнопка Закрыть). Google кнопка disabled.
+  - **VerifyEmailBanner.tsx**: если `user && !emailVerified` → баннер с `POST /auth/recovery` (resend). Фиксирован `top-12`, z-index 99998.
+  - **UserSettingsContext.tsx**: для залогиненных — load из API при mount, save в API (debounce 500ms). Для гостя — localStorage (`procluster_user_settings`). При логине — мерж localStorage → API. `setSetting(key, value)`, `getSetting<T>(key, fallback)`.
+  - **App.tsx**: `AuthProvider` > `UserSettingsProvider` > `CandlePaletteProvider` > `ChartControlsProvider` > `LayoutProvider` > `AppShell`. Кнопка "Войти" (amber) в хедере когда не залогинен, никнейм + "Выйти" когда залогинен. `LoginModal` + `RegisterModal` модалки. `VerifyEmailBanner` при неподтверждённом email. Admin видна при `role === 'admin'`.
+  - **ChartHeader.tsx**: заменён `useAuth()` на `useAuthContext()`. `isFree` проверяет `user?.role ?? 'guest'` (lowercase, как в JWT).
+  - **i18n**: добавлены ключи `auth.confirmPassword`, `auth.noAccount`, `auth.hasAccount`, `auth.verifyEmailTitle/Message/Banner`, `auth.resendEmail`, `auth.emailSent`, `auth.error*` (7 ошибок) в en/ru/kz словари.
+  - **Playwright e2e**: auth.spec.ts (5 тестов — register modal, login modal, wrong credentials, register+login flow, escape closes modal), settings.spec.ts (3 теста — localStorage persist, guest mode, chart renders).
+- Затронутые файлы/папки (созданы):
+  - `backend/internal/auth/user_settings.go` (создан)
+  - `frontend/src/features/auth/api.ts` (создан)
+  - `frontend/src/features/auth/AuthContext.tsx` (создан)
+  - `frontend/src/features/auth/LoginModal.tsx` (создан)
+  - `frontend/src/features/auth/RegisterModal.tsx` (создан)
+  - `frontend/src/features/auth/VerifyEmailBanner.tsx` (создан)
+  - `frontend/src/contexts/UserSettingsContext.tsx` (создан)
+  - `frontend/e2e/auth.spec.ts` (создан)
+  - `frontend/e2e/settings.spec.ts` (создан)
+- Затронутые файлы/папки (изменены):
+  - `backend/internal/auth/sqlite.go` (+user_settings migration)
+  - `backend/internal/auth/handlers.go` (+GET/PUT /user/settings routes, +handleGetSettings, +handlePutSettings)
+  - `frontend/src/App.tsx` (+AuthProvider, +UserSettingsProvider, +LoginModal, +RegisterModal, +VerifyEmailBanner, +login button, +logout)
+  - `frontend/src/components/ChartHeader.tsx` (useAuth → useAuthContext, isFree lowercase)
+  - `frontend/src/i18n/dictionaries/en.ts` (+auth keys)
+  - `frontend/src/i18n/dictionaries/ru.ts` (+auth keys)
+  - `frontend/src/i18n/dictionaries/kz.ts` (+auth keys)
+- Ключевые решения:
+  - Silent-login через POST /auth/refresh при старте — refresh cookie httpOnly, не требует interaction
+  - Auto-refresh за 2 минуты до истечения — бесшовная сессия
+  - UserSettings: localStorage для гостей, API для залогиненных, мерж при логине
+  - Debounce 500ms для settings save — не спамим API при каждом изменении
+  - VerifyEmailBanner: отдельный z-index 99998, не перекрывает модалки (99999)
+  - Google OAuth: disabled кнопка + tooltip "Скоро" — не ломает UI, показывает планы
+  - Все роли lowercase в JWT/frontend: guest, free, pro, vip, admin
+- Тесты/проверки:
+  - `go build ./...`: PASS
+  - `go vet ./...`: PASS
+  - `go test ./...`: ALL PASS
+  - `npx tsc --noEmit`: PASS
+  - `npx vite build`: PASS (475ms)
+  - Playwright e2e: auth.spec.ts (5), settings.spec.ts (3) — requires running backend+frontend
+
+### [2026-06-14] Фаза 9 — Этап 2: Rate-limit/lockout, session limits из config, history gating
+- Модель: MiMo (mimo-v2.5-free)
+- Что сделано:
+  - **Auth rate-limiter** (`auth/ratelimit.go`): Redis sorted set sliding window. `CheckLogin(ip, email)` — лимит 10/5min. `CheckRegister(ip)` — 5/hour. `CheckRecovery(email)` — 3/hour. Все числа из `AuthConfig`/env. `RecordLoginFailure(userID)` — инкремент счётчика `failed:{user_id}` с TTL = LockoutWindow. При достижении `LockoutThreshold` → установка `lockout:{user_id}` с TTL. `CheckLockout(userID)` — проверка TTL lockout. `ClearFailures(userID)` — сброс при успешном логине. Progressive delay: 1→0s, 2→1s, 3→2s, 4→4s, 5+→8s.
+  - **AuthConfig расширена** (`auth/config.go`): добавлены `RateLimitWindow`, `RateLimitLoginMax`, `RateLimitRegisterMax`, `RateLimitRecoveryMax`, `LockoutThreshold`, `LockoutWindow`, `HistoryMaxGuest` (7d), `HistoryMaxFree` (180d), `SessionLimits` map. Все из env: `RATE_LIMIT_LOGIN_MAX`, `RATE_LIMIT_REGISTER_MAX`, `RATE_LIMIT_RECOVERY_MAX`, `LOCKOUT_THRESHOLD`, `LOCKOUT_WINDOW`, `SESSION_LIMIT_GUEST/FREE/PRO/VIP`. `parseIntEnv()` helper.
+  - **Handlers с rate-limit** (`auth/handlers.go`): `NewHandler` принимает `*AuthRateLimiter`. `handleLogin` — проверка `CheckLogin` → 429 + Retry-After, проверка `CheckLockout` → 403 ACCOUNT_LOCKED + Retry-After, `RecordLoginFailure` при неверном пароле → progressive delay → lockout, `ClearFailures` при успехе. `handleRegister` — `CheckRegister` → 429 + Retry-After. `handleRecovery` — новый эндпоинт `POST /api/v1/auth/recovery`, rate-limit, всегда OK (не раскрывает существование email). User role при register: `"free"` (не `"Free"` — приведено к lowercase для консистентности с JWT).
+  - **History gating** (`api/candles.go`): `maxDepthForRole(role, cfg)` — guest: 7d, free: 180d, pro/vip/admin: unlimited (-1). `before` параметр (unix ms) проверяется: если `now - before > maxDepth` → `before = cutoff`. С role из JWT через `auth.ExtractUserFromRequest(s.authCfg, r)`, fallback `"guest"` для неавторизованных.
+  - **Session limits из config** (`api/session.go`): `NewSessionManager(rdb, limits map[string]int)` — limits передаются из `AuthConfig.SessionLimits`. Fallback default если limits=nil. Удалён hardcoded `sessionLimits` map.
+  - **main.go**: `NewSessionManager(rdb, authCfg.SessionLimits)`, `NewHandler(authCfg, sqliteDB, auth.NewAuthRateLimiter(rdb, authCfg))`.
+  - **Тесты** (43+ auth, 5 api): auth/ratelimit_test.go (8 тестов — sliding window, lockout, clear failures, progressive delay), auth/middleware_test.go (9 тестов — Bearer/query/no-token/expired/RequireAuth/RequireRole), api/candles_gating_test.go (7 тестов — maxDepthForRole для всех ролей, cutoff calculation), api/session_link_test.go (4 теста — config limits, default fallback, unknown tier, unlimited pro). Все PASS.
+- Затронутые файлы/папки (созданы):
+  - `backend/internal/auth/ratelimit.go` (создан)
+  - `backend/internal/auth/ratelimit_test.go` (создан)
+  - `backend/internal/auth/middleware_test.go` (создан)
+  - `backend/internal/api/candles_gating_test.go` (создан)
+  - `backend/internal/api/session_link_test.go` (создан)
+- Затронутые файлы/папки (изменены):
+  - `backend/internal/auth/config.go` (+rate-limit/lockout/session-limit/env fields, +parseIntEnv)
+  - `backend/internal/auth/handlers.go` (+rl field, +rate-limit в login/register, +recovery endpoint, role lowercase)
+  - `backend/internal/auth/jwt_test.go` (+rate-limit fields в testConfig)
+  - `backend/internal/api/candles.go` (+history gating, +maxDepthForRole, +time import)
+  - `backend/internal/api/session.go` (-hardcoded sessionLimits, +limits param в NewSessionManager)
+  - `backend/internal/api/session_test.go` (обновлён NewSessionManager вызов)
+  - `backend/cmd/procluster/main.go` (+authCfg.SessionLimits в sm, +AuthRateLimiter в handler)
+- Ключевые решения:
+  - Redis sorted set для sliding window — атомарность, TTL автоматический, один ключ на endpoint
+  - Progressive delay перед lockout — замедление атакующего, не мгновенный lockout
+  - Recovery всегда OK — не раскрывает существование email (security best practice)
+  - History gating через role из JWT — сервер доверяет только своей роли, не клиенту
+  - guest=7d, free=180d, pro+=unlimited — сервер-side clamp, клиент не может обойти
+  - Session limits из AuthConfig/env — настройка без перекомпиляции
+- Тесты/проверки:
+  - `go build ./...`: PASS
+  - `go vet ./...`: PASS
+  - `gofmt -l .`: PASS (0 файлов)
+  - `go test ./...`: ALL PASS (43+ auth + 5 api + все существующие)
+
+### [2026-06-14] Фаза 9 — Этап 1: Авторизация (БД + регистрация/вход)
+- Модель: MiMo (mimo-v2.5-free)
+- Что сделано:
+  - **SQLite-схема** (`auth/sqlite.go`): 3 таблицы — `users` (id, email, nickname, password_hash, role, email_verified, created_at, updated_at), `sessions` (id, user_id, refresh_token_hash, user_agent, ip, created_at, expires_at, rotated), `email_verifications` (id, user_id, email, expires_at, used, created_at). Auto-migrations через `CREATE TABLE IF NOT EXISTS`. Индексы на sessions(user_id), sessions(refresh_token_hash), email_verifications(id, used).
+  - **argon2id** (`auth/password.go`): `HashPassword()` — генерация salt 16 байт, argon2id(m=65536, t=3, p=1, keyLen=32). Стандартный encoded формат `$argon2id$v=19$m=65536,t=3,p=1$salt$hash`. `CheckPassword()` — парсинг параметров из хеша, проверка. `HashRefreshToken()` — SHA-256. `GenerateRefreshToken()` — crypto/rand 64 байта → hex (128 символов).
+  - **JWT** (`auth/jwt.go`): `GenerateAccessToken()` — HS256, claims: sub(userID), role, exp(+15m), iat. `ParseAccessToken()` — валидация подписи и срока.
+  - **Эндпоинты** (`auth/handlers.go`): `POST /api/v1/auth/register` (валидация email regex, password≥8, nickname 2-30, уникальность email, argon2id hash, issuing tokens, email verification в лог). `POST /api/v1/auth/login` (проверка email_verified, одинаковое сообщение "invalid email or password" для неверных данных). `POST /api/v1/auth/logout` (чтение refresh-cookie, удаление session). `POST /api/v1/auth/refresh` (ротация: пометка старого refresh rotated=1, выдача нового + new cookie; reuse detection: обнаружение rotated session → удаление всех сессий пользователя). `GET /api/v1/auth/verify-email?token=` (проверка expiry + used, установка email_verified=1). `POST /api/v1/auth/google` + `GET /api/v1/auth/google/callback` (заглушки 501 NOT_IMPLEMENTED).
+  - **Email** (`auth/email.go`): интерфейс `EmailSender` с методом `SendVerification(ctx, to, verifyURL)`. Реализация `LogEmailSender` (печатает в log) за фиче-флагом `EMAIL_MODE=log`. `SMTPEmailSender` — заглушка.
+  - **OAuth** (`auth/oauth.go`): интерфейс `OAuthProvider` + `StubOAuthProvider` + `GoogleOAuthProvider` (заглушка за `GOOGLE_OAUTH_ENABLED=false`).
+  - **Middleware** (`auth/middleware.go`): `RequireAuth(cfg)` — парсинг JWT из `Authorization: Bearer` header → context.Value(userID, role). `RequireRole(roles...)` — проверка роли. `ExtractUserFromRequest()` — единая функция для извлечения user из JWT (access token только через Authorization header или query ?token= для WS).
+  - **UserIDExtractor** (`api/hub.go`): `extractUserID()` заменён на `Server.extractUserID()` — парсинг JWT из Authorization header → реальный userId+role. Fallback на guest (IP-based) для неавторизованных. WS-клиенты получают `userRole` при подключении.
+  - **SessionManager** (`api/hub.go`): `handleChartSubscribe` — хардкод `"free"` заменён на `c.userRole` из JWT. Реальная роль тарифа используется для лимита графических сессий.
+  - **api/server.go**: `Server` получил поле `authCfg` + `mux`, метод `Mux()` для регистрации auth-маршрутов. CORS расширен на `POST, OPTIONS` + `Authorization` + `Access-Control-Allow-Credentials`.
+  - **main.go**: Инициализация SQLite через `auth.OpenSQLite()` + `auth.Migrate()`, `auth.LoadAuthConfig()`, `auth.NewHandler()` + `RegisterRoutes()`.
+  - **.env.example**: Добавлены JWT_SECRET, ACCESS_TOKEN_TTL=15m, REFRESH_TOKEN_TTL=720h, EMAIL_MODE=log, GOOGLE_OAUTH_ENABLED=false, GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, COOKIE_DOMAIN=localhost, COOKIE_SECURE=false.
+  - **Vite dev-proxy**: `frontend/vite.config.ts` — `/api` и `/ws` проксируются на localhost:8080 с `changeOrigin: true` для same-origin cookie в dev.
+  - **Тесты** (33 теста): password_test (7), jwt_test (5), sqlite_test (6), handlers_test (15) — register/login/refresh-rotation/reuse-detection/logout/verify-email + duplicate/wrong-password/unverified/expired/used/invalid/body-too-large/empty. Все PASS.
+- Затронутые файлы/папки (созданы):
+  - `backend/internal/auth/` (создан: types.go, config.go, sqlite.go, password.go, jwt.go, handlers.go, email.go, oauth.go, middleware.go)
+  - `backend/internal/auth/password_test.go` (создан)
+  - `backend/internal/auth/jwt_test.go` (создан)
+  - `backend/internal/auth/sqlite_test.go` (создан)
+  - `backend/internal/auth/handlers_test.go` (создан)
+- Затронутые файлы/папки (изменены):
+  - `backend/internal/api/server.go` (+authCfg, +mux, +Mux(), +CORS POST/Authorization/Credentials)
+  - `backend/internal/api/hub.go` (+auth import, +userRole в Client, +extractUserID через JWT, +userRole в handleChartSubscribe)
+  - `backend/cmd/procluster/main.go` (+SQLite init, +auth wiring)
+  - `backend/go.mod` (+golang-jwt/jwt/v5, +golang.org/x/crypto, +modernc.org/sqlite)
+  - `.env.example` (+auth vars)
+  - `frontend/vite.config.ts` (+changeOrigin)
+  - `docs/DECISIONS.md` (+2 ADR: серверные сессии, Vite dev-proxy)
+- Ключевые решения:
+  - modernc.org/sqlite (pure Go) вместо mattn/go-sqlite3 (CGO) — кросс-платформенная сборка
+  - Access JWT в памяти фронта, refresh в httpOnly cookie — максимум безопасности (нет CSRF для access)
+  - Soft-delete (rotated=1) вместо hard-delete при ротации refresh — обнаружение reuse + инвалидация всех сессий
+  - Правило access-vs-refresh: только access для авторизации, refresh ТОЛЬКО для /auth/refresh
+- Тесты/проверки:
+  - `go build ./...`: PASS
+  - `go vet ./...`: PASS
+  - `gofmt -l .`: PASS (0 файлов)
+  - `go test ./...`: ALL PASS (33 auth + все существующие)
+
 ### [2026-06-14] Фаза 8 — DOMSidebar визуал по дизайн-референсу
 - Модель: Sonnet
 - Что сделано:
