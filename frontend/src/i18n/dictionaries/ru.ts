@@ -130,6 +130,10 @@ const ru = {
       disk: 'Нагрузка на диск и объём БД',
       logs: 'Логи диагностики',
       liveTelemetry: 'LIVE TELEMETRY',
+      load: 'нагрузка',
+      ingressCompact: 'INGRESS COMPACT',
+      fetchError: 'Ошибка загрузки',
+      noData: 'Ожидание данных...',
     },
     database: {
       addTicker: 'Добавление и сжатие новых монет',

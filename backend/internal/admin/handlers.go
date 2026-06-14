@@ -4,6 +4,8 @@ import (
 	"database/sql"
 	"encoding/json"
 	"net/http"
+	"sync"
+	"time"
 
 	"github.com/procluster/procluster/internal/auth"
 	"github.com/procluster/procluster/internal/repository/clickhouse"
@@ -11,20 +13,28 @@ import (
 )
 
 type AdminHandler struct {
-	db      *sql.DB
-	authCfg auth.AuthConfig
-	chRepo  *clickhouse.ClickhouseRepository
-	rdb     *redis.Client
-	rl      *AdminRateLimiter
+	db          *sql.DB
+	authCfg     auth.AuthConfig
+	chRepo      *clickhouse.ClickhouseRepository
+	rdb         *redis.Client
+	rl          *AdminRateLimiter
+	logBuf      *LogBuffer
+	metricsHist *MetricsHistory
+
+	chSizeErrMu    sync.Mutex
+	chSizeLastErr  string
+	chSizeLastTime time.Time
 }
 
-func NewAdminHandler(db *sql.DB, authCfg auth.AuthConfig, chRepo *clickhouse.ClickhouseRepository, rdb *redis.Client) *AdminHandler {
+func NewAdminHandler(db *sql.DB, authCfg auth.AuthConfig, chRepo *clickhouse.ClickhouseRepository, rdb *redis.Client, logBuf *LogBuffer, metricsHist *MetricsHistory) *AdminHandler {
 	return &AdminHandler{
-		db:      db,
-		authCfg: authCfg,
-		chRepo:  chRepo,
-		rdb:     rdb,
-		rl:      NewAdminRateLimiter(rdb),
+		db:          db,
+		authCfg:     authCfg,
+		chRepo:      chRepo,
+		rdb:         rdb,
+		rl:          NewAdminRateLimiter(rdb),
+		logBuf:      logBuf,
+		metricsHist: metricsHist,
 	}
 }
 
@@ -67,6 +77,7 @@ func (h *AdminHandler) RegisterAdminRoutes(mux *http.ServeMux) {
 
 	// Metrics
 	mux.Handle("GET /api/v1/admin/metrics", wrap(h.handleGetMetrics))
+	mux.Handle("GET /api/v1/admin/metrics/history", wrap(h.handleGetMetricsHistory))
 
 	// Users
 	mux.Handle("GET /api/v1/admin/users", wrap(h.handleGetUsers))
@@ -97,10 +108,6 @@ func (h *AdminHandler) RegisterAdminRoutes(mux *http.ServeMux) {
 }
 
 // --- Stubs (to be implemented in subsequent phases) ---
-
-func (h *AdminHandler) handleGetMetrics(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, adminResponse{OK: true, Data: map[string]string{"status": "stub_metrics_phase1"}})
-}
 
 func (h *AdminHandler) handleGetUsers(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, adminResponse{OK: true, Data: map[string]string{"status": "stub_users_phase2"}})

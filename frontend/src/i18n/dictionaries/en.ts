@@ -130,6 +130,10 @@ const en = {
       disk: 'Disk Load & DB Volume',
       logs: 'Diagnostic Logs',
       liveTelemetry: 'LIVE TELEMETRY',
+      load: 'load',
+      ingressCompact: 'INGRESS COMPACT',
+      fetchError: 'Fetch error',
+      noData: 'Waiting for data...',
     },
     database: {
       addTicker: 'Add & Compress New Coins',

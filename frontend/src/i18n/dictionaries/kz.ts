@@ -130,6 +130,10 @@ const kz = {
       disk: 'Диск жүктемесі және БД көлемі',
       logs: 'Диагностика логтары',
       liveTelemetry: 'LIVE TELEMETRY',
+      load: 'жүктеме',
+      ingressCompact: 'INGRESS COMPACT',
+      fetchError: 'Жүктеу қатесі',
+      noData: 'Деректер күтуде...',
     },
     database: {
       addTicker: 'Жаңа монеталарды қосу және сығу',

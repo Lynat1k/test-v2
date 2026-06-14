@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"io"
 	"log"
 	"os"
 	"os/signal"
@@ -30,6 +31,9 @@ func main() {
 	} else {
 		log.Println("[env] .env loaded")
 	}
+
+	logBuf := admin.NewLogBuffer(200)
+	log.SetOutput(io.MultiWriter(os.Stderr, logBuf))
 
 	log.Println("procluster up")
 
@@ -98,7 +102,10 @@ func main() {
 	authHandler := auth.NewHandler(authCfg, sqliteDB, auth.NewAuthRateLimiter(rdb, authCfg))
 	authHandler.RegisterRoutes(srv.Mux())
 
-	adminHandler := admin.NewAdminHandler(sqliteDB, authCfg, repo, rdb)
+	metricsHist := admin.NewMetricsHistory()
+	metricsHist.StartSampler(ctx)
+
+	adminHandler := admin.NewAdminHandler(sqliteDB, authCfg, repo, rdb, logBuf, metricsHist)
 	adminHandler.RegisterAdminRoutes(srv.Mux())
 
 	hub := srv.Hub()

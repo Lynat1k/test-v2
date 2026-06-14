@@ -3,6 +3,81 @@
 > Claude обновляет этот файл в КОНЦЕ каждой задачи. Новые записи — сверху.
 > Формат записи строго по шаблону. Это память между чатами.
 
+### [2026-06-14] Фаза 12 Этап 1 Fix v2: ClickHouse size окончательный + суточные графики + растяжка высоты
+- Модель: Opus (mimo-v2.5-free)
+- Что сделано:
+  - **FIX 1 — ClickHouse size**: `SELECT COALESCE(sum(bytes_on_disk), 0) FROM system.parts WHERE database = ?` — скан в `var size uint64`, затем `int64(size)` для JSON. Драйвер clickhouse-go v2 не поддерживает каст UInt64→int64 напрямую — нужно сканировать в `*uint64`.
+  - **FIX 1b — sampler disk path**: `sampleOnce()` исправлен: `disk.Usage(".")` → `disk.Usage(dataDir)` где `dataDir = filepath.Dir(SQLITE_PATH)`.
+  - **TASK 2 — Суточная история метрик**:
+    - `admin/metrics_history.go`: `MetricsHistory` — ring buffer на 1440 точек (24ч × 60мин). `MetricsPoint`: timestamp, cpuPercent, ramPercent, ramUsedGB, diskPercent, diskUsedGB. `sync.RWMutex`.
+    - `MetricsHistory.StartSampler(ctx)`: goroutine, раз в 60с снимает CPU/RAM/Disk через gopsutil и пишет в буфер. Стартует в main.go. Первая точка сразу (не ждать 60с).
+    - `handleGetMetricsHistory`: `GET /api/v1/admin/metrics/history` — admin-only endpoint, возвращает массив точек за 24ч.
+    - Frontend: `apiGetMetricsHistory()` опрашивает каждые 30с. Под каждой карточкой (CPU/RAM/Disk) — SVG area/line график за сутки с gradient fill.
+    - При старте буфер пуст, график копится (ожидаемо, вариант A, обнуляется при рестарте).
+  - **TASK 3 — Растяжка высоты**: Карточки CPU/RAM/Disk — `flex-1 min-h-0` (равномерно заполняют высоту). Chart container — `flex-1 min-h-[40px]` (растёт вместе с картой). Grid — `items-stretch` + `h-full` на левой колонке.
+  - **FIX 4 — DailyChart threshold**: `data.length === 0` вместо `< 2`. При 1 точке рисуется dot. При 0 — "Collecting data...".
+- Затронутые файлы:
+  - `backend/internal/admin/metrics.go` (uint64 scan, без toInt64 в SQL)
+  - `backend/internal/admin/metrics_history.go` (NEW — ring buffer 1440 + sampler + handler, disk path fix)
+  - `backend/internal/admin/handlers.go` (+metricsHist field, +route)
+  - `backend/internal/admin/handlers_test.go`, `metrics_test.go` (обновлены NewAdminHandler)
+  - `backend/cmd/procluster/main.go` (metricsHist init + StartSampler)
+  - `frontend/src/features/admin/api.ts` (+apiGetMetricsHistory, +MetricsHistoryPoint)
+  - `frontend/src/components/AdminPanel.tsx` (DailyChart 1-point support, flex-1 chart, items-stretch grid)
+- Ключевые решения:
+  - **uint64 scan** — clickhouse-go v2 `driver.Row.Scan()` не поддерживает UInt64→int64. Нужно сканировать в `*uint64` и конвертировать в Go.
+  - **MetricsHistory в памяти** — ring buffer 1440 точек, НЕ в БД. При рестарте обнуляется (вариант A).
+  - **Sampler 60с** — не нагружает CPU, один замер в минуту.
+  - **Frontend** — метрики каждые 3с, история каждые 30с. Графики из данных history.
+- Тесты: 12/12 admin, ALL PASS full regression, tsc 0 errors, vite build PASS
+
+### [2026-06-14] Фаза 12 Этап 1 — Server Metrics + Ring Buffer Logs
+- Модель: Opus (mimo-v2.5-free)
+- Что сделано:
+  - **Go dependency**: `go get github.com/shirou/gopsutil/v3` (pure Go, no CGO) — добавлен в go.mod/go.sum
+  - **`backend/internal/admin/metrics.go`**: `MetricsResponse` struct + `handleGetMetrics` — реальная реализация вместо заглушки
+    - CPU: `cpu.Percent(500ms, false)` через gopsutil
+    - RAM: `mem.VirtualMemory()` — Used/Total/Percent в GB
+    - Disk: `disk.Usage(dataDir)` — dirname от SQLITE_PATH
+    - SQLite size: `os.Stat(sqlitePath).Size()`
+    - ClickHouse size: `SELECT sum(bytes_on_disk) FROM system.parts WHERE database = ?` через `chRepo.QueryRow()` (добавлен в ClickhouseRepository)
+    - Registered count: `SELECT COUNT(*) FROM users`
+    - Online count: SCAN по `chart_sessions:*` — подсчёт уникальных ключей (каждый ключ = один пользователь)
+    - Logs: из ring buffer
+  - **`backend/internal/admin/logbuffer.go`**: Ring buffer на 200 строк (`sync.RWMutex`, `[]string`). Реализует `io.Writer`. `GetLogs()` возвращает последние 100 строк.
+  - **`backend/internal/repository/clickhouse/clickhouse.go`**: Добавлен метод `QueryRow(ctx, query, args...)` — обёртка над `conn.QueryRow()` для произвольных SELECT
+  - **`backend/cmd/procluster/main.go`**: Инициализация ring buffer + `log.SetOutput(io.MultiWriter(os.Stderr, logBuf))` первым делом. `logBuf` пробрасывается в `NewAdminHandler`.
+  - **`backend/internal/admin/handlers.go`**: Добавлено поле `logBuf *LogBuffer` в `AdminHandler`. Убрана заглочка `handleGetMetrics` (перенесена в metrics.go).
+  - **`backend/internal/admin/metrics_test.go`**: 8 тестов — `TestGetMetrics_SQLiteSize` (>0), `TestGetMetrics_UserCount` (>=0), `TestGetMetrics_ClickHouseBytes` (>=0, не падает при nil chRepo), `TestGetMetrics_RAM` (>0), `TestGetMetrics_CPU` (>=0), `TestGetMetrics_HTTP` (200 + non-empty body), `TestLogBuffer_RingRetainsLast200` (250 записей → хранит последние 200), `TestLogBuffer_Concurrent` (нет гонок при параллельной записи)
+  - **Frontend `AdminPanel.tsx`**: Заменён `ServerTabPlaceholder` на реальный `ServerTab` — 3 карточки метрик (CPU amber, RAM emerald, Disk blue) с progress bar + SVG sparkline (последние 25 замеров), InfoCard для DB size + Users, лог-консоль с нумерацией и автоскроллом. Polling каждые 3с через `useEffect + setInterval`.
+  - **Frontend `api.ts`**: Добавлено поле `logs: string[]` в `ServerMetrics` interface.
+- Затронутые файлы/папки (изменены):
+  - `backend/go.mod` (+gopsutil/v3)
+  - `backend/internal/admin/metrics.go` (NEW)
+  - `backend/internal/admin/logbuffer.go` (NEW)
+  - `backend/internal/admin/metrics_test.go` (NEW — 8 tests)
+  - `backend/internal/admin/handlers.go` (+logBuf field, -stub handleGetMetrics)
+  - `backend/internal/admin/handlers_test.go` (обновлены вызовы NewAdminHandler)
+  - `backend/internal/repository/clickhouse/clickhouse.go` (+QueryRow method)
+  - `backend/cmd/procluster/main.go` (ring buffer init, log.SetOutput, logBuf wiring)
+  - `frontend/src/components/AdminPanel.tsx` (real ServerTab with polling)
+  - `frontend/src/features/admin/api.ts` (+logs field)
+- Ключевые решения:
+  - **gopsutil/v3** (pure Go, без CGO) для CPU/RAM/Disk — кроссплатформенно, легко тестируется
+  - **Online count через SCAN** по `chart_sessions:*` — каждый ключ = один уникальный пользователь. Стale keys少 (cleanup on next register/heartbeat), для метрик достаточно точно
+  - **ClickHouse size**: `QueryRow` метод добавлен в `ClickhouseRepository` — обёртка над `conn.QueryRow()` для произвольных SELECT. Если NULL/пусто → 0, не падаем
+  - **Ring buffer**: 200 строк, `io.Writer` для перехвата `log.SetOutput`. Терминальный вывод сохраняется через `MultiWriter`. Буфер хранит уже готовые строки — безопасно (пароли/токены не логируются)
+  - **Frontend polling**: `useEffect + setInterval(3000)` с cleanup. Sparkline — SVG polyline из последних 25 замеров (без Math.random)
+- Тесты/проверки:
+  - `go test ./internal/admin/ -v -count=1`: 12/12 PASS (4 security + 8 metrics/logbuffer)
+  - `go test ./internal/auth/ -v -count=1`: 55/55 PASS (no regressions)
+  - `go test ./internal/api/ -v`: 20/20 PASS (no regressions)
+  - `go build ./...`: PASS
+  - `go vet ./...`: PASS
+  - `gofmt -l .`: PASS (no unformatted files)
+  - `npx tsc --noEmit`: 0 errors
+  - `npx vite build`: PASS
+
 ### [2026-06-14] Фаза 12 Этап 0 — Admin Panel Shell + Security
 - Модель: MiMo (mimo-v2.5-free)
 - Что сделано:

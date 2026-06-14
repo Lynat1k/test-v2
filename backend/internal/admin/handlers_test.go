@@ -68,7 +68,7 @@ func TestAdminRoute_RequireAuth_NoToken(t *testing.T) {
 	rdb, cleanup := setupTestRedis(t)
 	defer cleanup()
 
-	h := NewAdminHandler(db, cfg, nil, rdb)
+	h := NewAdminHandler(db, cfg, nil, rdb, NewLogBuffer(100), NewMetricsHistory())
 
 	req := httptest.NewRequest("GET", "/api/v1/admin/metrics", nil)
 	w := httptest.NewRecorder()
@@ -89,7 +89,7 @@ func TestAdminRoute_RequireRole_NonAdmin(t *testing.T) {
 	rdb, cleanup := setupTestRedis(t)
 	defer cleanup()
 
-	h := NewAdminHandler(db, cfg, nil, rdb)
+	h := NewAdminHandler(db, cfg, nil, rdb, NewLogBuffer(100), NewMetricsHistory())
 
 	token := createAdminToken(t, cfg, "user-123", "free")
 
@@ -117,7 +117,7 @@ func TestAdminRoute_RequireRole_Admin(t *testing.T) {
 	rdb, cleanup := setupTestRedis(t)
 	defer cleanup()
 
-	h := NewAdminHandler(db, cfg, nil, rdb)
+	h := NewAdminHandler(db, cfg, nil, rdb, NewLogBuffer(100), NewMetricsHistory())
 
 	token := createAdminToken(t, cfg, "admin-456", "admin")
 

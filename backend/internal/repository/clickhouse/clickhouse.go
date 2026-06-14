@@ -45,6 +45,10 @@ func (r *ClickhouseRepository) Close() error {
 	return r.conn.Close()
 }
 
+func (r *ClickhouseRepository) QueryRow(ctx context.Context, query string, args ...interface{}) driver.Row {
+	return r.conn.QueryRow(ctx, query, args...)
+}
+
 func (r *ClickhouseRepository) ApplyMigrations(ctx context.Context) error {
 	entries, err := migrationsFS.ReadDir("migrations")
 	if err != nil {

@@ -8,11 +8,25 @@ export interface ServerMetrics {
   disk: { usagePercent: number; usedGB: number; totalGB: number }
   database: { sqliteSizeBytes: number; clickHouseBytes: number }
   users: { registeredCount: number; onlineCount: number }
+  logs: string[]
   timestamp: string
 }
 
 export async function apiGetMetrics(): Promise<ServerMetrics> {
   return request<ServerMetrics>('/admin/metrics')
+}
+
+export interface MetricsHistoryPoint {
+  timestamp: string
+  cpuPercent: number
+  ramPercent: number
+  ramUsedGB: number
+  diskPercent: number
+  diskUsedGB: number
+}
+
+export async function apiGetMetricsHistory(): Promise<MetricsHistoryPoint[]> {
+  return request<MetricsHistoryPoint[]>('/admin/metrics/history')
 }
 
 // --- Users ---

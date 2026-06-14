@@ -3,6 +3,41 @@
 > Сюда пишем решения, которые меняют или фиксируют архитектуру/правила.
 > Новые — сверху. Если решение противоречит спеке — сначала обнови спеку.
 
+### [2026-06-14] Фаза 12 Этап 1 Fix v2: ClickHouse size uint64 + layout + charts
+- Контекст: ClickHouse size query падал с ошибкой "converting UInt64 to *int64 is unsupported, try using *uint64". toInt64() в SQL не помогает — драйвер проверяет тип на уровне протокола. Суточные графики показывали "Collecting data..." при 1 точке. Пустоты по высоте в раскладке.
+- Решения:
+  - **ClickHouse size**: Сканирование в `var size uint64` + `Scan(&size)`, затем `int64(size)` для JSON. SQL: `SELECT COALESCE(sum(bytes_on_disk), 0) FROM system.parts WHERE database = ?` (без toInt64). Драйвер clickhouse-go v2 не поддерживает каст UInt64→int64 напрямую — `*uint64` единственный рабочий вариант.
+  - **Sampler disk path**: `sampleOnce()` использует `disk.Usage(filepath.Dir(SQLITE_PATH))` вместо `disk.Usage(".")`.
+  - **Throttle ошибок ClickHouse**: `sync.Mutex` + `chSizeLastErr` + `chSizeLastTime` — ошибка логируется НЕ чаще раза в минуту.
+  - **DailyChart**: Порог `data.length === 0` вместо `< 2`. При 1 точке — рисуется dot по центру. При 0 — "Collecting data...".
+  - **Layout**: `items-stretch` на grid, `h-full` на левой колонке, карточки `flex-1 min-h-0`, chart container `flex-1 min-h-[40px]`. Обе колонки одной высоты.
+- Альтернативы:
+  - `toInt64()` в SQL — отвергнуто: драйвер игнорирует SQL-функцию, проверяет тип на уровне протокола.
+  - `*int64` с ручным кастом — отвергнуто: clickhouse-go v2 не поддерживает UInt64→int64.
+  - Порог `< 2` для графика — отвергнуто: при 1 точке (сразу после старта) UX показывает "Collecting data..." 60с вместо dot.
+- Последствия:
+  - `metrics.go`: `getClickHouseSize` использует `uint64` scan, `int64()` конвертация.
+  - `metrics_history.go`: sampler читает disk из正确目录, первая точка сразу.
+  - `AdminPanel.tsx`: DailyChart рисует dot при 1 точке, flex-1 cards, items-stretch grid.
+
+### [2026-06-14] Фаза 12 Этап 1: Server Metrics + Ring Buffer Logs
+- Контекст: Этап 0 дал каркас админки с заглушками. Нужны реальные метрики сервера + логи для вкладки Server.
+- Решения:
+  - **gopsutil/v3** (pure Go) для CPU/RAM/Disk — кроссплатформенно, без CGO. CPU: `cpu.Percent(500ms)`, RAM: `mem.VirtualMemory()`, Disk: `disk.Usage(dataDir)`.dirname от SQLITE_PATH.
+  - **Online count через SCAN** по `chart_sessions:*` — каждый ключ = один уникальный пользователь. Ключ `chart_sessions:<userId>` (Sorted Set с session IDs). Stale keys 少 (cleanup on register/heartbeat), для метрик достаточно точно. NOT ZCard с wildcard (не работает).
+  - **ClickHouse size**: Метод `QueryRow(ctx, query, args...)` добавлен в `ClickhouseRepository` — обёртка над `conn.QueryRow()`. Если NULL/пусто → 0, не падаем. Используется `SELECT COALESCE(sum(bytes_on_disk), 0) FROM system.parts WHERE database = ?`. Сканирование в `uint64` (ClickHouse UInt64).
+  - **Ring buffer логов**: 200 строк, `io.Writer` для перехвата `log.SetOutput(io.MultiWriter(os.Stderr, ringBuffer))`. Терминальный вывод сохраняется + копия в буфер. Буфер хранит уже готовые строки log.Printf — безопасно (пароли/токены не логируются в фазах 9-10).
+  - **Frontend polling**: `useEffect + setInterval(3000)` с cleanup при unmount/закрытии вкладки. Sparkline — SVG polyline из последних 25 замеров (без Math.random).
+- Альтернативы:
+  - `math/big` для метрик — отвергнуто: gopsutil стандарт для Go, чистый Go.
+  - ZCard с wildcard для online — отвергнуто: Redis не поддерживает wildcard в ZCard. SCAN — правильный подход.
+  - Отдельный `online_users` SET в Redis — отвергнуто: дополнительная синхронизация, можно рассинхронизироваться с session manager.
+  - Log buffer в файле — отвергнуто: memory buffer проще, быстрее, достаточно для admin метрик.
+- Последствия:
+  - `admin.metrics.go` содержит всю логику сбора метрик + nil-check для chRepo/rdb в тестах.
+  - `admin.logbuffer.go` — переиспользуемый компонент, может быть расширен (фильтрация, уровни логирования).
+  - `clickhouse.go` расширен методом `QueryRow` — теперь доступны произвольные SELECT запросы.
+
 ### [2026-06-14] Фаза 12 Этап 0: Admin Panel Shell + Security
 - Контекст: Нужна админ-панель для управления сервером, БД, пользователями и биллингом. Security-critical — только для admin.
 - Решения:
