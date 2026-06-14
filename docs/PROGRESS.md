@@ -3,6 +3,26 @@
 > Claude обновляет этот файл в КОНЦЕ каждой задачи. Новые записи — сверху.
 > Формат записи строго по шаблону. Это память между чатами.
 
+### [2026-06-14] Фаза 8 — DOMSidebar визуал по дизайн-референсу
+- Модель: Sonnet
+- Что сделано:
+  - **FearGreedPanel.tsx** — полная переработка визуала по дизайн-референсу. SVG-спидометр: градиентная дуга (red→orange→yellow→green), needle-стрелка, плавающий score-bubble. Bitcoin-логотип, sentiment label (Ext. Fear / Fear / Neutral / Greed / Ext. Greed), Score. Footer: `alternative.me` + дата обновления. Данные — реальные из API (`FNGData`). Math.random/walk НЕ перенесён.
+  - **OrderBookTable.tsx** — полная переработка. 2 колонки (Size | Price) вместо 3. Asks: `askSize > 0`, sorted high→low сверху. Bids: `bidSize > 0`, sorted high→low снизу. Mid-row: крупная amber-строка `lastPrice` (30px font, glow text-shadow) строго по центру. Depth bar: горизонтальная полоса от левого края, non-linear opacity `0.03 + pow(ratio, 1.3) * 0.72`. Wall detection: `volumeRatio > 0.45` → glow + крупный шрифт. Фильтрация:严格 askSize>0 / bidSize>0, пропуск нулевых уровней. maxVolume единый на весь стакан (asks+bids).
+  - **DOMSidebar/index.tsx** — `w-64` → `w-[264px]`, убран лишний `p-2` обёртки FearGreedPanel.
+- Не перенесено из референса (подтверждено):
+  - ❌ Симулятор торговли (limitOrders, matching engine, balance, position, market buy/sell, log)
+  - ❌ Math.random F&G walk — F&G из реального API `/api/v1/fng`
+  - ❌ handleRowPriceClick, handleMarketBuy/Sell, cancelLimitOrder
+- Затронутые файлы:
+  - `frontend/src/components/DOMSidebar/FearGreedPanel.tsx` (полная перезапись)
+  - `frontend/src/components/DOMSidebar/OrderBookTable.tsx` (полная перезапись)
+  - `frontend/src/components/DOMSidebar/index.tsx` (width, padding)
+- Проверки:
+  - npx tsc --noEmit: PASS
+  - npx vite build: PASS (387ms)
+  - Playwright скриншот futures: PASS — F&G SVG gauge, asks/amber mid/bids, depth bars, wall detection
+  - Playwright скриншот spot: PASS — тот же визуал, другой lastPrice, spot levels
+
 ### [2026-06-14] Фаза 8 — FIX: мультирыночный aggregator + spot ingest + @aggTrade для обоих рынков
 - Модель: Sonnet
 - Что сделано:

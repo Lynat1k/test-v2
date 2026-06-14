@@ -47,7 +47,7 @@ export function DOMSidebar() {
   }
 
   return (
-    <div className="w-64 h-full flex flex-col border-l border-white/5 liquid-glass-card shrink-0">
+    <div className="w-[264px] h-full flex flex-col border-l border-white/5 liquid-glass-card shrink-0">
       <div className="flex items-center justify-between px-2 py-1.5 border-b border-white/5">
         <span className="text-[10px] font-mono text-white/40 uppercase tracking-wider">
           {t('terminal.dom')}
@@ -66,7 +66,7 @@ export function DOMSidebar() {
         </div>
       </div>
 
-      <div className="p-2 shrink-0">
+      <div className="shrink-0">
         <FearGreedPanel data={fng} />
       </div>
 

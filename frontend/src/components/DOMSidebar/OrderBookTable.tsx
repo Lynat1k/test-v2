@@ -1,6 +1,5 @@
-import { useRef, useEffect, useState, useCallback } from 'react'
+import { useRef, useEffect, useState, useCallback, useMemo } from 'react'
 import type { DOMLevel } from '@/types/dom'
-import { useTranslation } from '@/i18n'
 
 interface OrderBookTableProps {
   levels: DOMLevel[]
@@ -8,15 +7,30 @@ interface OrderBookTableProps {
 }
 
 export function OrderBookTable({ levels, lastPrice }: OrderBookTableProps) {
-  const { t } = useTranslation()
   const containerRef = useRef<HTMLDivElement>(null)
   const [autoCenter, setAutoCenter] = useState(true)
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  const maxVolume = Math.max(
-    ...levels.map((l) => Math.max(l.bidSize, l.askSize)),
-    0.001,
-  )
+  const asks = useMemo(() => {
+    return levels
+      .filter((l) => l.askSize > 0)
+      .sort((a, b) => b.priceLevel - a.priceLevel)
+  }, [levels])
+
+  const bids = useMemo(() => {
+    return levels
+      .filter((l) => l.bidSize > 0)
+      .sort((a, b) => b.priceLevel - a.priceLevel)
+  }, [levels])
+
+  const maxVolume = useMemo(() => {
+    let max = 0.001
+    for (const l of levels) {
+      if (l.askSize > max) max = l.askSize
+      if (l.bidSize > max) max = l.bidSize
+    }
+    return max
+  }, [levels])
 
   const resetAutoCenter = useCallback(() => {
     setAutoCenter(false)
@@ -27,14 +41,14 @@ export function OrderBookTable({ levels, lastPrice }: OrderBookTableProps) {
   useEffect(() => {
     if (autoCenter && containerRef.current && lastPrice > 0) {
       const container = containerRef.current
-      const centerIdx = levels.findIndex((l) => l.priceLevel >= lastPrice)
-      if (centerIdx >= 0) {
-        const rowH = 24
-        const scrollTarget = centerIdx * rowH - container.clientHeight / 2
-        container.scrollTo({ top: Math.max(0, scrollTarget), behavior: 'smooth' })
-      }
+      const askCount = asks.length
+      const midIdx = askCount
+      const rowH = 18
+      const midElementCenter = midIdx * rowH + rowH / 2
+      const scrollTarget = midElementCenter - container.clientHeight / 2
+      container.scrollTo({ top: Math.max(0, scrollTarget), behavior: 'smooth' })
     }
-  }, [autoCenter, levels, lastPrice])
+  }, [autoCenter, asks.length, lastPrice, levels])
 
   useEffect(() => {
     return () => {
@@ -42,14 +56,15 @@ export function OrderBookTable({ levels, lastPrice }: OrderBookTableProps) {
     }
   }, [])
 
-  const sorted = [...levels].sort((a, b) => b.priceLevel - a.priceLevel)
+  const priceFmt = (p: number) =>
+    p.toLocaleString(undefined, { minimumFractionDigits: 1, maximumFractionDigits: 2 })
 
   return (
-    <div className="flex flex-col h-full">
-      <div className="flex items-center px-2 py-1 border-b border-white/5">
-        <span className="flex-1 text-[10px] font-mono text-green-400">{t('dom.bidSize')}</span>
-        <span className="flex-1 text-[10px] font-mono text-white/60 text-center">{t('dom.price')}</span>
-        <span className="flex-1 text-[10px] font-mono text-red-400 text-right">{t('dom.askSize')}</span>
+    <div className="flex flex-col h-full bg-[#06080e]/90 rounded-xl border border-white/5 overflow-hidden">
+      {/* Header */}
+      <div className="grid grid-cols-[1fr_1.2fr] gap-3 border-b border-white/5 py-1.5 px-2 text-[8.5px] font-mono font-black uppercase tracking-widest shrink-0 bg-slate-950 text-slate-500">
+        <div className="text-right pr-2">Size</div>
+        <div className="text-left pl-1">Price (USDT)</div>
       </div>
 
       <div
@@ -57,51 +72,98 @@ export function OrderBookTable({ levels, lastPrice }: OrderBookTableProps) {
         className="flex-1 overflow-y-auto scrollbar-thin-dark"
         onScroll={resetAutoCenter}
       >
-        {sorted.map((level, i) => {
-          const isCurrentPrice = Math.abs(level.priceLevel - lastPrice) < 0.01
-          const bidPct = maxVolume > 0 ? (level.bidSize / maxVolume) * 100 : 0
-          const askPct = maxVolume > 0 ? (level.askSize / maxVolume) * 100 : 0
+        {/* --- ASKS (high → low) --- */}
+        {asks.map((level) => {
+          const ratio = level.askSize / maxVolume
+          const bgOpacity = 0.03 + Math.pow(ratio, 1.3) * 0.72
+          const isWall = ratio > 0.45
 
           return (
             <div
-              key={`${level.priceLevel}-${i}`}
-              className={`flex items-center h-6 px-2 relative ${
-                isCurrentPrice ? 'bg-amber-500/10 border-y border-amber-500/30' : ''
-              }`}
+              key={`ask-${level.priceLevel}`}
+              className="grid grid-cols-[1fr_1.2fr] gap-3 font-mono text-[10.5px] relative h-[18px] items-center px-2 hover:bg-white/[0.02] transition-colors"
             >
-              {level.bidSize > 0 && (
-                <div
-                  className="absolute left-0 top-0 h-full bg-green-500/10"
-                  style={{ width: `${bidPct}%` }}
-                />
-              )}
-              {level.askSize > 0 && (
-                <div
-                  className="absolute right-0 top-0 h-full bg-red-500/10"
-                  style={{ width: `${askPct}%` }}
-                />
-              )}
-
-              <span className="flex-1 text-[11px] font-mono text-green-400 relative z-10">
-                {level.bidSize > 0 ? level.bidSize.toFixed(1) : ''}
-              </span>
-              <span
-                className={`flex-1 text-[11px] font-mono text-center relative z-10 ${
-                  isCurrentPrice ? 'text-amber-400 font-bold' : 'text-white/70'
+              <div
+                className="absolute left-0 top-0 bottom-0 pointer-events-none transition-all duration-300"
+                style={{
+                  width: `${Math.min(100, ratio * 100)}%`,
+                  backgroundColor: `rgba(244, 63, 94, ${bgOpacity})`,
+                }}
+              />
+              <div
+                className={`text-right pr-2 z-10 font-bold tracking-tight transition-all duration-200 ${
+                  isWall
+                    ? 'text-rose-400 font-extrabold text-[11px] drop-shadow-[0_0_3px_rgba(244,63,94,0.4)]'
+                    : 'text-rose-500/90'
                 }`}
               >
-                {level.priceLevel.toFixed(1)}
-              </span>
-              <span className="flex-1 text-[11px] font-mono text-red-400 text-right relative z-10">
-                {level.askSize > 0 ? level.askSize.toFixed(1) : ''}
-              </span>
+                {level.askSize.toFixed(2)}
+              </div>
+              <div
+                className={`text-left pl-1 z-10 font-bold transition-all duration-200 ${
+                  isWall ? 'font-extrabold text-slate-200' : 'text-slate-400 hover:text-slate-100'
+                }`}
+              >
+                {priceFmt(level.priceLevel)}
+              </div>
+            </div>
+          )
+        })}
+
+        {/* --- MID ROW / LAST PRICE --- */}
+        <div className="flex justify-center items-center border-y border-amber-500/25 relative z-20 shrink-0 bg-[#090b11] h-14">
+          <div
+            className="font-mono text-[30px] font-black tracking-widest leading-none text-center select-all text-amber-500"
+            style={{
+              textShadow: '0 0 10px rgba(245, 158, 11, 0.95), 0 0 22px rgba(245, 158, 11, 0.65)',
+              fontWeight: 900,
+            }}
+          >
+            {lastPrice > 0 ? priceFmt(lastPrice) : '—'}
+          </div>
+        </div>
+
+        {/* --- BIDS (high → low) --- */}
+        {bids.map((level) => {
+          const ratio = level.bidSize / maxVolume
+          const bgOpacity = 0.03 + Math.pow(ratio, 1.3) * 0.72
+          const isWall = ratio > 0.45
+
+          return (
+            <div
+              key={`bid-${level.priceLevel}`}
+              className="grid grid-cols-[1fr_1.2fr] gap-3 font-mono text-[10.5px] relative h-[18px] items-center px-2 hover:bg-white/[0.02] transition-colors"
+            >
+              <div
+                className="absolute left-0 top-0 bottom-0 pointer-events-none transition-all duration-300"
+                style={{
+                  width: `${Math.min(100, ratio * 100)}%`,
+                  backgroundColor: `rgba(16, 185, 129, ${bgOpacity})`,
+                }}
+              />
+              <div
+                className={`text-right pr-2 z-10 font-bold tracking-tight transition-all duration-200 ${
+                  isWall
+                    ? 'text-emerald-400 font-extrabold text-[11px] drop-shadow-[0_0_3px_rgba(16,185,129,0.4)]'
+                    : 'text-emerald-500/90'
+                }`}
+              >
+                {level.bidSize.toFixed(2)}
+              </div>
+              <div
+                className={`text-left pl-1 z-10 font-bold transition-all duration-200 ${
+                  isWall ? 'font-extrabold text-slate-200' : 'text-slate-400 hover:text-slate-100'
+                }`}
+              >
+                {priceFmt(level.priceLevel)}
+              </div>
             </div>
           )
         })}
 
         {levels.length === 0 && (
           <div className="flex items-center justify-center h-20 text-xs text-white/30 font-mono">
-            {t('dom.noData')}
+            Waiting for data...
           </div>
         )}
       </div>
