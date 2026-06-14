@@ -4,6 +4,11 @@ export interface AuthUser {
   nickname: string
   role: string
   emailVerified: boolean
+  avatar: string
+  createdAt: string
+  subscriptionStatus: string
+  subscriptionPaidAt: string
+  subscriptionExpiresAt: string
 }
 
 interface AuthResponse {
@@ -12,12 +17,39 @@ interface AuthResponse {
   error?: { code: string; message: string }
 }
 
+interface MeResponse {
+  ok: boolean
+  data?: ProfileData
+  error?: { code: string; message: string }
+}
+
+interface ProfileData {
+  id: string
+  email: string
+  nickname: string
+  role: string
+  emailVerified: boolean
+  avatar: string
+  createdAt: string
+  subscriptionStatus: string
+  subscriptionPaidAt: string
+  subscriptionExpiresAt: string
+  daysLeft: number
+}
+
 const BASE = '/api/v1'
 
-async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
+let accessTokenRef: string | null = null
+export function setApiAccessToken(token: string | null) { accessTokenRef = token }
+
+export async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const res = await fetch(`${BASE}${path}`, {
     credentials: 'include',
-    headers: { 'Content-Type': 'application/json', ...options.headers as Record<string, string> },
+    headers: {
+      'Content-Type': 'application/json',
+      ...(accessTokenRef ? { Authorization: `Bearer ${accessTokenRef}` } : {}),
+      ...(options.headers as Record<string, string> | undefined),
+    },
     ...options,
   })
   const json = await res.json() as AuthResponse
@@ -66,4 +98,47 @@ export async function apiPutSettings(settingsJson: string) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ settingsJson }),
   })
+}
+
+// --- Phase 10: Profile API ---
+
+export async function apiGetMe() {
+  const res = await fetch(`${BASE}/user/me`, {
+    credentials: 'include',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(accessTokenRef ? { Authorization: `Bearer ${accessTokenRef}` } : {}),
+    },
+  })
+  const json = await res.json() as MeResponse
+  if (!json.ok) throw json.error!
+  return json.data!
+}
+
+export async function apiUpdateProfile(nickname: string, avatar: string) {
+  const res = await fetch(`${BASE}/user/profile`, {
+    method: 'PUT',
+    credentials: 'include',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(accessTokenRef ? { Authorization: `Bearer ${accessTokenRef}` } : {}),
+    },
+    body: JSON.stringify({ nickname, avatar }),
+  })
+  const json = await res.json() as { ok: boolean; error?: { code: string; message: string } }
+  if (!json.ok) throw json.error!
+}
+
+export async function apiChangePassword(currentPassword: string, newPassword: string) {
+  const res = await fetch(`${BASE}/user/change-password`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(accessTokenRef ? { Authorization: `Bearer ${accessTokenRef}` } : {}),
+    },
+    body: JSON.stringify({ currentPassword, newPassword }),
+  })
+  const json = await res.json() as { ok: boolean; error?: { code: string; message: string } }
+  if (!json.ok) throw json.error!
 }

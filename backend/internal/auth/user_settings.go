@@ -7,8 +7,8 @@ import (
 )
 
 type UserSettings struct {
-	UserID       string `json:"userId"`
-	SettingsJSON string `json:"settingsJson"`
+	UserID       string    `json:"userId"`
+	SettingsJSON string    `json:"settingsJson"`
 	UpdatedAt    time.Time `json:"updatedAt"`
 }
 

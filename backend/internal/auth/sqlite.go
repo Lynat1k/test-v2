@@ -92,6 +92,65 @@ func Migrate(db *sql.DB) error {
 			return fmt.Errorf("migration: %w", err)
 		}
 	}
+
+	// Phase 10: idempotent ALTER TABLE for new columns
+	profileCols := []struct {
+		name string
+		def  string
+	}{
+		{"avatar", "TEXT DEFAULT ''"},
+		{"subscription_status", "TEXT DEFAULT 'none'"},
+		{"subscription_paid_at", "TEXT DEFAULT ''"},
+		{"subscription_expires_at", "TEXT DEFAULT ''"},
+	}
+	existingCols := make(map[string]bool)
+	rows, err := db.Query("PRAGMA table_info(users)")
+	if err != nil {
+		return fmt.Errorf("migration pragma: %w", err)
+	}
+	for rows.Next() {
+		var cid int
+		var name, ctype string
+		var notnull int
+		var dfltValue interface{}
+		var pk int
+		if err := rows.Scan(&cid, &name, &ctype, &notnull, &dfltValue, &pk); err != nil {
+			rows.Close()
+			return fmt.Errorf("migration scan: %w", err)
+		}
+		existingCols[name] = true
+	}
+	rows.Close()
+
+	for _, col := range profileCols {
+		if !existingCols[col.name] {
+			stmt := fmt.Sprintf("ALTER TABLE users ADD COLUMN %s %s", col.name, col.def)
+			if _, err := db.Exec(stmt); err != nil {
+				return fmt.Errorf("migration alter %s: %w", col.name, err)
+			}
+		}
+	}
+
+	// Phase 12: admin_actions table
+	adminQueries := []string{
+		`CREATE TABLE IF NOT EXISTS admin_actions (
+			id TEXT PRIMARY KEY,
+			user_id TEXT NOT NULL,
+			action TEXT NOT NULL,
+			target TEXT NOT NULL DEFAULT '',
+			detail TEXT NOT NULL DEFAULT '',
+			ip TEXT NOT NULL DEFAULT '',
+			created_at TEXT NOT NULL
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_admin_actions_user ON admin_actions(user_id)`,
+		`CREATE INDEX IF NOT EXISTS idx_admin_actions_created ON admin_actions(created_at)`,
+	}
+	for _, q := range adminQueries {
+		if _, err := db.Exec(q); err != nil {
+			return fmt.Errorf("migration admin_actions: %w", err)
+		}
+	}
+
 	log.Println("[auth] sqlite migrations applied")
 	return nil
 }
@@ -105,10 +164,11 @@ func CreateUser(ctx context.Context, db *sql.DB, u *User) error {
 	u.UpdatedAt = now
 
 	_, err := db.ExecContext(ctx,
-		`INSERT INTO users (id, email, nickname, password_hash, role, email_verified, created_at, updated_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		`INSERT INTO users (id, email, nickname, password_hash, role, email_verified, created_at, updated_at, avatar, subscription_status, subscription_paid_at, subscription_expires_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		u.ID, u.Email, u.Nickname, u.PasswordHash, u.Role, boolToInt(u.EmailVerified),
 		u.CreatedAt.Format(time.RFC3339), u.UpdatedAt.Format(time.RFC3339),
+		u.Avatar, u.SubscriptionStatus, u.SubscriptionPaidAt, u.SubscriptionExpiresAt,
 	)
 	if err != nil {
 		return fmt.Errorf("create user: %w", err)
@@ -118,7 +178,7 @@ func CreateUser(ctx context.Context, db *sql.DB, u *User) error {
 
 func GetUserByEmail(ctx context.Context, db *sql.DB, email string) (*User, error) {
 	row := db.QueryRowContext(ctx,
-		`SELECT id, email, nickname, password_hash, role, email_verified, created_at, updated_at
+		`SELECT id, email, nickname, password_hash, role, email_verified, created_at, updated_at, avatar, subscription_status, subscription_paid_at, subscription_expires_at
 		 FROM users WHERE email = ?`, email,
 	)
 	return scanUser(row)
@@ -126,7 +186,7 @@ func GetUserByEmail(ctx context.Context, db *sql.DB, email string) (*User, error
 
 func GetUserByID(ctx context.Context, db *sql.DB, id string) (*User, error) {
 	row := db.QueryRowContext(ctx,
-		`SELECT id, email, nickname, password_hash, role, email_verified, created_at, updated_at
+		`SELECT id, email, nickname, password_hash, role, email_verified, created_at, updated_at, avatar, subscription_status, subscription_paid_at, subscription_expires_at
 		 FROM users WHERE id = ?`, id,
 	)
 	return scanUser(row)
@@ -144,14 +204,34 @@ func scanUser(row *sql.Row) (*User, error) {
 	u := &User{}
 	var verified int
 	var createdAt, updatedAt string
-	err := row.Scan(&u.ID, &u.Email, &u.Nickname, &u.PasswordHash, &u.Role, &verified, &createdAt, &updatedAt)
+	var avatar, subStatus, subPaid, subExpires sql.NullString
+	err := row.Scan(&u.ID, &u.Email, &u.Nickname, &u.PasswordHash, &u.Role, &verified, &createdAt, &updatedAt,
+		&avatar, &subStatus, &subPaid, &subExpires)
 	if err != nil {
 		return nil, err
 	}
 	u.EmailVerified = verified == 1
 	u.CreatedAt, _ = time.Parse(time.RFC3339, createdAt)
 	u.UpdatedAt, _ = time.Parse(time.RFC3339, updatedAt)
+	u.Avatar = nullStr(avatar)
+	u.SubscriptionStatus = nullStrDef(subStatus, "none")
+	u.SubscriptionPaidAt = nullStr(subPaid)
+	u.SubscriptionExpiresAt = nullStr(subExpires)
 	return u, nil
+}
+
+func nullStr(n sql.NullString) string {
+	if n.Valid {
+		return n.String
+	}
+	return ""
+}
+
+func nullStrDef(n sql.NullString, def string) string {
+	if n.Valid && n.String != "" {
+		return n.String
+	}
+	return def
 }
 
 // --- Sessions ---
@@ -270,4 +350,22 @@ func boolToInt(b bool) int {
 		return 1
 	}
 	return 0
+}
+
+// --- Profile updates (Phase 10) ---
+
+func UpdateUserProfile(ctx context.Context, db *sql.DB, userID, nickname, avatar string) error {
+	_, err := db.ExecContext(ctx,
+		`UPDATE users SET nickname = ?, avatar = ?, updated_at = ? WHERE id = ?`,
+		nickname, avatar, time.Now().UTC().Format(time.RFC3339), userID,
+	)
+	return err
+}
+
+func UpdateUserPasswordHash(ctx context.Context, db *sql.DB, userID, passwordHash string) error {
+	_, err := db.ExecContext(ctx,
+		`UPDATE users SET password_hash = ?, updated_at = ? WHERE id = ?`,
+		passwordHash, time.Now().UTC().Format(time.RFC3339), userID,
+	)
+	return err
 }

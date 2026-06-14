@@ -3,6 +3,42 @@
 > Сюда пишем решения, которые меняют или фиксируют архитектуру/правила.
 > Новые — сверху. Если решение противоречит спеке — сначала обнови спеку.
 
+### [2026-06-14] Фаза 12 Этап 0: Admin Panel Shell + Security
+- Контекст: Нужна админ-панель для управления сервером, БД, пользователями и биллингом. Security-critical — только для admin.
+- Решения:
+  - **ADR-12-01**: Tier policies хранятся в DB (`tier_policies` таблица) — не создана (Этап 2). Тарифы: Free/Pro/VIP/Admin — через колонку `role` в `users`.
+  - **ADR-12-02**: History-loader через Binance Vision — реальная goroutine + job registry (Этап 3).
+  - **ADR-12-03**: Billing таблицы `subscriptions` + `payments` в SQLite (Этап 4).
+  - **ADR-12-04**: Server metrics через `gopsutil/v3` + `os.Stat` + ClickHouse `system.parts`, frontend polling 2-3s (Этап 1).
+  - **ADR-12-05**: Design `AdminPanel.tsx` — UI/styles only, NO Math.random/localStorage/fake data.
+  - **Admin rate-limit**: Redis sorted set, 30 req/min default, env-configurable `ADMIN_RATE_LIMIT_MAX`. Separate from REST rate-limit.
+  - **ClickHouse client**: Passed as `*clickhouse.ClickhouseRepository` concrete type (not interface) — needs `system.parts` queries not in MarketRepository interface.
+  - **Execution order**: 0→1→3→4→2 — security shell first, riskiest refactoring (session/history limits) last.
+- Альтернативы:
+  - Tier policies в config — отвергнуто: нужна динамическая смена через админку.
+  - ClickHouse через интерфейс — отвергнуто: нет методов для `system.parts` в MarketRepository.
+  - Единый rate-limit для admin — отвергнуто: admin rate-limit выше (30), чем общий REST.
+- Последствия:
+  - 19 admin endpoints registered behind RequireAuth + RequireRole("admin") + AdminRateLimitMiddleware.
+  - `admin_actions` table + 2 indexes для audit log.
+  - Frontend admin panel visible only when `role === 'admin'`; double-check inside AdminPanel component.
+
+### [2026-06-14] Фаза 10: Профиль + тарифы
+- Контекст: Фаза 9 дала auth/user/settings. Нет экрана профиля, нет REST для профиля/пароля, нет subscription данных в user.
+- Решение:
+  - **Subscription данные в users**: колонки `subscription_status`, `subscription_paid_at`, `subscription_expires_at` хранятся в `users`. Тариф = колонка `role` (Free/Pro/VIP/Admin). Отдельная `subscription_plan` НЕ заводится — один источник правды.
+  - **Аватары**: 5 нейтральных gradient presets (`avatar-1..avatar-5`), без реальных персон. Whitelist на бэкенде. Допустим также http/https URL (≤500 символов). Храним ключ или URL — фронт маппит ключ в gradient.
+  - **Смена пароля → инвалидация ВСЕХ сессий**: при смене пароля `DeleteAllUserSessions` + `clearRefreshCookie`. Причина: пароль скомпрометирован → все устройства должны перелогиниться. Технически невозможно оставить «одну» сессию (refresh определяется по cookie, не по session-id).
+  - **Профиль как view, не модалка**: `currentView === 'profile'` в App.tsx. Кнопка в хедере (никнейм) → `setCurrentView('profile')`. Кнопка «Вернуться в терминал» → `setCurrentView('terminal')`.
+  - **Биллинг НЕ в фазе 10**: кнопка «Активировать» → заглушка `alert()`. Реальная оплата/смена тарифа — фаза 12 (админка).
+- Альтернативы:
+  - Subscription как отдельная таблица — отвергнуто: на старте достаточно колонок в users, при росте — миграция.
+  - Аватар-загрузка на сервер (multipart) — отвергнуто: нет storage, URL/пRESETы проще, безопаснее.
+  - Смена пароля без инвалидации сессий — отвергнуто: оставляет скомпрометированные сессии активными.
+- Последствия:
+  - `AuthUser` на фронте расширен: avatar, createdAt, subscription* поля. Автоматически обновляется при login/refresh.
+  - UserProfile — отдельный компонент, не модалка. Занимает всю область terminal view.
+
 ### [2026-06-14] Фаза 9 Этап 3: Frontend auth + user settings sync
 - Контекст: Этапы 1-2 дали JWT auth + rate-limit/lockout на бэке. Нет frontend auth flow, нет user settings persistence.
 - Решение:

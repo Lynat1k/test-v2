@@ -14,14 +14,18 @@ type Claims struct {
 }
 
 type User struct {
-	ID            string    `json:"id"`
-	Email         string    `json:"email"`
-	Nickname      string    `json:"nickname"`
-	PasswordHash  string    `json:"-"`
-	Role          string    `json:"role"`
-	EmailVerified bool      `json:"emailVerified"`
-	CreatedAt     time.Time `json:"createdAt"`
-	UpdatedAt     time.Time `json:"updatedAt"`
+	ID                    string    `json:"id"`
+	Email                 string    `json:"email"`
+	Nickname              string    `json:"nickname"`
+	PasswordHash          string    `json:"-"`
+	Role                  string    `json:"role"`
+	EmailVerified         bool      `json:"emailVerified"`
+	CreatedAt             time.Time `json:"createdAt"`
+	UpdatedAt             time.Time `json:"updatedAt"`
+	Avatar                string    `json:"avatar"`
+	SubscriptionStatus    string    `json:"subscriptionStatus"`
+	SubscriptionPaidAt    string    `json:"subscriptionPaidAt"`
+	SubscriptionExpiresAt string    `json:"subscriptionExpiresAt"`
 }
 
 type Session struct {

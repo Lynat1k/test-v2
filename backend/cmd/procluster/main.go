@@ -11,6 +11,7 @@ import (
 	"github.com/joho/godotenv"
 	"github.com/redis/go-redis/v9"
 
+	"github.com/procluster/procluster/internal/admin"
 	"github.com/procluster/procluster/internal/aggregator"
 	"github.com/procluster/procluster/internal/api"
 	"github.com/procluster/procluster/internal/auth"
@@ -96,6 +97,9 @@ func main() {
 
 	authHandler := auth.NewHandler(authCfg, sqliteDB, auth.NewAuthRateLimiter(rdb, authCfg))
 	authHandler.RegisterRoutes(srv.Mux())
+
+	adminHandler := admin.NewAdminHandler(sqliteDB, authCfg, repo, rdb)
+	adminHandler.RegisterAdminRoutes(srv.Mux())
 
 	hub := srv.Hub()
 	go hub.Run(ctx)

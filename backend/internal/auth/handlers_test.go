@@ -591,3 +591,278 @@ func TestRegisterEmptyBody(t *testing.T) {
 		t.Errorf("expected 400 for empty body, got %d", w.Code)
 	}
 }
+
+// --- Phase 10: Profile endpoint tests ---
+
+func createVerifiedUser(t *testing.T, db *sql.DB, email, password, nickname string) *User {
+	t.Helper()
+	ctx := context.Background()
+	hash, err := HashPassword(password)
+	if err != nil {
+		t.Fatalf("hash password: %v", err)
+	}
+	user := &User{
+		Email:         email,
+		Nickname:      nickname,
+		PasswordHash:  hash,
+		Role:          "free",
+		EmailVerified: true,
+	}
+	if err := CreateUser(ctx, db, user); err != nil {
+		t.Fatalf("create user: %v", err)
+	}
+	SetEmailVerified(ctx, db, user.ID)
+	return user
+}
+
+func authRequest(handler *Handler, method, path, body string, user *User) (*httptest.ResponseRecorder, *http.Request) {
+	var reqBody *strings.Reader
+	if body != "" {
+		reqBody = strings.NewReader(body)
+	} else {
+		reqBody = strings.NewReader("{}")
+	}
+	req := httptest.NewRequest(method, path, reqBody)
+	req.Header.Set("Content-Type", "application/json")
+	token, _ := GenerateAccessToken(handler.cfg, user.ID, user.Role)
+	req.Header.Set("Authorization", "Bearer "+token)
+	// Simulate RequireAuth middleware by setting context values
+	ctx := context.WithValue(req.Context(), UserIDKey, user.ID)
+	ctx = context.WithValue(ctx, RoleKey, user.Role)
+	req = req.WithContext(ctx)
+	w := httptest.NewRecorder()
+	return w, req
+}
+
+func TestGetMeSuccess(t *testing.T) {
+	handler, db := setupTestHandler(t)
+	defer db.Close()
+	user := createVerifiedUser(t, db, "me@example.com", "password123", "MeUser")
+
+	w, req := authRequest(handler, "GET", "/api/v1/user/me", "", user)
+	handler.handleGetMe(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	var resp authResponse
+	json.Unmarshal(w.Body.Bytes(), &resp)
+	data := resp.Data.(map[string]interface{})
+	if data["email"] != "me@example.com" {
+		t.Errorf("expected email me@example.com, got %v", data["email"])
+	}
+	if data["nickname"] != "MeUser" {
+		t.Errorf("expected nickname MeUser, got %v", data["nickname"])
+	}
+	if data["role"] != "free" {
+		t.Errorf("expected role free, got %v", data["role"])
+	}
+	if data["subscriptionStatus"] != "none" {
+		t.Errorf("expected subscriptionStatus none, got %v", data["subscriptionStatus"])
+	}
+}
+
+func TestGetMeUnauthorized(t *testing.T) {
+	handler, db := setupTestHandler(t)
+	defer db.Close()
+
+	// Route through RequireAuth middleware — should reject before reaching handler
+	mux := http.NewServeMux()
+	handler.RegisterRoutes(mux)
+
+	req := httptest.NewRequest("GET", "/api/v1/user/me", nil)
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, req)
+
+	if w.Code != http.StatusUnauthorized {
+		t.Errorf("expected 401, got %d", w.Code)
+	}
+}
+
+func TestChangePasswordSuccess(t *testing.T) {
+	handler, db := setupTestHandler(t)
+	defer db.Close()
+	user := createVerifiedUser(t, db, "chpw@example.com", "oldpassword123", "ChpwUser")
+
+	// Create a session to verify it gets deleted
+	ctx := context.Background()
+	session := &Session{
+		UserID:           user.ID,
+		RefreshTokenHash: "somehash",
+		UserAgent:        "test",
+		IP:               "127.0.0.1",
+		ExpiresAt:        time.Now().Add(24 * time.Hour),
+	}
+	CreateSession(ctx, db, session)
+
+	body := `{"currentPassword":"oldpassword123","newPassword":"newpassword456"}`
+	w, req := authRequest(handler, "POST", "/api/v1/user/change-password", body, user)
+	handler.handleChangePassword(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	// Verify old password no longer works
+	if CheckPassword(GetUserByIDMust(t, db, user.ID).PasswordHash, "oldpassword123") {
+		t.Error("old password should no longer be valid")
+	}
+
+	// Verify new password works
+	if !CheckPassword(GetUserByIDMust(t, db, user.ID).PasswordHash, "newpassword456") {
+		t.Error("new password should be valid")
+	}
+
+	// Verify all sessions deleted
+	var count int
+	db.QueryRow(`SELECT COUNT(*) FROM sessions WHERE user_id = ?`, user.ID).Scan(&count)
+	if count != 0 {
+		t.Errorf("expected 0 sessions, got %d", count)
+	}
+}
+
+func TestChangePasswordWrongCurrent(t *testing.T) {
+	handler, db := setupTestHandler(t)
+	defer db.Close()
+	user := createVerifiedUser(t, db, "wrong@example.com", "password123", "WrongUser")
+
+	body := `{"currentPassword":"wrongpassword","newPassword":"newpassword456"}`
+	w, req := authRequest(handler, "POST", "/api/v1/user/change-password", body, user)
+	handler.handleChangePassword(w, req)
+
+	if w.Code != http.StatusUnauthorized {
+		t.Errorf("expected 401, got %d", w.Code)
+	}
+}
+
+func TestChangePasswordShortNew(t *testing.T) {
+	handler, db := setupTestHandler(t)
+	defer db.Close()
+	user := createVerifiedUser(t, db, "short@example.com", "password123", "ShortUser")
+
+	body := `{"currentPassword":"password123","newPassword":"short"}`
+	w, req := authRequest(handler, "POST", "/api/v1/user/change-password", body, user)
+	handler.handleChangePassword(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("expected 400, got %d", w.Code)
+	}
+}
+
+func TestChangePasswordSessionsInvalidated(t *testing.T) {
+	handler, db := setupTestHandler(t)
+	defer db.Close()
+	user := createVerifiedUser(t, db, "sess@example.com", "password123", "SessUser")
+
+	ctx := context.Background()
+	session := &Session{
+		UserID:           user.ID,
+		RefreshTokenHash: "oldhash",
+		UserAgent:        "test",
+		IP:               "127.0.0.1",
+		ExpiresAt:        time.Now().Add(24 * time.Hour),
+	}
+	CreateSession(ctx, db, session)
+
+	body := `{"currentPassword":"password123","newPassword":"newpassword456"}`
+	w, req := authRequest(handler, "POST", "/api/v1/user/change-password", body, user)
+	handler.handleChangePassword(w, req)
+
+	// Verify old refresh token no longer works
+	_, err := GetSessionByRefreshHash(ctx, db, "oldhash")
+	if err != sql.ErrNoRows {
+		t.Error("old session should be deleted after password change")
+	}
+}
+
+func TestUpdateProfileSuccess(t *testing.T) {
+	handler, db := setupTestHandler(t)
+	defer db.Close()
+	user := createVerifiedUser(t, db, "upd@example.com", "password123", "OldNick")
+
+	body := `{"nickname":"NewNick","avatar":"avatar-2"}`
+	w, req := authRequest(handler, "PUT", "/api/v1/user/profile", body, user)
+	handler.handleUpdateProfile(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	updated := GetUserByIDMust(t, db, user.ID)
+	if updated.Nickname != "NewNick" {
+		t.Errorf("expected nickname NewNick, got %s", updated.Nickname)
+	}
+	if updated.Avatar != "avatar-2" {
+		t.Errorf("expected avatar avatar-2, got %s", updated.Avatar)
+	}
+}
+
+func TestUpdateProfileInvalidNickname(t *testing.T) {
+	handler, db := setupTestHandler(t)
+	defer db.Close()
+	user := createVerifiedUser(t, db, "invnick@example.com", "password123", "ValidNick")
+
+	body := `{"nickname":"X","avatar":""}`
+	w, req := authRequest(handler, "PUT", "/api/v1/user/profile", body, user)
+	handler.handleUpdateProfile(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("expected 400, got %d", w.Code)
+	}
+}
+
+func TestUpdateProfileInvalidAvatar(t *testing.T) {
+	handler, db := setupTestHandler(t)
+	defer db.Close()
+	user := createVerifiedUser(t, db, "invav@example.com", "password123", "ValidUser")
+
+	body := `{"nickname":"ValidNick","avatar":"not-a-valid-url-or-preset"}`
+	w, req := authRequest(handler, "PUT", "/api/v1/user/profile", body, user)
+	handler.handleUpdateProfile(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("expected 400, got %d", w.Code)
+	}
+}
+
+func TestUpdateProfileEmptyAvatar(t *testing.T) {
+	handler, db := setupTestHandler(t)
+	defer db.Close()
+	user := createVerifiedUser(t, db, "emptyav@example.com", "password123", "EmptyAvUser")
+
+	body := `{"nickname":"EmptyAvUser","avatar":""}`
+	w, req := authRequest(handler, "PUT", "/api/v1/user/profile", body, user)
+	handler.handleUpdateProfile(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("expected 200, got %d", w.Code)
+	}
+}
+
+func TestUpdateProfileAvatarURL(t *testing.T) {
+	handler, db := setupTestHandler(t)
+	defer db.Close()
+	user := createVerifiedUser(t, db, "urlav@example.com", "password123", "UrlAvUser")
+
+	body := `{"nickname":"UrlAvUser","avatar":"https://example.com/avatar.png"}`
+	w, req := authRequest(handler, "PUT", "/api/v1/user/profile", body, user)
+	handler.handleUpdateProfile(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("expected 200, got %d", w.Code)
+	}
+
+	updated := GetUserByIDMust(t, db, user.ID)
+	if updated.Avatar != "https://example.com/avatar.png" {
+		t.Errorf("expected avatar URL, got %s", updated.Avatar)
+	}
+}
+
+func GetUserByIDMust(t *testing.T, db *sql.DB, id string) *User {
+	t.Helper()
+	user, err := GetUserByID(context.Background(), db, id)
+	if err != nil {
+		t.Fatalf("GetUserByID: %v", err)
+	}
+	return user
+}

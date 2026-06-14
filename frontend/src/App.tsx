@@ -9,6 +9,8 @@ import { AuthProvider, useAuthContext } from '@/features/auth/AuthContext'
 import { LoginModal } from '@/features/auth/LoginModal'
 import { RegisterModal } from '@/features/auth/RegisterModal'
 import { VerifyEmailBanner } from '@/features/auth/VerifyEmailBanner'
+import { UserProfile } from '@/components/UserProfile'
+import { AdminPanel } from '@/components/AdminPanel'
 import { ChartContainer } from '@/components/ChartContainer'
 import { ChartPanel } from '@/components/ChartPanel'
 import { ChartHeader } from '@/components/ChartHeader'
@@ -99,7 +101,7 @@ function AppShell() {
       </header>
 
       {/* Main content */}
-      <div className="flex-1 overflow-hidden">
+      <div className="flex-1 overflow-hidden flex flex-col">
         {currentView === 'terminal' && (
           <div className="flex-1 flex flex-col h-full">
             {/* Chart header controls */}
@@ -214,14 +216,10 @@ function AppShell() {
           </div>
         )}
         {currentView === 'admin' && (
-          <div className="h-full flex items-center justify-center text-white/40 font-mono text-sm">
-            <p>Admin Panel - placeholder</p>
-          </div>
+          <AdminPanel onClose={() => setCurrentView('terminal')} />
         )}
         {currentView === 'profile' && (
-          <div className="h-full flex items-center justify-center text-white/40 font-mono text-sm">
-            <p>User Profile - placeholder</p>
-          </div>
+          <UserProfile onClose={() => setCurrentView('terminal')} />
         )}
       </div>
 

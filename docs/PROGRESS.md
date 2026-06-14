@@ -3,6 +3,119 @@
 > Claude обновляет этот файл в КОНЦЕ каждой задачи. Новые записи — сверху.
 > Формат записи строго по шаблону. Это память между чатами.
 
+### [2026-06-14] Фаза 12 Этап 0 — Admin Panel Shell + Security
+- Модель: MiMo (mimo-v2.5-free)
+- Что сделано:
+  - **SQL admin grant**: `UPDATE users SET email='lynat1k@list.ru', role='admin', email_verified=1 WHERE email='dexter@mail.ru'` → 1 row affected, verified (id=50d98410-5519-4c87-b5d2-bdb557e087d3)
+  - **`backend/internal/admin/audit.go`**: `LogAdminAction(ctx, db, userID, action, target, detail, ip)` — INSERTs into `admin_actions` with UUID + RFC3339 timestamp
+  - **`backend/internal/admin/ratelimit.go`**: `AdminRateLimiter` struct + `AdminRateLimitMiddleware` — Redis sorted set, 30 req/min default, env-configurable via `ADMIN_RATE_LIMIT_MAX`. Uses `auth.UserIDKey` for context extraction.
+  - **`backend/internal/admin/handlers.go`**: `AdminHandler` struct with `db`, `authCfg`, `chRepo` (ClickHouse), `rdb` (Redis), `rl`. `RegisterAdminRoutes(mux)` registers 19 endpoints (metrics, users CRUD, policies, tickers CRUD, history download/jobs, billing CRUD) — all stubs returning `{ok:true, data:{status:"stub_*"}}`. Each wrapped in `RequireAuth → RequireRole("admin") → AdminRateLimitMiddleware`.
+  - **`backend/internal/auth/sqlite.go`**: Added `admin_actions` table + 2 indexes to `Migrate()` (id, user_id, action, target, detail, ip, created_at)
+  - **`backend/cmd/procluster/main.go`**: Added `admin` import, `admin.NewAdminHandler(sqliteDB, authCfg, repo, rdb)`, `adminHandler.RegisterAdminRoutes(srv.Mux())`
+  - **`backend/internal/admin/handlers_test.go`**: 4 tests — `TestAdminRoute_RequireAuth_NoToken`→401, `TestAdminRoute_RequireRole_NonAdmin`→403, `TestAdminRoute_RequireRole_Admin`→200, `TestAuditLog_WrittenOnMutation`→verifies row in DB
+  - **`frontend/src/features/admin/api.ts`**: Full API helper module with typed interfaces for all future endpoints (metrics, users, policies, tickers, history download, billing)
+  - **`frontend/src/features/auth/api.ts`**: Exported `request<T>()` function (was private) for reuse by admin API
+  - **`frontend/src/components/AdminPanel.tsx`**: 4-tab shell component (server/database/users/stats) with `liquid-glass-card`, dark/light theme, lucide-react icons, motion/react animations, tab switching with `AnimatePresence`. Double role check (`user?.role !== 'admin'` → access denied fallback).
+  - **`frontend/src/App.tsx`**: Replaced admin placeholder with `<AdminPanel onClose={() => setCurrentView('terminal')} />`
+  - **i18n admin.* keys** added to en.ts, ru.ts, kz.ts — title, coreMode, backToTerminal, tabs, server/database/users/stats sections, stub
+- Затронутые файлы/папки (изменены):
+  - `backend/internal/admin/audit.go` (NEW)
+  - `backend/internal/admin/ratelimit.go` (NEW)
+  - `backend/internal/admin/handlers.go` (NEW — 19 stub endpoints)
+  - `backend/internal/admin/handlers_test.go` (NEW — 4 tests)
+  - `backend/internal/auth/sqlite.go` (+admin_actions table in Migrate)
+  - `backend/cmd/procluster/main.go` (+admin handler wiring)
+  - `frontend/src/features/admin/api.ts` (NEW — typed API helpers)
+  - `frontend/src/features/auth/api.ts` (exported request<T>)
+  - `frontend/src/components/AdminPanel.tsx` (NEW — 4-tab shell)
+  - `frontend/src/App.tsx` (wired AdminPanel)
+  - `frontend/src/i18n/dictionaries/en.ts` (admin.* keys expanded)
+  - `frontend/src/i18n/dictionaries/ru.ts` (admin.* keys expanded)
+  - `frontend/src/i18n/dictionaries/kz.ts` (admin.* keys expanded)
+- Ключевые решения:
+  - **RequireAuth(cfg) + RequireRole("admin")** on EVERY admin endpoint — no anonymous access
+  - **Admin rate-limit** separate from REST rate-limit, keyed by `rl:admin:{userId}`, 30 req/min default
+  - **Audit log** on all admin mutations — `admin_actions` table with UUID, user_id, action, target, detail, ip, created_at
+  - **Role promotion ONLY via SQL/CLI** — no public endpoint for role changes
+  - **ClickHouse client** passed as `*clickhouse.ClickhouseRepository` concrete type to AdminHandler (needs `system.parts` queries not in MarketRepository interface)
+  - **Backend uses Go 1.22+ `http.ServeMux`** with method-prefixed patterns (`"GET /api/v1/admin/metrics"`)
+  - **Execution order**: 0→1→3→4→2 (riskiest refactoring of session/history limits last)
+- Тесты/проверки:
+  - `go test ./internal/admin/ -v`: 4/4 PASS
+  - `go test ./internal/auth/ -v -count=1`: 55/55 PASS (no regressions)
+  - `go test ./internal/api/ -v`: 20/20 PASS (no regressions)
+  - `go vet ./...`: PASS
+  - `npx tsc --noEmit`: 0 errors
+  - `npx vite build`: PASS (941ms)
+
+### [2026-06-14] Багфиксы Фазы 10 — 401 на защищённых эндпоинтах + пустой профиль + скролл
+- Модель: MiMo (mimo-v2.5-free)
+- Что сделано:
+  - **ФИКС 1 — api.ts**: Добавлен module-level `accessTokenRef` + `setApiAccessToken()` экспортируемый setter. Функция `request()` теперь автоматически добавляет `Authorization: Bearer` header если `accessTokenRef` не null. `apiGetMe`, `apiUpdateProfile`, `apiChangePassword` переписаны с голого `fetch` на `request()` с `accessTokenRef` для защищённых эндпоинтов.
+  - **ФИКС 2 — AuthContext.tsx**: Добавлен `useEffect([accessToken])` → `setApiAccessToken(accessToken)`. Синхронизация при login, refresh, silent-login, logout(→null). Импорт `setApiAccessToken` из api.ts.
+  - **ФИКС 3 — UserProfile.tsx**: `nickname`/`avatar` state инициализируются из `user` (AuthContext) как fallback — герой показывает ник/email сразу без ожидания `/me`. Catch в useEffect заполняет `profile` из `user` вместо silent ignore. `user?.email` и `user?.nickname` используются как fallback в hero и email input. Dependency `useEffect` → `user?.id` вместо `user` (стабильная ссылка).
+  - **ФИКС 4 — UserProfile.tsx**: Скролл-фикс v2. Корневой div раздён на два: (1) scroll container `flex-1 min-h-0 overflow-y-auto` (прямой flex-childApp.tsx:103), (2) content wrapper `max-w-7xl mx-auto px-6 py-10 ... flex flex-col gap-8` БЕЗ h-full/overflow. Старый `h-full min-h-0` на внутреннем div не работал потому что `h-full` резолвился от content-based высоты parent (flex-1 overflow-hidden), а не от flex-allocated height. Новый scroll container — прямой flex-child, получает высоту от flex layout.
+- Затронутые файлы/папки (изменены):
+  - `frontend/src/features/auth/api.ts` (+accessTokenRef, +setApiAccessToken, request() Authorization, apiGetMe/apiUpdateProfile/apiChangePassword через request)
+  - `frontend/src/features/auth/AuthContext.tsx` (+import setApiAccessToken, +useEffect([accessToken]))
+  - `frontend/src/components/UserProfile.tsx` (fallback из user, min-h-0, user?.id dependency)
+- Ключевые решения:
+  - Module-level token holder вместо передачи токена через аргументы — проще, нет пропс-дриллинга, работает с React state.
+  - `useEffect([accessToken])` в AuthContext — токен всегда синхронизирован с module-level holder.
+  - Fallback на `user` из AuthContext — профиль показывает данные сразу, даже до ответа `/me`.
+  - `min-h-0` на flex-child — стандартный паттерн для overflow в flex layout.
+- Тесты/проверки:
+  - `npx tsc --noEmit`: PASS
+  - `npx vite build`: PASS (404ms)
+  - `go test ./...`: ALL PASS (55 auth + все существующие)
+
+### [2026-06-14] Фаза 10 — Профиль + тарифы
+- Модель: MiMo (mimo-v2.5-free)
+- Что сделано:
+  - **Backend миграция** (`auth/sqlite.go`): Идемпотентный `ALTER TABLE users ADD COLUMN` через `PRAGMA table_info` проверку: `avatar TEXT DEFAULT ''`, `subscription_status TEXT DEFAULT 'none'`, `subscription_paid_at TEXT DEFAULT ''`, `subscription_expires_at TEXT DEFAULT ''`. Колонки добавляются только если отсутствуют.
+  - **User struct** (`auth/types.go`): Добавлены `Avatar`, `SubscriptionStatus`, `SubscriptionPaidAt`, `SubscriptionExpiresAt` в `User`.
+  - **scanUser/CreateUser/GetByID/GetByEmail** (`auth/sqlite.go`): Расширены на чтение/запись 4 новых колонок. `scanUser` использует `sql.NullString` для совместимости со старыми строками.
+  - **userData + issueTokens** (`auth/handlers.go`): `userData` расширена полями `avatar`, `createdAt`, `subscriptionStatus`, `subscriptionPaidAt`, `subscriptionExpiresAt`. `issueTokens` заполняет все поля из `User`.
+  - **GET /api/v1/user/me** (`handlers.go`): `handleGetMe` — RequireAuth, `GetUserByID`, расчёт `daysLeft` из `subscriptionExpiresAt`, JSON ответ со всеми полями профиля + `daysLeft`.
+  - **PUT /api/v1/user/profile** (`handlers.go`): `handleUpdateProfile` — RequireAuth, `MaxBytesReader(4KB)`, валидация никнейма 2-30, валидация аватара: whitelist `avatar-1..avatar-5` или http/https URL ≤500. `UpdateUserProfile()` SQL UPDATE.
+  - **POST /api/v1/user/change-password** (`handlers.go`): `handleChangePassword` — RequireAuth, `MaxBytesReader(4KB)`, `CheckPassword` (argon2id), `HashPassword` новый, `UpdateUserPasswordHash`, `DeleteAllUserSessions` (инвалидация ВСЕХ сессий → forced re-login), `clearRefreshCookie`.
+  - **RegisterRoutes**: +3 маршрута: `GET /user/me`, `PUT /user/profile`, `POST /user/change-password`.
+  - **sqlite.go**: `UpdateUserProfile()`, `UpdateUserPasswordHash()` функции.
+  - **handlers_test.go**: 12 новых тестов (55 total): `TestGetMeSuccess`, `TestGetMeUnauthorized`, `TestChangePasswordSuccess`, `TestChangePasswordWrongCurrent`, `TestChangePasswordShortNew`, `TestChangePasswordSessionsInvalidated`, `TestUpdateProfileSuccess`, `TestUpdateProfileInvalidNickname`, `TestUpdateProfileInvalidAvatar`, `TestUpdateProfileEmptyAvatar`, `TestUpdateProfileAvatarURL`. Хелперы `createVerifiedUser`, `authRequest` (с имитацией RequireAuth через context).
+  - **AuthUser + api.ts** (`features/auth/api.ts`): `AuthUser` расширен: `avatar`, `createdAt`, `subscriptionStatus`, `subscriptionPaidAt`, `subscriptionExpiresAt`. Новые API: `apiGetMe()`, `apiUpdateProfile()`, `apiChangePassword()`.
+  - **UserProfile.tsx** (`components/UserProfile.tsx`): Компонент-профиль (view). Hero-секция с аватаром (gradient presets avatar-1..5, custom URL, initials fallback) + никнейм + бейдж тарифа. Форма профиля: ник (editable), аватар-пресеты + URL input, email (readonly), Save. Карточка подписки: tier badge, payment/expiry dates, daysLeft, status. Смена пароля: текущий + новый + подтверждение → POST → forced reload. Сравнение тарифов: Free/$0, Pro/$19, VIP/$49 с таблицей лимитов (графики, свечи, сжатие, индикаторы, кастомные настройки, рисунки, Telegram, свои индикаторы). Кнопка «Активировать» → заглушка `alert()`.
+  - **App.tsx**: Импорт `UserProfile`, замена заглушки `currentView === 'profile'` на `<UserProfile onClose={() => setCurrentView('terminal')} />`.
+  - **i18n**: Расширены `profile.*` ключи в en/ru/kz (~40 ключей: title, backToTerminal, personalInfo, username, email, regDate, tierStatus, saveChanges, savedSuccess, avatarSelect, orCustomUrl, changePassword, currentPassword, newPassword, confirmPassword, passwordChanged, wrongPassword, subInfo, paymentDate, expiryDate, daysRemaining, statusActive, statusNone, choosePlan, planFreeDesc, planProDesc, planVipDesc, currentPlan, activate, activateSoon, props*, yes/no).
+  - **Playwright e2e** (`e2e/profile.spec.ts`): 5 тестов — profile opens from header, update nickname, change password shows confirmation, profile shows subscription info, back to terminal.
+- Затронутые файлы/папки (созданы):
+  - `frontend/src/components/UserProfile.tsx` (создан)
+  - `frontend/e2e/profile.spec.ts` (создан)
+- Затронутые файлы/папки (изменены):
+  - `backend/internal/auth/sqlite.go` (+migration ALTER TABLE, +scanUser расширение, +CreateUser/GetByID/GetByEmail расширение, +UpdateUserProfile, +UpdateUserPasswordHash)
+  - `backend/internal/auth/types.go` (+4 поля в User)
+  - `backend/internal/auth/handlers.go` (+userData поля, +issueTokens расширение, +handleGetMe, +handleUpdateProfile, +handleChangePassword, +RegisterRoutes ×3, +validAvatarPresets)
+  - `backend/internal/auth/handlers_test.go` (+12 тестов, +createVerifiedUser, +authRequest хелперы, +GetUserByIDMust)
+  - `frontend/src/features/auth/api.ts` (+AuthUser поля, +apiGetMe, +apiUpdateProfile, +apiChangePassword)
+  - `frontend/src/App.tsx` (+UserProfile импорт, замена заглушки)
+  - `frontend/src/i18n/dictionaries/en.ts` (profile.* расширены)
+  - `frontend/src/i18n/dictionaries/ru.ts` (profile.* расширены)
+  - `frontend/src/i18n/dictionaries/kz.ts` (profile.* расширены)
+- Ключевые решения:
+  - Тариф = колонка `role` (Free/Pro/VIP/Admin), отдельная `subscription_plan` НЕ заводится.
+  - Аватары: нейтральные gradient presets (avatar-1..5), без реальных персон.
+  - Смена пароля → инвалидация ВСЕХ сессий + forced re-login (безопаснее, чем «кроме текущей»).
+  - Биллинг/оплата НЕ в фазе 10 — кнопка «Активировать» → заглушка.
+  - Активные сессии — экран НЕ делаем (лимит работает на бэкенде).
+  - `requireAuth` в тестах: хелпер `authRequest` устанавливает context values напрямую (без реального middleware).
+- Тесты/проверки:
+  - `go build ./...`: PASS
+  - `go vet ./...`: PASS
+  - `gofmt -l .`: PASS (0 файлов)
+  - `go test ./...`: ALL PASS (55 auth + все существующие)
+  - `npx tsc --noEmit`: PASS
+  - `npx vite build`: PASS (437ms)
+  - Playwright e2e: 5 тестов (profile.spec.ts) — requires running backend+frontend
+
 ### [2026-06-14] Фаза 9 — Этап 3: Frontend auth + user settings
 - Модель: MiMo (mimo-v2.5-free)
 - Что сделано:

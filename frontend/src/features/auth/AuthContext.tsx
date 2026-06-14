@@ -1,6 +1,6 @@
 import { createContext, useContext, useState, useEffect, useCallback, useRef, type ReactNode } from 'react'
 import type { AuthUser } from './api'
-import { apiRefresh, apiLogout } from './api'
+import { apiRefresh, apiLogout, setApiAccessToken } from './api'
 
 interface AuthContextValue {
   user: AuthUser | null
@@ -56,6 +56,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     return () => { if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current) }
   }, [])
+
+  useEffect(() => {
+    setApiAccessToken(accessToken)
+  }, [accessToken])
 
   const logout = useCallback(async () => {
     await apiLogout()

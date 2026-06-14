@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"net/url"
 	"regexp"
 	"strconv"
 	"strings"
@@ -45,11 +46,16 @@ type authError struct {
 }
 
 type userData struct {
-	ID            string `json:"id"`
-	Email         string `json:"email"`
-	Nickname      string `json:"nickname"`
-	Role          string `json:"role"`
-	EmailVerified bool   `json:"emailVerified"`
+	ID                    string `json:"id"`
+	Email                 string `json:"email"`
+	Nickname              string `json:"nickname"`
+	Role                  string `json:"role"`
+	EmailVerified         bool   `json:"emailVerified"`
+	Avatar                string `json:"avatar"`
+	CreatedAt             string `json:"createdAt"`
+	SubscriptionStatus    string `json:"subscriptionStatus"`
+	SubscriptionPaidAt    string `json:"subscriptionPaidAt"`
+	SubscriptionExpiresAt string `json:"subscriptionExpiresAt"`
 }
 
 func writeJSON(w http.ResponseWriter, status int, v interface{}) {
@@ -87,6 +93,9 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/v1/auth/recovery", h.handleRecovery)
 	mux.HandleFunc("GET /api/v1/user/settings", RequireAuth(h.cfg)(http.HandlerFunc(h.handleGetSettings)).ServeHTTP)
 	mux.HandleFunc("PUT /api/v1/user/settings", RequireAuth(h.cfg)(http.HandlerFunc(h.handlePutSettings)).ServeHTTP)
+	mux.HandleFunc("GET /api/v1/user/me", RequireAuth(h.cfg)(http.HandlerFunc(h.handleGetMe)).ServeHTTP)
+	mux.HandleFunc("PUT /api/v1/user/profile", RequireAuth(h.cfg)(http.HandlerFunc(h.handleUpdateProfile)).ServeHTTP)
+	mux.HandleFunc("POST /api/v1/user/change-password", RequireAuth(h.cfg)(http.HandlerFunc(h.handleChangePassword)).ServeHTTP)
 	mux.HandleFunc("POST /api/v1/auth/google", h.handleGoogleAuth)
 	mux.HandleFunc("GET /api/v1/auth/google/callback", h.handleGoogleCallback)
 }
@@ -490,11 +499,16 @@ func (h *Handler) issueTokens(w http.ResponseWriter, r *http.Request, user *User
 		Data: map[string]interface{}{
 			"accessToken": accessToken,
 			"user": userData{
-				ID:            user.ID,
-				Email:         user.Email,
-				Nickname:      user.Nickname,
-				Role:          user.Role,
-				EmailVerified: user.EmailVerified,
+				ID:                    user.ID,
+				Email:                 user.Email,
+				Nickname:              user.Nickname,
+				Role:                  user.Role,
+				EmailVerified:         user.EmailVerified,
+				Avatar:                user.Avatar,
+				CreatedAt:             user.CreatedAt.Format(time.RFC3339),
+				SubscriptionStatus:    user.SubscriptionStatus,
+				SubscriptionPaidAt:    user.SubscriptionPaidAt,
+				SubscriptionExpiresAt: user.SubscriptionExpiresAt,
 			},
 		},
 	})
@@ -534,4 +548,160 @@ func extractIP(r *http.Request) string {
 		return ip
 	}
 	return r.RemoteAddr
+}
+
+// --- GET /api/v1/user/me ---
+
+func (h *Handler) handleGetMe(w http.ResponseWriter, r *http.Request) {
+	userID := r.Context().Value(UserIDKey).(string)
+
+	user, err := GetUserByID(r.Context(), h.db, userID)
+	if err != nil {
+		log.Printf("[auth] get user for /me: %v", err)
+		writeError(w, http.StatusInternalServerError, "INTERNAL", "internal error")
+		return
+	}
+
+	daysLeft := 0
+	if user.SubscriptionStatus == "active" && user.SubscriptionExpiresAt != "" {
+		if exp, err := time.Parse(time.RFC3339, user.SubscriptionExpiresAt); err == nil {
+			d := int(time.Until(exp).Hours() / 24)
+			if d > 0 {
+				daysLeft = d
+			}
+		}
+	}
+
+	writeJSON(w, http.StatusOK, authResponse{
+		OK: true,
+		Data: map[string]interface{}{
+			"id":                    user.ID,
+			"email":                 user.Email,
+			"nickname":              user.Nickname,
+			"role":                  user.Role,
+			"emailVerified":         user.EmailVerified,
+			"avatar":                user.Avatar,
+			"createdAt":             user.CreatedAt.Format(time.RFC3339),
+			"subscriptionStatus":    user.SubscriptionStatus,
+			"subscriptionPaidAt":    user.SubscriptionPaidAt,
+			"subscriptionExpiresAt": user.SubscriptionExpiresAt,
+			"daysLeft":              daysLeft,
+		},
+	})
+}
+
+// --- PUT /api/v1/user/profile ---
+
+var validAvatarPresets = map[string]bool{
+	"avatar-1": true,
+	"avatar-2": true,
+	"avatar-3": true,
+	"avatar-4": true,
+	"avatar-5": true,
+}
+
+func (h *Handler) handleUpdateProfile(w http.ResponseWriter, r *http.Request) {
+	userID := r.Context().Value(UserIDKey).(string)
+
+	r.Body = http.MaxBytesReader(w, r.Body, 4096)
+	defer r.Body.Close()
+
+	var body struct {
+		Nickname string `json:"nickname"`
+		Avatar   string `json:"avatar"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeError(w, http.StatusBadRequest, "INVALID_BODY", "invalid request body")
+		return
+	}
+
+	body.Nickname = strings.TrimSpace(body.Nickname)
+	if len(body.Nickname) < 2 || len(body.Nickname) > 30 {
+		writeError(w, http.StatusBadRequest, "INVALID_PARAMS", "nickname must be 2-30 characters")
+		return
+	}
+
+	body.Avatar = strings.TrimSpace(body.Avatar)
+	if body.Avatar != "" {
+		if validAvatarPresets[body.Avatar] {
+			// preset key — ok
+		} else if len(body.Avatar) > 500 {
+			writeError(w, http.StatusBadRequest, "INVALID_PARAMS", "avatar URL too long (max 500)")
+			return
+		} else {
+			parsed, err := url.Parse(body.Avatar)
+			if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Host == "" {
+				writeError(w, http.StatusBadRequest, "INVALID_PARAMS", "avatar must be a preset key or valid http/https URL")
+				return
+			}
+		}
+	}
+
+	if err := UpdateUserProfile(r.Context(), h.db, userID, body.Nickname, body.Avatar); err != nil {
+		log.Printf("[auth] update profile: %v", err)
+		writeError(w, http.StatusInternalServerError, "INTERNAL", "internal error")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, authResponse{OK: true})
+	log.Printf("[auth] profile updated for user %s", userID)
+}
+
+// --- POST /api/v1/user/change-password ---
+
+type changePasswordRequest struct {
+	CurrentPassword string `json:"currentPassword"`
+	NewPassword     string `json:"newPassword"`
+}
+
+func (h *Handler) handleChangePassword(w http.ResponseWriter, r *http.Request) {
+	userID := r.Context().Value(UserIDKey).(string)
+
+	r.Body = http.MaxBytesReader(w, r.Body, 4096)
+	defer r.Body.Close()
+
+	var req changePasswordRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "INVALID_BODY", "invalid request body")
+		return
+	}
+
+	if len(req.NewPassword) < 8 {
+		writeError(w, http.StatusBadRequest, "INVALID_PARAMS", "new password must be at least 8 characters")
+		return
+	}
+
+	user, err := GetUserByID(r.Context(), h.db, userID)
+	if err != nil {
+		log.Printf("[auth] get user for change-password: %v", err)
+		writeError(w, http.StatusInternalServerError, "INTERNAL", "internal error")
+		return
+	}
+
+	if !CheckPassword(user.PasswordHash, req.CurrentPassword) {
+		writeError(w, http.StatusUnauthorized, "INVALID_PASSWORD", "current password is incorrect")
+		return
+	}
+
+	newHash, err := HashPassword(req.NewPassword)
+	if err != nil {
+		log.Printf("[auth] hash new password: %v", err)
+		writeError(w, http.StatusInternalServerError, "INTERNAL", "internal error")
+		return
+	}
+
+	if err := UpdateUserPasswordHash(r.Context(), h.db, userID, newHash); err != nil {
+		log.Printf("[auth] update password hash: %v", err)
+		writeError(w, http.StatusInternalServerError, "INTERNAL", "internal error")
+		return
+	}
+
+	// Invalidate ALL sessions — forced re-login
+	if err := DeleteAllUserSessions(r.Context(), h.db, userID); err != nil {
+		log.Printf("[auth] invalidate sessions: %v", err)
+	}
+
+	clearRefreshCookie(w, h.cfg)
+	writeJSON(w, http.StatusOK, authResponse{OK: true})
+	log.Printf("[auth] password changed for user %s, all sessions invalidated", userID)
 }
