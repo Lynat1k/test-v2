@@ -2109,13 +2109,29 @@ export default function ClusterChart({
       const candleWickColor = isGreen ? bullWick : bearWick;
 
       // Draw vertical wick lines
-      ctx.beginPath();
       ctx.strokeStyle = candleWickColor;
       ctx.lineWidth = 1.5;
       ctx.globalAlpha = isDetailedMode ? 0.45 : 0.85;
-      ctx.moveTo(x + candleWidth / 2, priceToY(candle.high));
-      ctx.lineTo(x + candleWidth / 2, priceToY(candle.low));
-      ctx.stroke();
+      if (isDetailedMode) {
+        // In detailed/clusters/footprint mode: draw only upper/lower tails, skip body
+        const bodyTopY = priceToY(Math.max(candle.open, candle.close));
+        const bodyBotY = priceToY(Math.min(candle.open, candle.close));
+        // Upper tail: high → top of body
+        ctx.beginPath();
+        ctx.moveTo(x + candleWidth / 2, priceToY(candle.high));
+        ctx.lineTo(x + candleWidth / 2, bodyTopY);
+        ctx.stroke();
+        // Lower tail: bottom of body → low
+        ctx.beginPath();
+        ctx.moveTo(x + candleWidth / 2, bodyBotY);
+        ctx.lineTo(x + candleWidth / 2, priceToY(candle.low));
+        ctx.stroke();
+      } else {
+        ctx.beginPath();
+        ctx.moveTo(x + candleWidth / 2, priceToY(candle.high));
+        ctx.lineTo(x + candleWidth / 2, priceToY(candle.low));
+        ctx.stroke();
+      }
       ctx.globalAlpha = 1.0; // Reset
 
       // A. Zoomed out simple candlestick
@@ -2167,18 +2183,6 @@ export default function ClusterChart({
               : (isLight ? "rgba(239, 68, 68, 0.45)" : "rgba(239, 68, 68, 0.55)"));
         ctx.lineWidth = 1.0;
         ctx.strokeRect(x + 0.5, bodyTopY + 0.5, candleWidth - 1, bodyH - 1);
-
-        // Draw the vertical separator line covering the entire high-low range of the cells
-        if (candleCells.length > 0) {
-          ctx.beginPath();
-          ctx.strokeStyle = isLight ? "rgba(0, 0, 0, 0.16)" : "rgba(255, 255, 255, 0.16)";
-          ctx.lineWidth = 1.0;
-          const topPriceY = priceToY(candleCells[0].price + activePair.priceStep / 2);
-          const bottomPriceY = priceToY(candleCells[candleCells.length - 1].price - activePair.priceStep / 2);
-          ctx.moveTo(sepX, topPriceY);
-          ctx.lineTo(sepX, bottomPriceY);
-          ctx.stroke();
-        }
 
         candleCells.forEach((cell, cellIdx) => {
           const cellBelow = candleCells[cellIdx + 1];
@@ -2423,7 +2427,7 @@ export default function ClusterChart({
             if (finalFontSize < 5) finalFontSize = 5;
             if (finalFontSize > 28) finalFontSize = 28;
             const fontSizeVal = `${finalFontSize}px`;
-            ctx.font = `${isCellPoc ? "bold" : "normal"} ${fontSizeVal} 'Inter', -apple-system, system-ui, sans-serif`;
+            ctx.font = `normal ${fontSizeVal} 'Inter', -apple-system, system-ui, sans-serif`;
 
             const drawCenteredBidAsk = (targetX: number, targetY: number) => {
               ctx.textAlign = "center";
@@ -2457,7 +2461,9 @@ export default function ClusterChart({
               const pocTextCol = isLight ? "#0f172a" : "#ffffff";
               ctx.fillStyle = pocTextCol;
               if (candleDataType === "bid_ask") {
-                drawCenteredBidAsk(centerTextX, cellY + cellHeight / 2);
+                if (candleWidth >= 35) {
+                  drawCenteredBidAsk(centerTextX, cellY + cellHeight / 2);
+                }
               } else if (candleDataType === "delta") {
                 ctx.textAlign = "center";
                 ctx.fillText(deltaDisplayStr, centerTextX, cellY + cellHeight / 2);
