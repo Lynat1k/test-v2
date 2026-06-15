@@ -1943,7 +1943,25 @@ export default function ClusterChart({
       ctx.restore();
     }
 
-
+    // 3.1 Draw BACKGROUND-LAYER INTERACTIVE DRAWING OBJECTS (e.g. Range Volume Profile)
+    // Always drawn under candles, wicks, and cluster cells per user request
+    drawDrawingObjects(ctx, {
+      ctx,
+      drawings,
+      drawingInProgress,
+      selectedDrawingId,
+      visibleScrollLeft,
+      viewportWidth,
+      chartHeight,
+      margin,
+      isLight,
+      priceToY,
+      activePair,
+      candles,
+      candleWidth,
+      candleSpacing,
+      layer: "background",
+    });
 
     const startIdx = Math.max(0, Math.floor((visibleScrollLeft - margin.left - candleWidth) / (candleWidth + candleSpacing)));
     const endIdx = Math.min(candles.length - 1, Math.ceil((visibleScrollLeft + viewportWidth - margin.left) / (candleWidth + candleSpacing)));
@@ -2817,7 +2835,7 @@ export default function ClusterChart({
     }
 
     // -------------------------------------------------------------------------
-    // RENDER INTERACTIVE DRAWING OBJECTS
+    // RENDER INTERACTIVE DRAWING OBJECTS (Foreground items: lines, handles, annotations, etc.)
     // -------------------------------------------------------------------------
     drawDrawingObjects(ctx, {
       ctx,
@@ -2834,6 +2852,7 @@ export default function ClusterChart({
       candles,
       candleWidth,
       candleSpacing,
+      layer: "foreground",
     });
 
     ctx.restore(); // Undoes translation of -visibleScrollLeft for viewport-wide elements
@@ -2974,30 +2993,30 @@ export default function ClusterChart({
 
         ctx.save();
         if (isHovered) {
-          ctx.font = "bold 9px 'Inter', sans-serif";
+          ctx.font = "bold 11.5px 'Inter', sans-serif";
           const textWidth = ctx.measureText(timeStr).width;
-          const padX = 6;
-          const padY = 3;
+          const padX = 8;
           const rectW = textWidth + padX * 2;
-          const rectH = 15;
+          const rectH = 19;
           const rectX = x + candleWidth / 2 - rectW / 2;
           const rectY = totalSvgHeight - margin.bottom + 16 - rectH / 2;
 
           ctx.beginPath();
           if (ctx.roundRect) {
-            ctx.roundRect(rectX, rectY, rectW, rectH, 3);
+            ctx.roundRect(rectX, rectY, rectW, rectH, 4);
           } else {
             ctx.rect(rectX, rectY, rectW, rectH);
           }
-          ctx.fillStyle = isLight ? "rgba(15, 23, 42, 0.08)" : "rgba(245, 158, 11, 0.15)";
+          ctx.fillStyle = isLight ? "rgba(15, 23, 42, 0.12)" : "rgba(245, 158, 11, 0.22)";
           ctx.fill();
 
-          ctx.strokeStyle = isLight ? "rgba(15, 23, 42, 0.18)" : "rgba(245, 158, 11, 0.35)";
-          ctx.lineWidth = 1;
+          ctx.strokeStyle = isLight ? "rgba(15, 23, 42, 0.25)" : "rgba(245, 158, 11, 0.55)";
+          ctx.lineWidth = 1.2;
           ctx.stroke();
 
-          ctx.fillStyle = isLight ? "#0f172a" : "#f59e0b";
+          ctx.fillStyle = isLight ? "#0f172a" : "#facc15";
           ctx.textAlign = "center";
+          ctx.textBaseline = "middle";
           ctx.fillText(timeStr, x + candleWidth / 2, totalSvgHeight - margin.bottom + 16);
         } else {
           ctx.font = "bold 9px 'Inter', sans-serif";
@@ -3769,23 +3788,25 @@ export default function ClusterChart({
               {crosshair && (
                 <g key="fixed-crosshair-price">
                   <rect
-                    x={2}
-                    y={crosshair.y - 8}
-                    width={badgeWidth}
-                    height={16}
-                    fill={isLight ? "#2563eb" : "#3b82f6"}
-                    rx="2"
-                    stroke={isLight ? "#1d4ed8" : "#60a5fa"}
-                    strokeWidth="1"
+                    x={3}
+                    y={crosshair.y - 10.5}
+                    width={scaleWidth - 6}
+                    height={21}
+                    fill={isLight ? "#4f46e5" : "#6366f1"}
+                    rx="3"
+                    stroke={isLight ? "#3730a3" : "#818cf8"}
+                    strokeWidth="1.2"
                   />
                   <text
-                    x={labelX}
-                    y={crosshair.y + 4}
+                    x={labelX + 2}
+                    y={crosshair.y}
                     fill="#ffffff"
-                    fontSize={isMobile ? "8" : "9.5"}
+                    fontSize={isMobile ? "9" : "11"}
                     fontFamily="'Inter', -apple-system, sans-serif"
-                    fontWeight="black"
+                    fontWeight="800"
                     textAnchor="start"
+                    dominantBaseline="central"
+                    style={{ filter: "drop-shadow(0px 1px 2px rgba(0, 0, 0, 0.6))" }}
                   >
                     {formatPrice(crosshair.price)}
                   </text>
