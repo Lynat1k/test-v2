@@ -56,15 +56,28 @@ function computeValueArea(cells: ClusterCell[]): { vah: number; val: number } {
 function apiRowsToCells(rows: ApiClusterRow[]): ClusterCell[] {
   if (!rows || rows.length === 0) return [];
 
-  const cells: ClusterCell[] = rows.map((r) => ({
-    price: r.PriceLevel,
-    bid: r.BidVolume,
-    ask: r.AskVolume,
-    volume: r.BidVolume + r.AskVolume,
-    isPoc: false,
-    isBuyImbalance: false,
-    isSellImbalance: false,
-  }));
+  // Merge rows with the same PriceLevel by summing bid/ask/volume
+  const map = new Map<number, ClusterCell>();
+  for (const r of rows) {
+    const existing = map.get(r.PriceLevel);
+    if (existing) {
+      existing.bid += r.BidVolume;
+      existing.ask += r.AskVolume;
+      existing.volume = existing.bid + existing.ask;
+    } else {
+      map.set(r.PriceLevel, {
+        price: r.PriceLevel,
+        bid: r.BidVolume,
+        ask: r.AskVolume,
+        volume: r.BidVolume + r.AskVolume,
+        isPoc: false,
+        isBuyImbalance: false,
+        isSellImbalance: false,
+      });
+    }
+  }
+
+  const cells = Array.from(map.values());
 
   let maxVol = -1;
   let pocIdx = -1;

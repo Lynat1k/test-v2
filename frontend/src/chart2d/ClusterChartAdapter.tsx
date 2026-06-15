@@ -67,26 +67,46 @@ export default function ClusterChartAdapter({
           throw new Error(candleData.error?.message || "Failed to fetch candles");
         }
 
-        const apiCandles: ApiCandle[] = candleData.data.candles;
+        const apiCandles: ApiCandle[] = candleData.data?.candles ?? [];
 
         const timestamps = apiCandles.map((c: ApiCandle) =>
           new Date(c.CandleOpen).getTime()
         );
 
-        let clusterMap = new Map<number, ApiClusterRow[]>();
+        const clusterMap = new Map<number, ApiClusterRow[]>();
+        const BATCH_SIZE = 100;
+        const PARALLEL_LIMIT = 3;
 
-        try {
-          const clusterRes = await fetch(
-            `/api/v1/candles/${symbol}/clusters-batch?timeframe=${timeframe}&candleOpens=${timestamps.join(",")}`
-          );
-          const clusterData = await clusterRes.json();
-          if (clusterData.ok && clusterData.data?.clusters) {
-            for (const [ts, levels] of Object.entries(clusterData.data.clusters)) {
-              clusterMap.set(Number(ts), levels as ApiClusterRow[]);
+        const chunks: number[][] = [];
+        for (let i = 0; i < timestamps.length; i += BATCH_SIZE) {
+          chunks.push(timestamps.slice(i, i + BATCH_SIZE));
+        }
+
+        for (let i = 0; i < chunks.length; i += PARALLEL_LIMIT) {
+          const batch = chunks.slice(i, i + PARALLEL_LIMIT);
+          await Promise.all(batch.map(async (chunk) => {
+            const candleOpens = chunk.join(',');
+            try {
+              const resp = await fetch(
+                `/api/v1/candles/${symbol}/clusters-batch?timeframe=${timeframe}&candleOpens=${candleOpens}`
+              );
+              if (!resp.ok) {
+                const body = await resp.text().catch(() => '');
+                console.warn(`[chart2d] clusters-batch HTTP ${resp.status}: ${body}`);
+                return;
+              }
+              const clusterData = await resp.json();
+              if (clusterData.ok && clusterData.data?.clusters) {
+                for (const [ts, levels] of Object.entries(clusterData.data.clusters)) {
+                  clusterMap.set(Number(ts), levels as ApiClusterRow[]);
+                }
+              } else {
+                console.warn('[chart2d] clusters-batch API error:', clusterData.error);
+              }
+            } catch (err) {
+              console.warn('[chart2d] clusters-batch fetch failed:', err);
             }
-          }
-        } catch {
-          // clusters-batch may fail or be unavailable — candles still render without cells
+          }));
         }
 
         if (!cancelled) {
@@ -117,6 +137,10 @@ export default function ClusterChartAdapter({
   ) : error ? (
     <div className="flex items-center justify-center w-full h-full text-red-400 text-sm">
       {error}
+    </div>
+  ) : candles.length === 0 ? (
+    <div className="flex items-center justify-center w-full h-full text-zinc-500 text-sm">
+      No data for this period
     </div>
   ) : (
     <ClusterChart

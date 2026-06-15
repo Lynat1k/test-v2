@@ -533,6 +533,11 @@
   - `main.go` — динамический старт ingest workers по тикерам из БД.
   - Frontend: DatabaseTab с 3-колоночным layout (tickers, compressions, history download).
 
+### [2026-06-15] ClickHouse clusters_futures — дедупликация по price_level (TODO backend)
+- Контекст: ClickHouse `MergeTree()` не дедуплицирует строки с одинаковым `(symbol, timeframe, candle_open, price_level)`. Агрегатор и загрузчик истории могут вставить дубли, которые накапливаются. На фронтенде это приводит к дублированию ClusterCell на одном price → текст bid/ask накладывается ("задвоенный x").
+- Решение (пока, frontend): `apiRowsToCells` в `adapter.ts` группирует через `Map<number, ClusterCell>` и суммирует bid/ask/volume — дубли схлопываются.
+- TODO backend: в `GetClustersBatch` (или на уровне агрегатора) добавить `GROUP BY price_level` с `SUM(bid_volume), SUM(ask_volume)` при запросе, чтобы бэкенд отдавал уникальные строки. Альтернатива — `ReplacingMergeTree` вместо `MergeTree` в схеме.
+
 ## Шаблон записи
 ### [ГГГГ-ММ-ДД] <решение>
 - Контекст: почему встал вопрос.

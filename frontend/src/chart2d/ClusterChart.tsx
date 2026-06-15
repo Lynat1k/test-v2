@@ -2323,7 +2323,7 @@ export default function ClusterChart({
           // Stacked imbalance outline highlights removed at user request
 
           // Bid Ask standard text rendering or delta/volume mode
-          if (cellHeight >= 4.0 && !hideFootprintNumbers) {
+          if (cellHeight >= 8.0 && !hideFootprintNumbers) {
             ctx.save();
             ctx.shadowColor = isLight ? "rgba(255, 255, 255, 0.7)" : "rgba(0, 0, 0, 0.9)";
             ctx.shadowBlur = 1.0;

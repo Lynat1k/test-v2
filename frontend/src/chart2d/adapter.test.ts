@@ -113,6 +113,37 @@ describe("adapter", () => {
     expect(result).toEqual([]);
   });
 
+  it("merges duplicate PriceLevel rows into one cell with summed bid/ask", () => {
+    const candles = [makeCandle({ CandleOpen: "2024-01-15T10:30:00Z" })];
+    const ts = new Date("2024-01-15T10:30:00Z").getTime();
+
+    const rows: ApiClusterRow[] = [
+      makeRow({ PriceLevel: 43080, BidVolume: 5, AskVolume: 8 }),
+      // duplicate of 43080 — simulates ClickHouse no-dedup rows
+      makeRow({ PriceLevel: 43080, BidVolume: 3, AskVolume: 2 }),
+      makeRow({ PriceLevel: 43070, BidVolume: 10, AskVolume: 10 }),
+    ];
+    const clusterMap = new Map([[ts, rows]]);
+
+    const result = adapter(candles, clusterMap);
+    const c = result[0]!;
+
+    // 2 unique levels after merge (43080 and 43070), not 3
+    expect(c.cells).toHaveLength(2);
+
+    const cell80 = c.cells.find((cell) => cell.price === 43080);
+    expect(cell80).toBeDefined();
+    // bid=5+3=8, ask=8+2=10, vol=18
+    expect(cell80!.bid).toBe(8);
+    expect(cell80!.ask).toBe(10);
+    expect(cell80!.volume).toBe(18);
+
+    // POC should be 43070 (vol=20 > 18)
+    const pocCell = c.cells.find((cell) => cell.isPoc);
+    expect(pocCell).toBeDefined();
+    expect(pocCell!.price).toBe(43070);
+  });
+
   it("computes value area (vah/val) from clustered cells", () => {
     const candles = [makeCandle({ CandleOpen: "2024-01-15T10:30:00Z" })];
     const ts = new Date("2024-01-15T10:30:00Z").getTime();
