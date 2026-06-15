@@ -107,7 +107,6 @@ export function ChartPanel({
 
   useEffect(() => {
     if (!containerRef.current) return;
-
     const engine = new Engine({
       container: containerRef.current,
       width: containerRef.current.clientWidth,

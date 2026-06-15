@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef } from 'react'
+import { useState, useCallback, useRef, useEffect } from 'react'
 import { ThemeProvider } from '@/contexts/ThemeContext'
 import { I18nProvider } from '@/i18n'
 import { CandlePaletteProvider } from '@/contexts/CandlePaletteContext'
@@ -48,6 +48,10 @@ function AppShell() {
 
   const slot0 = getSlot(0)
   const slot1 = getSlot(1)
+
+  useEffect(() => {
+    if (layoutMode === 'single') setActiveSlot(0);
+  }, [layoutMode, setActiveSlot]);
 
   const userRole = user?.role ?? 'guest'
 

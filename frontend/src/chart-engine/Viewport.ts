@@ -98,6 +98,11 @@ export class Viewport {
     this.notifyChange();
   }
 
+  shiftOffsetX(pixels: number): void {
+    this.state.offsetX += pixels;
+    this.notifyChange();
+  }
+
   resize(width: number, height: number): void {
     this.width = width;
     this.height = height;

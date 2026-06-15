@@ -105,9 +105,17 @@ export function ChartContainer({
   const fetchClustersRef = useRef(fetchClustersBatch);
   fetchClustersRef.current = fetchClustersBatch;
 
+  const modeRef = useRef(mode);
+  modeRef.current = mode;
+  const paletteRef = useRef(palette);
+  paletteRef.current = palette;
+  const volumeModeRef = useRef(volumeMode);
+  volumeModeRef.current = volumeMode;
+  const compressionRef = useRef(compression);
+  compressionRef.current = compression;
+
   useEffect(() => {
     if (!containerRef.current) return;
-
     const engine = new Engine({
       container: containerRef.current,
       width: containerRef.current.clientWidth,
@@ -121,8 +129,13 @@ export function ChartContainer({
 
     engine.init().then(() => {
       engineRef.current = engine;
+      engine.setMode(modeRef.current);
+      engine.setPalette(paletteRef.current);
+      engine.setVolumeMode(volumeModeRef.current);
+      engine.setCompression(compressionRef.current);
 
-      fetch(`/api/v1/candles?symbol=${symbol}&market=${market}&timeframe=${timeframe}&limit=500`)
+      const fetchUrl = `/api/v1/candles?symbol=${symbol}&market=${market}&timeframe=${timeframe}&limit=500`;
+      fetch(fetchUrl)
         .then(r => r.json())
         .then((resp: { ok: boolean; data: { candles: ApiCandle[] } }) => {
           if (resp.ok && resp.data?.candles) {
@@ -137,15 +150,23 @@ export function ChartContainer({
         .catch(err => console.error('Failed to fetch candles:', err));
 
       engine.on('needHistory', (before: number) => {
+        if (engine.isHistoryAllLoaded()) return;
+        engine.setHistoryLoading(true);
         fetch(`/api/v1/candles?symbol=${symbol}&market=${market}&timeframe=${timeframe}&limit=500&before=${before}`)
           .then(r => r.json())
           .then((resp: { ok: boolean; data: { candles: ApiCandle[] } }) => {
             if (resp.ok && resp.data?.candles && resp.data.candles.length > 0) {
               const candles = resp.data.candles.map(mapCandle);
               engine.prependData(candles);
+            } else {
+              engine.setAllHistoryLoaded(true);
             }
+            engine.setHistoryLoading(false);
           })
-          .catch(err => console.error('Failed to fetch history:', err));
+          .catch(err => {
+            console.error('Failed to fetch history:', err);
+            engine.setHistoryLoading(false);
+          });
       });
 
       engine.on('viewportChange', () => {

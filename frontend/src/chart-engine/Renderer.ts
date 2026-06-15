@@ -87,7 +87,6 @@ export class Renderer {
   renderCandles(candles: Candle[], viewport: ViewportState, firstTimestamp: number): void {
     this.scales.updateViewport(viewport);
     const { start, end } = this.scales.getVisibleRange(candles.length);
-
     // Hide all, show active
     this.candleRenderer.setVisible(this.currentMode === 'japanese');
     this.clusterRenderer.setVisible(this.currentMode === 'clusters');
@@ -114,6 +113,10 @@ export class Renderer {
     }
   }
 
+  setMode(mode: CandleMode): void {
+    this.currentMode = mode;
+  }
+
   renderAxis(viewport: ViewportState, minPrice: number, maxPrice: number, candles?: Candle[]): void {
     this.scales.updateViewport(viewport);
     this.axisRenderer.render(viewport, this.scales, minPrice, maxPrice, candles);
@@ -122,10 +125,6 @@ export class Renderer {
   setPalette(palette: 'default' | 'alternative'): void {
     this.candleRenderer.setPalette(palette);
     this.barRenderer.setPalette(palette);
-  }
-
-  setMode(mode: CandleMode): void {
-    this.currentMode = mode;
   }
 
   setVolumeMode(mode: VolumeMode): void {

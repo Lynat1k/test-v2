@@ -105,9 +105,7 @@ export class Engine {
         const spacing = scales.getCandleSpacing();
         const shiftIndices = (prevFirstTs - newFirstTs) / this.candleIntervalMs;
         const shiftPixels = shiftIndices * spacing;
-        const vp = this.viewport.getState();
-        vp.offsetX += shiftPixels;
-        this.requestRender();
+        this.viewport.shiftOffsetX(shiftPixels);
       }
     }
   }
@@ -148,15 +146,6 @@ export class Engine {
     this.requestRender();
   }
 
-  setTimeframe(tf: string): void {
-    const ms = TIMEFRAME_INTERVALS[tf];
-    if (ms) {
-      this.candleIntervalMs = ms;
-      this.timeframeSet = true;
-      this.renderer.getScales().setCandleInterval(ms);
-    }
-  }
-
   getMode(): CandleMode {
     return this.currentMode;
   }
@@ -174,6 +163,15 @@ export class Engine {
 
   getCompression(): number {
     return this.compression;
+  }
+
+  setTimeframe(tf: string): void {
+    const ms = TIMEFRAME_INTERVALS[tf];
+    if (ms) {
+      this.candleIntervalMs = ms;
+      this.timeframeSet = true;
+      this.renderer.getScales().setCandleInterval(ms);
+    }
   }
 
   on(event: 'viewportChange', callback: (state: ViewportState) => void): void;
@@ -202,7 +200,9 @@ export class Engine {
     const viewportState = this.viewport.getState();
     const candles = this.dataStore.getCandles();
 
-    if (candles.length === 0) return;
+    if (candles.length === 0) {
+      return;
+    }
 
     const firstTimestamp = candles[0]!.timestamp;
     const { min, max } = this.dataStore.getPriceRange();
@@ -241,6 +241,18 @@ export class Engine {
   resize(width: number, height: number): void {
     this.renderer.resize(width, height);
     this.viewport.resize(width, height);
+  }
+
+  setAllHistoryLoaded(v: boolean): void {
+    this.dataStore.setAllHistoryLoaded(v);
+  }
+
+  setHistoryLoading(v: boolean): void {
+    this.dataStore.setHistoryLoading(v);
+  }
+
+  isHistoryAllLoaded(): boolean {
+    return this.dataStore.isHistoryAllLoaded();
   }
 
   getFPS(): number {

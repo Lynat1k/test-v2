@@ -5,6 +5,8 @@ export class DataStore {
   private clusterMap: Map<number, ClusterLevel[]> = new Map();
   private onNeedHistory?: (before: number) => void;
   private onUpdate?: () => void;
+  private allHistoryLoaded: boolean = false;
+  private historyLoading: boolean = false;
 
   setOnNeedHistory(callback: (before: number) => void): void {
     this.onNeedHistory = callback;
@@ -14,14 +16,52 @@ export class DataStore {
     this.onUpdate = callback;
   }
 
+  setAllHistoryLoaded(v: boolean): void {
+    this.allHistoryLoaded = v;
+  }
+
+  setHistoryLoading(v: boolean): void {
+    this.historyLoading = v;
+  }
+
+  isHistoryAllLoaded(): boolean {
+    return this.allHistoryLoaded;
+  }
+
+  isHistoryLoading(): boolean {
+    return this.historyLoading;
+  }
+
   setData(candles: Candle[]): void {
     this.candles = candles.sort((a, b) => a.timestamp - b.timestamp);
+    this.allHistoryLoaded = false;
     this.onUpdate?.();
   }
 
   prependData(newCandles: Candle[]): void {
-    const merged = [...newCandles, ...this.candles];
+    const prevFirstTs = this.candles.length > 0 ? this.candles[0]!.timestamp : Infinity;
+
+    // Filter out candles already in buffer (same or newer timestamp than current first)
+    const filtered = prevFirstTs === Infinity
+      ? newCandles
+      : newCandles.filter(c => c.timestamp < prevFirstTs);
+
+    if (filtered.length === 0) {
+      // No genuinely older data — history exhausted
+      this.allHistoryLoaded = true;
+      this.onUpdate?.();
+      return;
+    }
+
+    const merged = [...filtered, ...this.candles];
     this.candles = merged.sort((a, b) => a.timestamp - b.timestamp);
+
+    // Double-check firstTimestamp actually decreased
+    const newFirstTs = this.candles[0]!.timestamp;
+    if (newFirstTs >= prevFirstTs) {
+      this.allHistoryLoaded = true;
+    }
+
     this.onUpdate?.();
   }
 
@@ -83,9 +123,11 @@ export class DataStore {
   }
 
   checkHistoryNeeded(visibleStartIndex: number): void {
+    if (this.allHistoryLoaded || this.historyLoading) return;
     if (visibleStartIndex < 100 && this.candles.length > 0) {
-      const firstTimestamp = this.candles[0]!.timestamp;
-      this.onNeedHistory?.(firstTimestamp);
+      // before = oldest ts - 1ms for strict exclusion
+      const before = this.candles[0]!.timestamp - 1;
+      this.onNeedHistory?.(before);
     }
   }
 
