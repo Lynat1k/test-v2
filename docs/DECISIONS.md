@@ -3,6 +3,26 @@
 > Сюда пишем решения, которые меняют или фиксируют архитектуру/правила.
 > Новые — сверху. Если решение противоречит спеке — сначала обнови спеку.
 
+### [2026-06-15] Фаза 12 Этап 2.1: tier_policies в БД + рефактор лимитов с трёхуровневым fallback
+- Контекст: Session limits (guest=1/free=1/pro=2/vip=2/admin=-1) и history gating (guest=7d/free=180d/pro+=unlimited) были захардкожены в AuthConfig и switch. Нужна БД для динамического управления через админку.
+- Решение:
+  - **tier_policies таблица** в SQLite: tier, session_limit, history_max_days, created_at, updated_at. Создаётся в auth.Migrate().
+  - **Seed**: 5 строк с текущими значениями, идемпотентен (COUNT>0 → skip).
+  - **LoadTierPolicies** в admin пакете: читает из БД, возвращает мапы.
+  - **Session limits**: main.go загружает из БД, передаёт в NewSessionManager. Если БД пуста/ошибка → AuthConfig.SessionLimits. session.go:75-81 остаётся последним рубежом (limits==nil).
+  - **History gating**: Т.к. api не может импортировать admin, решение — `Server.tierHistoryLimits map[string]time.Duration` + `SetTierHistoryLimits()`. main.go вызывает после LoadTierPolicies. `resolveHistoryDepth(role)` — сначала проверяет мапу сервера, затем fallback на `maxDepthForRole(role, cfg)`.
+  - **Трёхуровневый fallback**: (1) БД (tier_policies), (2) AuthConfig/env, (3) хардкод в session.go/maxDepthForRole switch.
+  - AuthConfig.SessionLimits/HistoryMaxGuest/HistoryMaxFree ОСТАВЛЕНЫ — не удалять.
+  - **Энфорсмент**: только для существующих лимитов (session, history). Chart_compression_locked и прочие поля — задел на будущее.
+- Альтернативы:
+  - Загружать лимиты в рантайме на каждый запрос — отвергнуто (лишние SQL-запросы, лимиты меняются только через админку → загрузка при старте достаточна).
+  - Читать tier_policies из api пакета напрямую — отвергнуто (циклический импорт admin↔api).
+  - Удалить AuthConfig.SessionLimits после ввода БД — отвергнуто (нетативная обратная совместимость, если БД пуста/ошибка при старте).
+- Последствия:
+  - SessionManager всё ещё может работать с nil limits (hardcoded fallback в NewSessionManager).
+  - maxDepthForRole как standalone функция сохранена для юнит-тестов.
+  - При пустой таблице или ошибке чтения — поведение идентично старому (fallback на AuthConfig/env/хардкод).
+
 ### [2026-06-15] .env автозагрузка: godotenv.Load() во всех cmd
 - Контекст: При запуске `.\procluster.exe` из PowerShell без ручного `$env:` экспорта Go сам .env не читает → все getEnv() срабатывают с фолбэками. CLICKHOUSE_DB=default вместо procluster → live-данные утекали в базу "default" вместо "procluster".
 - Решение:

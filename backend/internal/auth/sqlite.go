@@ -196,6 +196,62 @@ func Migrate(db *sql.DB) error {
 		}
 	}
 
+	// Phase 12 Etapa 2: tier_policies table
+	tierPoliciesQueries := []string{
+		`CREATE TABLE IF NOT EXISTS tier_policies (
+			tier TEXT PRIMARY KEY,
+			session_limit INTEGER NOT NULL,
+			history_max_days INTEGER NOT NULL,
+			created_at TEXT NOT NULL,
+			updated_at TEXT NOT NULL
+		)`,
+	}
+	for _, q := range tierPoliciesQueries {
+		if _, err := db.Exec(q); err != nil {
+			return fmt.Errorf("migration tier_policies: %w", err)
+		}
+	}
+
+	// Phase 13: idempotent UNIQUE index on nickname
+	if err := ensureNicknameUnique(db); err != nil {
+		return fmt.Errorf("migration nickname unique: %w", err)
+	}
+
+	// Phase 12 Step 2.3: idempotent ALTER for tier_policies.chart_compression_locked
+	tierCols := []struct {
+		name string
+		def  string
+	}{
+		{"chart_compression_locked", "INTEGER NOT NULL DEFAULT 0"},
+	}
+	tierExisting := make(map[string]bool)
+	tierRows, err := db.Query("PRAGMA table_info(tier_policies)")
+	if err != nil {
+		return fmt.Errorf("migration pragma tier_policies: %w", err)
+	}
+	for tierRows.Next() {
+		var cid int
+		var name, ctype string
+		var notnull int
+		var dfltValue interface{}
+		var pk int
+		if err := tierRows.Scan(&cid, &name, &ctype, &notnull, &dfltValue, &pk); err != nil {
+			tierRows.Close()
+			return fmt.Errorf("migration scan tier_policies: %w", err)
+		}
+		tierExisting[name] = true
+	}
+	tierRows.Close()
+
+	for _, col := range tierCols {
+		if !tierExisting[col.name] {
+			stmt := fmt.Sprintf("ALTER TABLE tier_policies ADD COLUMN %s %s", col.name, col.def)
+			if _, err := db.Exec(stmt); err != nil {
+				return fmt.Errorf("migration alter tier_policies %s: %w", col.name, err)
+			}
+		}
+	}
+
 	log.Println("[auth] sqlite migrations applied")
 	return nil
 }
@@ -413,4 +469,35 @@ func UpdateUserPasswordHash(ctx context.Context, db *sql.DB, userID, passwordHas
 		passwordHash, time.Now().UTC().Format(time.RFC3339), userID,
 	)
 	return err
+}
+
+func GetUserByNickname(ctx context.Context, db *sql.DB, nickname string) (*User, error) {
+	row := db.QueryRowContext(ctx,
+		`SELECT id, email, nickname, password_hash, role, email_verified, created_at, updated_at, avatar, subscription_status, subscription_paid_at, subscription_expires_at
+		 FROM users WHERE LOWER(nickname) = LOWER(?)`, nickname,
+	)
+	return scanUser(row)
+}
+
+func ensureNicknameUnique(db *sql.DB) error {
+	rows, err := db.Query(`SELECT nickname, COUNT(*) as cnt FROM users GROUP BY nickname HAVING cnt > 1`)
+	if err != nil {
+		return fmt.Errorf("check nickname duplicates: %w", err)
+	}
+	defer rows.Close()
+	if rows.Next() {
+		var nick string
+		var cnt int
+		if err := rows.Scan(&nick, &cnt); err != nil {
+			return fmt.Errorf("scan duplicate nickname: %w", err)
+		}
+		log.Printf("[auth] WARNING: duplicate nickname %q appears %d times, skipping UNIQUE index", nick, cnt)
+		return nil
+	}
+	_, err = db.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_users_nickname ON users(nickname)`)
+	if err != nil {
+		return fmt.Errorf("create unique index on nickname: %w", err)
+	}
+	log.Println("[auth] unique index on nickname created/verified")
+	return nil
 }

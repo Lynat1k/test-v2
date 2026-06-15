@@ -17,11 +17,16 @@ import (
 var emailRegex = regexp.MustCompile(`^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$`)
 
 type Handler struct {
-	db          *sql.DB
-	cfg         AuthConfig
-	emailSender EmailSender
-	oauth       OAuthProvider
-	rl          *AuthRateLimiter
+	db                    *sql.DB
+	cfg                   AuthConfig
+	emailSender           EmailSender
+	oauth                 OAuthProvider
+	rl                    *AuthRateLimiter
+	tierCompressionLocked map[string]bool
+}
+
+func (h *Handler) SetTierCompressionLocked(m map[string]bool) {
+	h.tierCompressionLocked = m
 }
 
 func NewHandler(cfg AuthConfig, db *sql.DB, rl *AuthRateLimiter) *Handler {
@@ -45,17 +50,46 @@ type authError struct {
 	Message string `json:"message"`
 }
 
-type userData struct {
-	ID                    string `json:"id"`
-	Email                 string `json:"email"`
-	Nickname              string `json:"nickname"`
-	Role                  string `json:"role"`
-	EmailVerified         bool   `json:"emailVerified"`
-	Avatar                string `json:"avatar"`
-	CreatedAt             string `json:"createdAt"`
-	SubscriptionStatus    string `json:"subscriptionStatus"`
-	SubscriptionPaidAt    string `json:"subscriptionPaidAt"`
-	SubscriptionExpiresAt string `json:"subscriptionExpiresAt"`
+// userResponseData builds the full user response map used by /me, login, register, and refresh.
+// All callers must use this to keep fields consistent.
+// Placeholder emails (user_*@placeholder.local) are hidden — show "--" instead.
+func (h *Handler) userResponseData(user *User) map[string]interface{} {
+	daysLeft := 0
+	if user.SubscriptionStatus == "active" && user.SubscriptionExpiresAt != "" {
+		if exp, err := time.Parse(time.RFC3339, user.SubscriptionExpiresAt); err == nil {
+			d := int(time.Until(exp).Hours() / 24)
+			if d > 0 {
+				daysLeft = d
+			}
+		}
+	}
+
+	chartCompressionLocked := true
+	if h.tierCompressionLocked != nil {
+		if v, ok := h.tierCompressionLocked[strings.ToLower(user.Role)]; ok {
+			chartCompressionLocked = v
+		}
+	}
+
+	email := user.Email
+	if strings.Contains(email, "@placeholder.local") {
+		email = ""
+	}
+
+	return map[string]interface{}{
+		"id":                     user.ID,
+		"email":                  email,
+		"nickname":               user.Nickname,
+		"role":                   user.Role,
+		"emailVerified":          user.EmailVerified,
+		"avatar":                 user.Avatar,
+		"createdAt":              user.CreatedAt.Format(time.RFC3339),
+		"subscriptionStatus":     user.SubscriptionStatus,
+		"subscriptionPaidAt":     user.SubscriptionPaidAt,
+		"subscriptionExpiresAt":  user.SubscriptionExpiresAt,
+		"daysLeft":               daysLeft,
+		"chartCompressionLocked": chartCompressionLocked,
+	}
 }
 
 func writeJSON(w http.ResponseWriter, status int, v interface{}) {
@@ -144,6 +178,12 @@ func (h *Handler) handleRegister(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	nickExisting, _ := GetUserByNickname(r.Context(), h.db, req.Nickname)
+	if nickExisting != nil {
+		writeError(w, http.StatusConflict, "NICKNAME_EXISTS", "this nickname is already taken")
+		return
+	}
+
 	hash, err := HashPassword(req.Password)
 	if err != nil {
 		log.Printf("[auth] hash password error: %v", err)
@@ -203,21 +243,35 @@ func (h *Handler) handleLogin(w http.ResponseWriter, r *http.Request) {
 	req.Email = strings.TrimSpace(strings.ToLower(req.Email))
 
 	ip := extractIP(r)
-	if allowed, retryAfter := h.rl.CheckLogin(r.Context(), ip, req.Email); !allowed {
+
+	// Determine identifier for rate limiting: use the raw input (email field)
+	identifier := req.Email
+
+	if allowed, retryAfter := h.rl.CheckLogin(r.Context(), ip, identifier); !allowed {
 		w.Header().Set("Retry-After", strconv.Itoa(int(retryAfter.Seconds())+1))
 		writeError(w, http.StatusTooManyRequests, "RATE_LIMITED", "too many requests, try again later")
 		return
 	}
 
+	// Try email first, then nickname
 	user, err := GetUserByEmail(r.Context(), h.db, req.Email)
 	if err != nil {
-		if err == sql.ErrNoRows {
-			writeError(w, http.StatusUnauthorized, "INVALID_CREDENTIALS", "invalid email or password")
+		if err != sql.ErrNoRows {
+			log.Printf("[auth] get user by email: %v", err)
+			writeError(w, http.StatusInternalServerError, "INTERNAL", "internal error")
 			return
 		}
-		log.Printf("[auth] get user by email: %v", err)
-		writeError(w, http.StatusInternalServerError, "INTERNAL", "internal error")
-		return
+		// Not found by email — try by nickname (lowercased)
+		user, err = GetUserByNickname(r.Context(), h.db, req.Email)
+		if err != nil {
+			if err == sql.ErrNoRows {
+				writeError(w, http.StatusUnauthorized, "INVALID_CREDENTIALS", "invalid email or password")
+				return
+			}
+			log.Printf("[auth] get user by nickname: %v", err)
+			writeError(w, http.StatusInternalServerError, "INTERNAL", "internal error")
+			return
+		}
 	}
 
 	if locked, remaining := h.rl.CheckLockout(r.Context(), user.ID); locked {
@@ -498,18 +552,7 @@ func (h *Handler) issueTokens(w http.ResponseWriter, r *http.Request, user *User
 		OK: true,
 		Data: map[string]interface{}{
 			"accessToken": accessToken,
-			"user": userData{
-				ID:                    user.ID,
-				Email:                 user.Email,
-				Nickname:              user.Nickname,
-				Role:                  user.Role,
-				EmailVerified:         user.EmailVerified,
-				Avatar:                user.Avatar,
-				CreatedAt:             user.CreatedAt.Format(time.RFC3339),
-				SubscriptionStatus:    user.SubscriptionStatus,
-				SubscriptionPaidAt:    user.SubscriptionPaidAt,
-				SubscriptionExpiresAt: user.SubscriptionExpiresAt,
-			},
+			"user":        h.userResponseData(user),
 		},
 	})
 }
@@ -562,31 +605,9 @@ func (h *Handler) handleGetMe(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	daysLeft := 0
-	if user.SubscriptionStatus == "active" && user.SubscriptionExpiresAt != "" {
-		if exp, err := time.Parse(time.RFC3339, user.SubscriptionExpiresAt); err == nil {
-			d := int(time.Until(exp).Hours() / 24)
-			if d > 0 {
-				daysLeft = d
-			}
-		}
-	}
-
 	writeJSON(w, http.StatusOK, authResponse{
-		OK: true,
-		Data: map[string]interface{}{
-			"id":                    user.ID,
-			"email":                 user.Email,
-			"nickname":              user.Nickname,
-			"role":                  user.Role,
-			"emailVerified":         user.EmailVerified,
-			"avatar":                user.Avatar,
-			"createdAt":             user.CreatedAt.Format(time.RFC3339),
-			"subscriptionStatus":    user.SubscriptionStatus,
-			"subscriptionPaidAt":    user.SubscriptionPaidAt,
-			"subscriptionExpiresAt": user.SubscriptionExpiresAt,
-			"daysLeft":              daysLeft,
-		},
+		OK:   true,
+		Data: h.userResponseData(user),
 	})
 }
 

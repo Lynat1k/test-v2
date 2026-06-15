@@ -103,9 +103,34 @@ func main() {
 
 	authCfg := auth.LoadAuthConfig()
 
+	if err := admin.SeedTierPolicies(sqliteDB); err != nil {
+		log.Printf("[main] seed tier_policies: %v", err)
+	} else {
+		log.Println("[main] seed tier_policies: ok")
+	}
+
+	// Repair chart_compression_locked values if they were set to DEFAULT 0 via ALTER ADD COLUMN
+	// after the initial seed. Must run after SeedTierPolicies.
+	if err := admin.EnsureCompressionLockedValues(sqliteDB); err != nil {
+		log.Printf("[main] ensure compression locked: %v", err)
+	} else {
+		log.Println("[main] ensure compression locked: ok")
+	}
+
+	sessionLimits, historyLimits, err := admin.LoadTierPolicies(sqliteDB)
+	if err != nil {
+		log.Printf("[main] load tier_policies: %v, using config defaults", err)
+	}
+	if sessionLimits != nil {
+		log.Printf("[main] using session limits from tier_policies: %v", sessionLimits)
+	} else {
+		sessionLimits = authCfg.SessionLimits
+		log.Println("[main] using session limits from auth config (fallback)")
+	}
+
 	candleCache := cache.New(rdb)
 	agg := aggregator.New(repo, rdb)
-	sm := api.NewSessionManager(rdb, authCfg.SessionLimits)
+	sm := api.NewSessionManager(rdb, sessionLimits)
 
 	apiCfg := api.DefaultServerConfig()
 	if port := getEnv("APP_PORT", ""); port != "" {
@@ -117,9 +142,32 @@ func main() {
 
 	fngFetcher := fng.NewFNGFetcher(rdb)
 
-	srv := api.NewServer(repo, candleCache, agg, sm, apiCfg, restLimiter, wsLimiter, fngFetcher, authCfg)
+	srv := api.NewServer(repo, candleCache, agg, sm, apiCfg, restLimiter, wsLimiter, fngFetcher, authCfg, rdb)
+
+	if historyLimits != nil {
+		srv.SetTierHistoryLimits(historyLimits)
+		log.Println("[main] set history limits from tier_policies")
+	} else {
+		// fallback: maxDepthForRole will use auth config directly
+		log.Println("[main] history limits: using auth config defaults (fallback)")
+	}
+
+	compressionLocked, err := admin.LoadCompressionLocked(sqliteDB)
+	if err != nil {
+		log.Printf("[main] load compression locked: %v, using fallback", err)
+	}
+	if compressionLocked != nil {
+		log.Printf("[main] compression-locked map: %v", compressionLocked)
+		srv.SetTierCompressionLocked(compressionLocked)
+		log.Println("[main] set compression locked from tier_policies")
+	} else {
+		log.Println("[main] compression locked: using defaults (guest/free locked, pro+ unlocked)")
+	}
 
 	authHandler := auth.NewHandler(authCfg, sqliteDB, auth.NewAuthRateLimiter(rdb, authCfg))
+	if compressionLocked != nil {
+		authHandler.SetTierCompressionLocked(compressionLocked)
+	}
 	authHandler.RegisterRoutes(srv.Mux())
 
 	metricsHist := admin.NewMetricsHistory()

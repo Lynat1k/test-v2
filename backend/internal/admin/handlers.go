@@ -1,10 +1,13 @@
 package admin
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"log"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -85,9 +88,11 @@ func (h *AdminHandler) RegisterAdminRoutes(mux *http.ServeMux) {
 	mux.Handle("GET /api/v1/admin/metrics/history", wrap(h.handleGetMetricsHistory))
 
 	// Users
+	mux.Handle("GET /api/v1/admin/users/stats", wrap(h.handleGetUsersStats))
 	mux.Handle("GET /api/v1/admin/users", wrap(h.handleGetUsers))
+	mux.Handle("POST /api/v1/admin/users", wrap(h.handleCreateUser))
 	mux.Handle("GET /api/v1/admin/users/{id}", wrap(h.handleGetUser))
-	mux.Handle("PUT /api/v1/admin/users/{id}", wrap(h.handleUpdateUser))
+	mux.Handle("PATCH /api/v1/admin/users/{id}", wrap(h.handleUpdateUser))
 	mux.Handle("DELETE /api/v1/admin/users/{id}", wrap(h.handleDeleteUser))
 
 	// Policies
@@ -450,22 +455,291 @@ func (h *AdminHandler) handleGetJobStatus(w http.ResponseWriter, r *http.Request
 	writeJSON(w, http.StatusOK, adminResponse{OK: true, Data: job})
 }
 
-// --- Stubs (to be implemented in subsequent phases) ---
+// --- Users ---
+
+func (h *AdminHandler) handleGetUsersStats(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	registered, err := h.getRegisteredCount(ctx)
+	if err != nil {
+		log.Printf("[admin] users stats: registered count error: %v", err)
+		writeError(w, http.StatusInternalServerError, "DB_ERROR", "failed to get registered count")
+		return
+	}
+
+	onlineAuth, err := h.getOnlineCount(ctx)
+	if err != nil {
+		log.Printf("[admin] users stats: online auth error: %v", err)
+		writeError(w, http.StatusInternalServerError, "REDIS_ERROR", "failed to get online auth count")
+		return
+	}
+
+	uniqueGuests := h.getUniqueGuests(ctx)
+
+	writeJSON(w, http.StatusOK, adminResponse{OK: true, Data: map[string]int64{
+		"registered": registered,
+		"onlineAuth": onlineAuth,
+		"hosts":      uniqueGuests + onlineAuth,
+	}})
+}
+
+func (h *AdminHandler) getUniqueGuests(ctx context.Context) int64 {
+	if h.rdb == nil {
+		return 0
+	}
+	var count int64
+	var cursor uint64
+	for {
+		keys, nextCursor, err := h.rdb.Scan(ctx, cursor, "guest:online:*", 100).Result()
+		if err != nil {
+			log.Printf("[admin] scan guest:online error: %v", err)
+			return count
+		}
+		count += int64(len(keys))
+		cursor = nextCursor
+		if cursor == 0 {
+			break
+		}
+	}
+	return count
+}
 
 func (h *AdminHandler) handleGetUsers(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, adminResponse{OK: true, Data: map[string]string{"status": "stub_users_phase2"}})
+	limit := 50
+	if l := r.URL.Query().Get("limit"); l != "" {
+		parsed, err := strconv.Atoi(l)
+		if err != nil || parsed < 1 || parsed > 200 {
+			writeError(w, http.StatusBadRequest, "INVALID_PARAMS", "limit must be 1-200")
+			return
+		}
+		limit = parsed
+	}
+
+	offset := 0
+	if o := r.URL.Query().Get("offset"); o != "" {
+		parsed, err := strconv.Atoi(o)
+		if err != nil || parsed < 0 {
+			writeError(w, http.StatusBadRequest, "INVALID_PARAMS", "offset must be >= 0")
+			return
+		}
+		offset = parsed
+	}
+
+	users, err := ListUsers(r.Context(), h.db, limit, offset)
+	if err != nil {
+		log.Printf("[admin] list users error: %v", err)
+		writeError(w, http.StatusInternalServerError, "DB_ERROR", "failed to list users")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, adminResponse{OK: true, Data: map[string]interface{}{
+		"users":  users,
+		"limit":  limit,
+		"offset": offset,
+	}})
+}
+
+func (h *AdminHandler) handleCreateUser(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Login    string `json:"login"`
+		Email    string `json:"email"`
+		Password string `json:"password"`
+		Role     string `json:"role"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "INVALID_BODY", "invalid request body")
+		return
+	}
+
+	req.Login = strings.TrimSpace(req.Login)
+	req.Email = strings.TrimSpace(strings.ToLower(req.Email))
+	req.Role = strings.TrimSpace(strings.ToLower(req.Role))
+
+	if req.Login == "" {
+		writeError(w, http.StatusBadRequest, "INVALID_PARAMS", "login is required")
+		return
+	}
+	if len(req.Password) < 8 {
+		writeError(w, http.StatusBadRequest, "INVALID_PARAMS", "password must be at least 8 characters")
+		return
+	}
+	if req.Role == "guest" {
+		writeError(w, http.StatusBadRequest, "INVALID_ROLE", "guest role cannot be assigned")
+		return
+	}
+	if !validRoles[req.Role] {
+		writeError(w, http.StatusBadRequest, "INVALID_PARAMS", fmt.Sprintf("role must be one of: free, pro, vip, admin"))
+		return
+	}
+
+	// Check nickname uniqueness
+	existingNick, _ := auth.GetUserByNickname(r.Context(), h.db, req.Login)
+	if existingNick != nil {
+		writeError(w, http.StatusConflict, "LOGIN_EXISTS", "user with this nickname already exists")
+		return
+	}
+
+	// Check email uniqueness if provided (and not a placeholder)
+	if req.Email != "" && !strings.Contains(req.Email, "@placeholder.local") {
+		existingEmail, _ := auth.GetUserByEmail(r.Context(), h.db, req.Email)
+		if existingEmail != nil {
+			writeError(w, http.StatusConflict, "USER_EXISTS", "user with this email already exists")
+			return
+		}
+	}
+
+	user, err := CreateUserByAdmin(r.Context(), h.db, req.Login, req.Password, req.Role, req.Email)
+	if err != nil {
+		errMsg := err.Error()
+		if strings.Contains(errMsg, "UNIQUE") || strings.Contains(errMsg, "unique") {
+			if strings.Contains(errMsg, "nickname") || strings.Contains(errMsg, "idx_users_nickname") {
+				writeError(w, http.StatusConflict, "LOGIN_EXISTS", "user with this nickname already exists")
+			} else {
+				writeError(w, http.StatusConflict, "USER_EXISTS", "user with this email already exists")
+			}
+			return
+		}
+		log.Printf("[admin] create user error: %v", err)
+		writeError(w, http.StatusInternalServerError, "INTERNAL", "failed to create user")
+		return
+	}
+
+	adminID, _ := r.Context().Value(auth.UserIDKey).(string)
+	target := req.Login
+	if req.Email != "" {
+		target = req.Login + " <" + req.Email + ">"
+	}
+	LogAdminAction(r.Context(), h.db, adminID, "user.create", target, "", r.RemoteAddr)
+
+	writeJSON(w, http.StatusCreated, adminResponse{OK: true, Data: map[string]string{
+		"id":    user.ID,
+		"login": user.Nickname,
+		"email": user.Email,
+		"role":  user.Role,
+	}})
 }
 
 func (h *AdminHandler) handleGetUser(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, adminResponse{OK: true, Data: map[string]string{"status": "stub_user_phase2"}})
+	id := r.PathValue("id")
+	if id == "" {
+		writeError(w, http.StatusBadRequest, "MISSING_ID", "user id is required")
+		return
+	}
+
+	user, err := auth.GetUserByID(r.Context(), h.db, id)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "NOT_FOUND", "user not found")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, adminResponse{OK: true, Data: map[string]interface{}{
+		"id":        user.ID,
+		"login":     user.Nickname,
+		"email":     user.Email,
+		"role":      user.Role,
+		"createdAt": user.CreatedAt.Format(time.RFC3339),
+	}})
 }
 
 func (h *AdminHandler) handleUpdateUser(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, adminResponse{OK: true, Data: map[string]string{"status": "stub_update_user_phase2"}})
+	id := r.PathValue("id")
+	if id == "" {
+		writeError(w, http.StatusBadRequest, "MISSING_ID", "user id is required")
+		return
+	}
+
+	var req struct {
+		Role *string `json:"role"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "INVALID_BODY", "invalid request body")
+		return
+	}
+
+	if req.Role == nil {
+		writeError(w, http.StatusBadRequest, "INVALID_PARAMS", "role is required")
+		return
+	}
+
+	newRole := strings.TrimSpace(strings.ToLower(*req.Role))
+	if newRole == "guest" {
+		writeError(w, http.StatusBadRequest, "INVALID_ROLE", "guest role cannot be assigned")
+		return
+	}
+	if !validRoles[newRole] {
+		writeError(w, http.StatusBadRequest, "INVALID_PARAMS", fmt.Sprintf("role must be one of: free, pro, vip, admin"))
+		return
+	}
+
+	existing, err := auth.GetUserByID(r.Context(), h.db, id)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "NOT_FOUND", "user not found")
+		return
+	}
+
+	oldRole := existing.Role
+	if oldRole == newRole {
+		writeJSON(w, http.StatusOK, adminResponse{OK: true, Data: map[string]string{
+			"id":      id,
+			"email":   existing.Email,
+			"oldRole": oldRole,
+			"newRole": newRole,
+		}})
+		return
+	}
+
+	if err := UpdateUserRole(r.Context(), h.db, id, newRole); err != nil {
+		log.Printf("[admin] update user role error: %v", err)
+		writeError(w, http.StatusInternalServerError, "DB_ERROR", "failed to update user role")
+		return
+	}
+
+	adminID, _ := r.Context().Value(auth.UserIDKey).(string)
+	detail := fmt.Sprintf("%s->%s", oldRole, newRole)
+	LogAdminAction(r.Context(), h.db, adminID, "user.update_role", existing.Email, detail, r.RemoteAddr)
+
+	writeJSON(w, http.StatusOK, adminResponse{OK: true, Data: map[string]string{
+		"id":      id,
+		"email":   existing.Email,
+		"oldRole": oldRole,
+		"newRole": newRole,
+	}})
 }
 
 func (h *AdminHandler) handleDeleteUser(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, adminResponse{OK: true, Data: map[string]string{"status": "stub_delete_user_phase2"}})
+	id := r.PathValue("id")
+	if id == "" {
+		writeError(w, http.StatusBadRequest, "MISSING_ID", "user id is required")
+		return
+	}
+
+	adminID, _ := r.Context().Value(auth.UserIDKey).(string)
+	if adminID == id {
+		writeError(w, http.StatusBadRequest, "SELF_DELETE", "cannot delete your own account")
+		return
+	}
+
+	email, err := GetUserEmailByID(r.Context(), h.db, id)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "NOT_FOUND", "user not found")
+		return
+	}
+
+	if err := DeleteUserByID(r.Context(), h.db, id); err != nil {
+		log.Printf("[admin] delete user error: %v", err)
+		writeError(w, http.StatusInternalServerError, "DB_ERROR", "failed to delete user")
+		return
+	}
+
+	if h.rdb != nil {
+		if err := h.rdb.Del(r.Context(), "chart_sessions:"+id).Err(); err != nil {
+			log.Printf("[admin] delete user sessions from redis: %v", err)
+		}
+	}
+
+	LogAdminAction(r.Context(), h.db, adminID, "user.delete", email, "", r.RemoteAddr)
+
+	writeJSON(w, http.StatusOK, adminResponse{OK: true, Data: map[string]string{"deleted": id}})
 }
 
 func (h *AdminHandler) handleGetPolicies(w http.ResponseWriter, r *http.Request) {

@@ -45,6 +45,7 @@ export function RegisterModal({ open, onClose, onSwitchToLogin }: RegisterModalP
       setRegistered(true)
     } catch (err: any) {
       if (err.code === 'EMAIL_TAKEN') setError(t('auth.errorEmailTaken'))
+      else if (err.code === 'NICKNAME_EXISTS') setError(t('auth.errorNicknameTaken'))
       else if (err.code === 'RATE_LIMITED') setError(t('auth.errorRateLimited'))
       else setError(t('auth.errorGeneric'))
     } finally {

@@ -31,36 +31,39 @@ export async function apiGetMetricsHistory(): Promise<MetricsHistoryPoint[]> {
 
 // --- Users ---
 
-export interface AdminUser {
+export interface UserListItem {
   id: string
   email: string
   nickname: string
   role: string
-  emailVerified: boolean
-  avatar: string
   createdAt: string
-  subscriptionStatus: string
 }
 
-export interface UsersListResponse {
-  users: AdminUser[]
-  total: number
-  page: number
-  pageSize: number
+export interface UserStats {
+  registered: number
+  onlineAuth: number
+  hosts: number
 }
 
-export async function apiGetUsers(page = 1, pageSize = 20): Promise<UsersListResponse> {
-  return request<UsersListResponse>(`/admin/users?page=${page}&pageSize=${pageSize}`)
+export async function apiGetUserStats(): Promise<UserStats> {
+  return request<UserStats>('/admin/users/stats')
 }
 
-export async function apiGetUser(id: string): Promise<AdminUser> {
-  return request<AdminUser>(`/admin/users/${id}`)
+export async function apiListUsers(limit = 50, offset = 0): Promise<{ users: UserListItem[]; limit: number; offset: number }> {
+  return request<{ users: UserListItem[]; limit: number; offset: number }>(`/admin/users?limit=${limit}&offset=${offset}`)
 }
 
-export async function apiUpdateUser(id: string, data: { nickname?: string; role?: string }): Promise<void> {
-  await request(`/admin/users/${id}`, {
-    method: 'PUT',
-    body: JSON.stringify(data),
+export async function apiCreateUser(login: string, password: string, role: string, email?: string): Promise<{ id: string; login: string; email: string; role: string }> {
+  return request<{ id: string; login: string; email: string; role: string }>('/admin/users', {
+    method: 'POST',
+    body: JSON.stringify({ login, email, password, role }),
+  })
+}
+
+export async function apiUpdateUserRole(id: string, role: string): Promise<{ id: string; email: string; oldRole: string; newRole: string }> {
+  return request<{ id: string; email: string; oldRole: string; newRole: string }>(`/admin/users/${id}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ role }),
   })
 }
 

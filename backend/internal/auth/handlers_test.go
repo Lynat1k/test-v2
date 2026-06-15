@@ -183,6 +183,124 @@ func TestLogin(t *testing.T) {
 	}
 }
 
+func TestLogin_ReturnsChartCompressionLocked(t *testing.T) {
+	handler, db := setupTestHandler(t)
+	defer db.Close()
+	ctx := context.Background()
+	handler.SetTierCompressionLocked(map[string]bool{"guest": true, "free": true, "pro": false, "vip": false, "admin": false})
+
+	hash, _ := HashPassword("adminpass")
+	user := &User{
+		Email:         "adminlogin@example.com",
+		Nickname:      "AdminUser",
+		PasswordHash:  hash,
+		Role:          "admin",
+		EmailVerified: true,
+	}
+	CreateUser(ctx, db, user)
+
+	body := `{"email":"adminlogin@example.com","password":"adminpass"}`
+	req := httptest.NewRequest("POST", "/api/v1/auth/login", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	handler.handleLogin(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var resp authResponse
+	json.Unmarshal(w.Body.Bytes(), &resp)
+	data := resp.Data.(map[string]interface{})
+
+	userResp, ok := data["user"].(map[string]interface{})
+	if !ok {
+		t.Fatal("expected user object in login response")
+	}
+
+	// chartCompressionLocked must be present and false for admin
+	locked, ok := userResp["chartCompressionLocked"]
+	if !ok {
+		t.Fatal("chartCompressionLocked field missing from login user response")
+	}
+	if locked != false {
+		t.Errorf("admin chartCompressionLocked: got %v, want false", locked)
+	}
+
+	// daysLeft should also be present
+	if _, ok := userResp["daysLeft"]; !ok {
+		t.Error("daysLeft field missing from login user response")
+	}
+}
+
+func TestLoginByNickname(t *testing.T) {
+	handler, db := setupTestHandler(t)
+	defer db.Close()
+	ctx := context.Background()
+
+	hash, _ := HashPassword("mypassword")
+	user := &User{
+		Email:         "loginby@example.com",
+		Nickname:      "LoginByNick",
+		PasswordHash:  hash,
+		Role:          "Free",
+		EmailVerified: true,
+	}
+	CreateUser(ctx, db, user)
+
+	// Login by nickname (not email)
+	body := `{"email":"LoginByNick","password":"mypassword"}`
+	req := httptest.NewRequest("POST", "/api/v1/auth/login", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	handler.handleLogin(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var resp authResponse
+	json.Unmarshal(w.Body.Bytes(), &resp)
+	data := resp.Data.(map[string]interface{})
+	if data["accessToken"] == nil {
+		t.Error("expected accessToken when logging in by nickname")
+	}
+}
+
+func TestRegisterNicknameExists(t *testing.T) {
+	handler, db := setupTestHandler(t)
+	defer db.Close()
+	ctx := context.Background()
+
+	// Create first user
+	hash, _ := HashPassword("password123")
+	user := &User{
+		Email:         "first@example.com",
+		Nickname:      "TakenNick",
+		PasswordHash:  hash,
+		Role:          "free",
+		EmailVerified: true,
+	}
+	CreateUser(ctx, db, user)
+
+	// Try to register with same nickname but different email
+	body := `{"email":"second@example.com","password":"password123","nickname":"TakenNick"}`
+	req := httptest.NewRequest("POST", "/api/v1/auth/register", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	handler.handleRegister(w, req)
+
+	if w.Code != http.StatusConflict {
+		t.Fatalf("expected 409 for duplicate nickname, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var resp authResponse
+	json.Unmarshal(w.Body.Bytes(), &resp)
+	if resp.Err == nil || resp.Err.Code != "NICKNAME_EXISTS" {
+		t.Errorf("expected NICKNAME_EXISTS error, got %+v", resp.Err)
+	}
+}
+
 func TestLoginWrongPassword(t *testing.T) {
 	handler, db := setupTestHandler(t)
 	defer db.Close()
@@ -662,6 +780,71 @@ func TestGetMeSuccess(t *testing.T) {
 	}
 }
 
+func TestGetMe_CompressionLocked_FreeUser_LockedTrue(t *testing.T) {
+	handler, db := setupTestHandler(t)
+	defer db.Close()
+	handler.SetTierCompressionLocked(map[string]bool{"guest": true, "free": true, "pro": false, "vip": false, "admin": false})
+	user := createVerifiedUser(t, db, "freeuser@example.com", "password123", "FreeUser")
+
+	w, req := authRequest(handler, "GET", "/api/v1/user/me", "", user)
+	handler.handleGetMe(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	var resp authResponse
+	json.Unmarshal(w.Body.Bytes(), &resp)
+	data := resp.Data.(map[string]interface{})
+	if data["chartCompressionLocked"] != true {
+		t.Errorf("free user chartCompressionLocked: got %v, want true", data["chartCompressionLocked"])
+	}
+}
+
+func TestGetMe_CompressionLocked_ProUser_LockedFalse(t *testing.T) {
+	handler, db := setupTestHandler(t)
+	defer db.Close()
+	handler.SetTierCompressionLocked(map[string]bool{"guest": true, "free": true, "pro": false, "vip": false, "admin": false})
+	user := createVerifiedUser(t, db, "prouser@example.com", "password123", "ProUser")
+	// Override role to pro
+	if _, err := db.Exec("UPDATE users SET role = 'pro' WHERE id = ?", user.ID); err != nil {
+		t.Fatalf("update role: %v", err)
+	}
+	user.Role = "pro"
+
+	w, req := authRequest(handler, "GET", "/api/v1/user/me", "", user)
+	handler.handleGetMe(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	var resp authResponse
+	json.Unmarshal(w.Body.Bytes(), &resp)
+	data := resp.Data.(map[string]interface{})
+	if data["chartCompressionLocked"] != false {
+		t.Errorf("pro user chartCompressionLocked: got %v, want false", data["chartCompressionLocked"])
+	}
+}
+
+func TestGetMe_CompressionLocked_NoMap_FallbackTrue(t *testing.T) {
+	handler, db := setupTestHandler(t)
+	defer db.Close()
+	// deliberately NOT calling SetTierCompressionLocked — nil map
+	user := createVerifiedUser(t, db, "fallback@example.com", "password123", "FallbackUser")
+
+	w, req := authRequest(handler, "GET", "/api/v1/user/me", "", user)
+	handler.handleGetMe(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	var resp authResponse
+	json.Unmarshal(w.Body.Bytes(), &resp)
+	data := resp.Data.(map[string]interface{})
+	if data["chartCompressionLocked"] != true {
+		t.Errorf("with nil map chartCompressionLocked: got %v, want true (fallback)", data["chartCompressionLocked"])
+	}
+}
+
 func TestGetMeUnauthorized(t *testing.T) {
 	handler, db := setupTestHandler(t)
 	defer db.Close()
@@ -855,6 +1038,56 @@ func TestUpdateProfileAvatarURL(t *testing.T) {
 	updated := GetUserByIDMust(t, db, user.ID)
 	if updated.Avatar != "https://example.com/avatar.png" {
 		t.Errorf("expected avatar URL, got %s", updated.Avatar)
+	}
+}
+
+func TestGetMe_CompressionLocked_CaseInsensitiveRole(t *testing.T) {
+	handler, db := setupTestHandler(t)
+	defer db.Close()
+	handler.SetTierCompressionLocked(map[string]bool{"free": true, "pro": false})
+	user := createVerifiedUser(t, db, "casefree@example.com", "password123", "CaseFree")
+	// Override role to "Free" (capital F) — should still resolve via strings.ToLower
+	if _, err := db.Exec("UPDATE users SET role = 'Free' WHERE id = ?", user.ID); err != nil {
+		t.Fatalf("update role: %v", err)
+	}
+	user.Role = "Free"
+
+	w, req := authRequest(handler, "GET", "/api/v1/user/me", "", user)
+	handler.handleGetMe(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	var resp authResponse
+	json.Unmarshal(w.Body.Bytes(), &resp)
+	data := resp.Data.(map[string]interface{})
+	if data["chartCompressionLocked"] != true {
+		t.Errorf("'Free' (capital) user chartCompressionLocked: got %v, want true", data["chartCompressionLocked"])
+	}
+}
+
+func TestGetMe_CompressionLocked_UnknownRole_SafeDefaultTrue(t *testing.T) {
+	handler, db := setupTestHandler(t)
+	defer db.Close()
+	// Map has only known tiers; "unknown" role is NOT in the map
+	handler.SetTierCompressionLocked(map[string]bool{"free": false, "pro": false, "vip": false, "admin": false})
+	user := createVerifiedUser(t, db, "unknown@example.com", "password123", "UnknownRole")
+	if _, err := db.Exec("UPDATE users SET role = 'unknown' WHERE id = ?", user.ID); err != nil {
+		t.Fatalf("update role: %v", err)
+	}
+	user.Role = "unknown"
+
+	w, req := authRequest(handler, "GET", "/api/v1/user/me", "", user)
+	handler.handleGetMe(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	var resp authResponse
+	json.Unmarshal(w.Body.Bytes(), &resp)
+	data := resp.Data.(map[string]interface{})
+	if data["chartCompressionLocked"] != true {
+		t.Errorf("unknown role chartCompressionLocked: got %v, want true (safe default)", data["chartCompressionLocked"])
 	}
 }
 

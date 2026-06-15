@@ -42,6 +42,11 @@ var validMarkets = map[string]bool{
 	"spot":    true,
 }
 
+// TODO(phase12-billing): enforce chart compression gating on backend once frontend
+// passes a `compression` query param. Currently compression is client-side only
+// (DataStore.compressLevels), so gating is enforced on the frontend via
+// chartCompressionLocked flag from tier_policies. See ADR phase12 step 2.3.
+
 func (s *Server) handleCandles(w http.ResponseWriter, r *http.Request) {
 	symbol := strings.TrimSpace(r.URL.Query().Get("symbol"))
 	if symbol == "" {
@@ -97,7 +102,7 @@ func (s *Server) handleCandles(w http.ResponseWriter, r *http.Request) {
 	if role == "" {
 		role = "guest"
 	}
-	depth := maxDepthForRole(role, s.authCfg)
+	depth := s.resolveHistoryDepth(role)
 	if depth >= 0 && before != nil {
 		cutoff := time.Now().Add(-depth).UnixMilli()
 		if *before < cutoff {
@@ -271,6 +276,15 @@ func writeError(w http.ResponseWriter, status int, code, message string) {
 			Message: message,
 		},
 	})
+}
+
+func (s *Server) resolveHistoryDepth(role string) time.Duration {
+	if s.tierHistoryLimits != nil {
+		if d, ok := s.tierHistoryLimits[role]; ok {
+			return d
+		}
+	}
+	return maxDepthForRole(role, s.authCfg)
 }
 
 func maxDepthForRole(role string, cfg auth.AuthConfig) time.Duration {

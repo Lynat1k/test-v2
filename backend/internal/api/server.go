@@ -11,19 +11,31 @@ import (
 	"github.com/procluster/procluster/internal/cache"
 	"github.com/procluster/procluster/internal/fng"
 	"github.com/procluster/procluster/internal/repository"
+	"github.com/redis/go-redis/v9"
 )
 
 type Server struct {
-	httpServer     *http.Server
-	hub            *Hub
-	repo           repository.MarketRepository
-	cache          *cache.CandleCache
-	agg            *aggregator.Aggregator
-	sessionManager *SessionManager
-	fngFetcher     *fng.FNGFetcher
-	cfg            ServerConfig
-	authCfg        auth.AuthConfig
-	mux            *http.ServeMux
+	httpServer            *http.Server
+	hub                   *Hub
+	repo                  repository.MarketRepository
+	cache                 *cache.CandleCache
+	agg                   *aggregator.Aggregator
+	sessionManager        *SessionManager
+	fngFetcher            *fng.FNGFetcher
+	cfg                   ServerConfig
+	authCfg               auth.AuthConfig
+	mux                   *http.ServeMux
+	rdb                   *redis.Client
+	tierHistoryLimits     map[string]time.Duration
+	tierCompressionLocked map[string]bool
+}
+
+func (s *Server) SetTierHistoryLimits(m map[string]time.Duration) {
+	s.tierHistoryLimits = m
+}
+
+func (s *Server) SetTierCompressionLocked(m map[string]bool) {
+	s.tierCompressionLocked = m
 }
 
 type ServerConfig struct {
@@ -50,6 +62,7 @@ func NewServer(
 	wsLimiter *RateLimiter,
 	fngFetcher *fng.FNGFetcher,
 	authCfg auth.AuthConfig,
+	rdb *redis.Client,
 ) *Server {
 	hub := NewHub()
 	mux := http.NewServeMux()
@@ -64,6 +77,7 @@ func NewServer(
 		cfg:            cfg,
 		authCfg:        authCfg,
 		mux:            mux,
+		rdb:            rdb,
 	}
 
 	candlesHandler := http.HandlerFunc(s.handleCandles)
@@ -71,11 +85,11 @@ func NewServer(
 	clustersBatchHandler := http.HandlerFunc(s.handleClustersBatch)
 	wsHandler := http.HandlerFunc(s.handleWebSocket)
 
-	mux.Handle("GET /api/v1/candles", RateLimitMiddleware(restLimiter, withMiddleware(candlesHandler)))
-	mux.Handle("GET /api/v1/candles/{symbol}/clusters/{candleOpen}", RateLimitMiddleware(restLimiter, withMiddleware(clusterHandler)))
-	mux.Handle("GET /api/v1/candles/{symbol}/clusters-batch", RateLimitMiddleware(restLimiter, withMiddleware(clustersBatchHandler)))
-	mux.Handle("GET /api/v1/fng", RateLimitMiddleware(restLimiter, withMiddleware(http.HandlerFunc(s.handleFNG))))
-	mux.Handle("GET /ws", WSRateLimitMiddleware(wsLimiter, withMiddleware(wsHandler)))
+	mux.Handle("GET /api/v1/candles", RateLimitMiddleware(restLimiter, withMiddleware(rdb, authCfg, candlesHandler)))
+	mux.Handle("GET /api/v1/candles/{symbol}/clusters/{candleOpen}", RateLimitMiddleware(restLimiter, withMiddleware(rdb, authCfg, clusterHandler)))
+	mux.Handle("GET /api/v1/candles/{symbol}/clusters-batch", RateLimitMiddleware(restLimiter, withMiddleware(rdb, authCfg, clustersBatchHandler)))
+	mux.Handle("GET /api/v1/fng", RateLimitMiddleware(restLimiter, withMiddleware(rdb, authCfg, http.HandlerFunc(s.handleFNG))))
+	mux.Handle("GET /ws", WSRateLimitMiddleware(wsLimiter, withMiddleware(rdb, authCfg, wsHandler)))
 
 	s.httpServer = &http.Server{
 		Addr:         cfg.Addr,
@@ -105,7 +119,7 @@ func (s *Server) Mux() *http.ServeMux {
 	return s.mux
 }
 
-func withMiddleware(next http.Handler) http.Handler {
+func withMiddleware(rdb *redis.Client, authCfg auth.AuthConfig, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.Header().Set("X-Frame-Options", "DENY")
@@ -122,6 +136,10 @@ func withMiddleware(next http.Handler) http.Handler {
 		if r.Method == http.MethodOptions {
 			w.WriteHeader(http.StatusNoContent)
 			return
+		}
+
+		if rdb != nil {
+			trackGuest(rdb, authCfg, w, r)
 		}
 
 		next.ServeHTTP(w, r)

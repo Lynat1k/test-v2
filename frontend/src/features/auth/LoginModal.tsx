@@ -73,10 +73,10 @@ export function LoginModal({ open, onClose, onSwitchToRegister }: LoginModalProp
             {error && <div className="mb-3 px-3 py-2 rounded-lg bg-red-500/10 border border-red-500/20 text-red-400 text-xs">{error}</div>}
             <form onSubmit={handleSubmit} className="flex flex-col gap-3">
               <input
-                type="email"
+                type="text"
                 value={email}
                 onChange={e => setEmail(e.target.value)}
-                placeholder={t('auth.email')}
+                placeholder={t('auth.emailOrLogin')}
                 required
                 className="px-3 py-2 rounded-lg bg-black/30 border border-white/10 text-white text-xs outline-none focus:border-amber-500/50"
               />

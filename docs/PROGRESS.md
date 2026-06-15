@@ -3,6 +3,31 @@
 > Claude обновляет этот файл в КОНЦЕ каждой задачи. Новые записи — сверху.
 > Формат записи строго по шаблону. Это память между чатами.
 
+### [2026-06-15] Фаза 12 Этап 2 Подшаг 2.1: tier_policies в БД + рефактор лимитов с fallback
+- Модель: Opus
+- Что сделано:
+  - **Миграция (auth/sqlite.go, пункт 6)**: `CREATE TABLE IF NOT EXISTS tier_policies (tier TEXT PRIMARY KEY, session_limit INTEGER, history_max_days INTEGER, created_at, updated_at)` — идемпотентно, не ломает порядок миграций.
+  - **Seed (admin/SeedTierPolicies)**: при пустой таблице INSERT 5 строк с текущими значениями: guest(1/7), free(1/180), pro(2/-1), vip(2/-1), admin(-1/-1). Идемпотентен (проверка COUNT > 0). Вызывается в main.go рядом с SeedDefaultTickers/Compressions.
+  - **LoadTierPolicies**: читает из БД, возвращает `sessionLimits map[string]int` + `historyLimits map[string]time.Duration` (-1→-1, дни→days*24h). Если таблица пуста → nil (fallback).
+  - **Session limits в main.go**: `admin.LoadTierPolicies()` → если не nil, передаётся в `NewSessionManager(rdb, dbSessionLimits)`. Иначе `authCfg.SessionLimits`. `session.go:75-81` hardcoded fallback при limits==nil ОСТАВЛЕН.
+  - **History gating (api/candles.go)**: добавлен `Server.tierHistoryLimits` + `SetTierHistoryLimits()`. `resolveHistoryDepth(role)` — сначала проверяет `tierHistoryLimits[role]`, затем fallback на `maxDepthForRole(role, cfg)`. `maxDepthForRole` как standalone функция оставлена для тестов.
+  - **AuthConfig**: SessionLimits, HistoryMaxGuest/HistoryMaxFree ОСТАВЛЕНЫ как fallback.
+  - **GetPolicies/UpsertPolicies**: функции в admin/tier_policies.go для будущих админ-эндпоинтов.
+- Поведение НЕ изменилось: seed воспроизводит ровно те же значения, что были в хардкоде. При пустой таблице — полный fallback на AuthConfig/switch.
+- Затронутые файлы:
+  - `backend/internal/auth/sqlite.go` (+tier_policies CREATE TABLE)
+  - `backend/internal/admin/tier_policies.go` (NEW — Seed, Load, Get, Upsert)
+  - `backend/internal/admin/tier_policies_test.go` (NEW — 9 тестов)
+  - `backend/internal/api/candles.go` (+resolveHistoryDepth, +s.tierHistoryLimits check)
+  - `backend/internal/api/server.go` (+tierHistoryLimits field, +SetTierHistoryLimits)
+  - `backend/cmd/procluster/main.go` (+SeedTierPolicies, +LoadTierPolicies → session/history wiring)
+- Ключевые решения:
+  - Seed в админ-пакете (не в auth), вызывается в main.go.
+  - `resolveHistoryDepth` метод на Server с fallback на `maxDepthForRole` — api не импортирует admin.
+  - Session limits передаются мапой из main.go, не читаются из БД в рантайме.
+  - Fallback трёхуровневый: (1) БД, (2) AuthConfig/env, (3) хардкод в session.go.
+- Тесты: 9 новых (seed, load, empty table, idempotency, upsert, value match). Полная регрессия: auth(55/55), api(12/12), admin(39/39), aggregation(14/14), depth(12/12), history(8/8), ingest(5/5), clickhouse — ALL PASS. go vet PASS. tsc --noEmit PASS. vite build PASS. go build PASS.
+
 ### [2026-06-14] Фаза 12 Этап 1 Fix v2: ClickHouse size окончательный + суточные графики + растяжка высоты
 - Модель: Opus (mimo-v2.5-free)
 - Что сделано:

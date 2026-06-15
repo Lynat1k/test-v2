@@ -10,7 +10,7 @@ import {
 import { useCandlePalette } from '@/contexts/CandlePaletteContext'
 import type { CandleMode, VolumeMode } from '@/chart-engine'
 import { motion, AnimatePresence } from 'motion/react'
-import { ChevronDown, SlidersHorizontal, Zap } from 'lucide-react'
+import { ChevronDown, SlidersHorizontal, Zap, Lock } from 'lucide-react'
 import { AutoIcon } from '@/components/icons/AutoIcon'
 import { JapaneseIcon } from '@/components/icons/JapaneseIcon'
 import { FootprintIcon } from '@/components/icons/FootprintIcon'
@@ -63,7 +63,7 @@ export function ChartHeader({ fps = 0 }: ChartHeaderProps) {
 
   const tickerConfig = getTickerConfig()
   const compressionLevels = getCompressionLevels()
-  const isFree = (user?.role ?? 'guest') === 'free' || (user?.role ?? 'guest') === 'guest'
+  const chartCompressionLocked = user?.chartCompressionLocked ?? true
   const baseCompression = market === 'futures' ? tickerConfig.baseFutures : tickerConfig.baseSpot
 
   const resolvedMode = candleMode === 'auto' ? 'japanese' : candleMode
@@ -241,7 +241,7 @@ export function ChartHeader({ fps = 0 }: ChartHeaderProps) {
         <button
           onClick={() => compressionDropdownOpen ? setCompressionDropdownOpen(false) : openCompressionDropdown()}
           className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg liquid-glass-button text-xs font-bold cursor-pointer select-none whitespace-nowrap ${
-            isFree && compression > 1 ? 'opacity-60' : ''
+            chartCompressionLocked && compression > 1 ? 'opacity-60' : ''
           }`}
         >
           <span className="font-mono text-[10px] text-slate-300">
@@ -372,10 +372,11 @@ export function ChartHeader({ fps = 0 }: ChartHeaderProps) {
             >
               {compressionLevels.map((level, idx) => {
                 const isBase = level === baseCompression
-                const isDisabled = isFree && !isBase
+                const isDisabled = chartCompressionLocked && !isBase
                 return (
                   <button
                     key={level}
+                    title={isDisabled ? t('chart.compressionLocked') : undefined}
                     onClick={() => {
                       if (!isDisabled) {
                         setCompression(idx + 1)
@@ -383,23 +384,24 @@ export function ChartHeader({ fps = 0 }: ChartHeaderProps) {
                       }
                     }}
                     disabled={isDisabled}
-                    className={`w-full flex items-center justify-between px-3 py-1.5 rounded-lg text-xs font-bold text-left transition cursor-pointer ${
+                    className={`w-full flex items-center justify-between px-3 py-1.5 rounded-lg text-xs font-bold text-left transition ${
                       compression === idx + 1
                         ? 'bg-amber-500/15 text-amber-400'
                         : isDisabled
                           ? 'text-slate-600 cursor-not-allowed'
-                          : 'text-slate-300 hover:bg-white/5 hover:text-white'
+                          : 'text-slate-300 hover:bg-white/5 hover:text-white cursor-pointer'
                     }`}
                   >
                     <span className="font-mono text-[11px]">
                       {level}
                       {isBase && <span className="text-[9px] text-amber-500/70 ml-1">base</span>}
                     </span>
-                    {isDisabled && (
-                      <span className="text-[8px] text-slate-600 max-w-[80px] text-right leading-tight">
-                        {t('chart.upgradeHint')}
+                    {isDisabled ? (
+                      <span className="flex items-center gap-1 text-[8px] text-slate-600 max-w-[90px] text-right leading-tight">
+                        <Lock className="w-2.5 h-2.5 shrink-0" />
+                        {t('chart.compressionLocked')}
                       </span>
-                    )}
+                    ) : null}
                   </button>
                 )
               })}

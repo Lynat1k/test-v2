@@ -19,7 +19,7 @@ import {
   Download,
   RefreshCw,
 } from 'lucide-react'
-import { apiGetMetrics, apiGetMetricsHistory, apiGetTickers, apiAddTicker, apiUpdateTicker, apiDeleteTicker, apiGetCompressions, apiUpsertCompressions, apiStartDownload, apiGetJobs, type ServerMetrics, type MetricsHistoryPoint, type Ticker, type DefaultCompression, type DownloadJob } from '@/features/admin/api'
+import { apiGetMetrics, apiGetMetricsHistory, apiGetTickers, apiAddTicker, apiUpdateTicker, apiDeleteTicker, apiGetCompressions, apiUpsertCompressions, apiStartDownload, apiGetJobs, apiGetUserStats, apiListUsers, apiCreateUser, apiUpdateUserRole, apiDeleteUser, type ServerMetrics, type MetricsHistoryPoint, type Ticker, type DefaultCompression, type DownloadJob, type UserListItem, type UserStats } from '@/features/admin/api'
 
 type AdminTab = 'server' | 'database' | 'users' | 'stats'
 
@@ -117,7 +117,7 @@ export function AdminPanel({ onClose }: AdminPanelProps) {
         >
           {activeTab === 'server' && <ServerTab isLight={isLight} />}
           {activeTab === 'database' && <DatabaseTab isLight={isLight} />}
-          {activeTab === 'users' && <UsersTabPlaceholder isLight={isLight} />}
+          {activeTab === 'users' && <UsersTab isLight={isLight} />}
           {activeTab === 'stats' && <StatsTabPlaceholder isLight={isLight} />}
         </motion.div>
       </AnimatePresence>
@@ -936,16 +936,362 @@ function HistoryBlock({ isLight }: { isLight: boolean }) {
   )
 }
 
-function UsersTabPlaceholder({ isLight }: { isLight: boolean }) {
-  return (
-    <div className={`p-5 rounded-2xl border ${isLight ? 'bg-white border-slate-200' : 'liquid-glass-card'}`}>
-      <div className="flex items-center gap-2 text-xs font-bold font-mono text-amber-500 uppercase">
-        <Users className="w-4 h-4" />
-        User Management & Policies — Coming in Phase 2
+function UsersTab({ isLight }: { isLight: boolean }) {
+  const { t } = useTranslation()
+  const { user: currentUser } = useAuthContext()
+
+  const [stats, setStats] = useState<UserStats | null>(null)
+  const [users, setUsers] = useState<UserListItem[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+
+  // Add user form
+  const [newLogin, setNewLogin] = useState('')
+  const [newEmail, setNewEmail] = useState('')
+  const [newPassword, setNewPassword] = useState('')
+  const [newRole, setNewRole] = useState('free')
+  const [adding, setAdding] = useState(false)
+  const [addError, setAddError] = useState<string | null>(null)
+
+  // Delete confirmation
+  const [deleteTarget, setDeleteTarget] = useState<UserListItem | null>(null)
+  const [deleting, setDeleting] = useState(false)
+  const [deleteError, setDeleteError] = useState<string | null>(null)
+
+  // Role edit per-user
+  const [editRoles, setEditRoles] = useState<Record<string, string>>({})
+  const [savingRoles, setSavingRoles] = useState<Record<string, boolean>>({})
+  const [savedRoles, setSavedRoles] = useState<Record<string, boolean>>({})
+
+  const card = isLight ? 'bg-white border-slate-200' : 'liquid-glass-card'
+  const input = isLight
+    ? 'bg-slate-50 border-slate-200 text-slate-900 focus:border-emerald-500'
+    : 'bg-white/[0.03] border-white/10 text-white focus:border-emerald-500'
+
+  const fetchData = useCallback(async () => {
+    setLoading(true)
+    setError(null)
+    try {
+      const [statsData, usersData] = await Promise.all([
+        apiGetUserStats(),
+        apiListUsers(200, 0),
+      ])
+      setStats(statsData)
+      setUsers(usersData.users)
+    } catch (e: any) {
+      setError(e?.message ?? 'Failed to load users')
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
+  useEffect(() => { fetchData() }, [fetchData])
+
+  const handleAddUser = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setAddError(null)
+
+    const login = newLogin.trim()
+    if (!login) {
+      setAddError(t('admin.users.loginRequired'))
+      return
+    }
+    if (newPassword.length < 8) {
+      setAddError(t('admin.users.passwordTooShort'))
+      return
+    }
+
+    setAdding(true)
+    try {
+      await apiCreateUser(login, newPassword, newRole, newEmail.trim() || undefined)
+      setNewLogin('')
+      setNewEmail('')
+      setNewPassword('')
+      setNewRole('free')
+      await fetchData()
+    } catch (e: any) {
+      if (e?.code === 'LOGIN_EXISTS') {
+        setAddError(t('admin.users.loginExists'))
+      } else if (e?.code === 'USER_EXISTS') {
+        setAddError(t('admin.users.userExists'))
+      } else {
+        setAddError(e?.message ?? t('admin.users.createFailed'))
+      }
+    } finally {
+      setAdding(false)
+    }
+  }
+
+  const handleRoleSave = async (userId: string) => {
+    const newVal = editRoles[userId]
+    if (!newVal) return
+
+    setSavingRoles(prev => ({ ...prev, [userId]: true }))
+    try {
+      await apiUpdateUserRole(userId, newVal)
+      setSavedRoles(prev => ({ ...prev, [userId]: true }))
+      setTimeout(() => setSavedRoles(prev => ({ ...prev, [userId]: false })), 2000)
+      setUsers(prev => prev.map(u => u.id === userId ? { ...u, role: newVal } : u))
+    } catch (e: any) {
+      if (e?.code === 'INVALID_ROLE') {
+        setError(t('admin.users.invalidRole'))
+      } else {
+        setError(e?.message ?? t('admin.users.updateFailed'))
+      }
+    } finally {
+      setSavingRoles(prev => ({ ...prev, [userId]: false }))
+    }
+  }
+
+  const handleDeleteConfirm = async () => {
+    if (!deleteTarget) return
+    setDeleting(true)
+    setDeleteError(null)
+    try {
+      await apiDeleteUser(deleteTarget.id)
+      setDeleteTarget(null)
+      setUsers(prev => prev.filter(u => u.id !== deleteTarget.id))
+      const statsData = await apiGetUserStats()
+      setStats(statsData)
+    } catch (e: any) {
+      if (e?.code === 'SELF_DELETE') {
+        setDeleteError(t('admin.users.selfDelete'))
+      } else {
+        setDeleteError(e?.message ?? t('admin.users.deleteFailed'))
+      }
+    } finally {
+      setDeleting(false)
+    }
+  }
+
+  const roles = ['free', 'pro', 'vip', 'admin']
+
+  if (loading && users.length === 0) {
+    return (
+      <div className={`p-5 rounded-2xl border ${card}`}>
+        <div className="flex items-center gap-2 text-xs font-mono text-slate-400">{t('common.loading')}</div>
       </div>
-      <p className="text-sm text-slate-500 mt-3">User CRUD, tier policy editor, session limits configuration.</p>
+    )
+  }
+
+  return (
+    <div className="flex flex-col gap-4">
+      {/* Error banner */}
+      {error && (
+        <div className="flex items-center justify-between px-4 py-2 rounded-lg bg-red-500/10 border border-red-500/20 text-xs text-red-400">
+          <span>{error}</span>
+          <button onClick={() => setError(null)} className="cursor-pointer text-red-400/70 hover:text-red-400"><X className="w-3 h-3" /></button>
+        </div>
+      )}
+
+      {/* Stats counters */}
+      <div className="grid grid-cols-3 gap-3">
+        {([
+          { label: t('admin.users.hosts'), value: stats?.hosts },
+          { label: t('admin.users.registered'), value: stats?.registered },
+          { label: t('admin.users.online'), value: stats?.onlineAuth },
+        ] as const).map(({ label, value }) => (
+          <div key={label} className={`flex flex-col items-center justify-center p-4 rounded-2xl border ${card}`}>
+            <span className="text-2xl font-bold font-mono">{value ?? '---'}</span>
+            <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-slate-500 mt-1">{label}</span>
+          </div>
+        ))}
+      </div>
+
+      {/* Add user form */}
+      <div className={`p-4 rounded-2xl border ${card}`}>
+        <div className="flex items-center gap-2 mb-3">
+          <Plus className="w-3.5 h-3.5 text-amber-500" />
+          <span className="text-xs font-bold font-mono uppercase tracking-wider">{t('admin.users.addUser')}</span>
+        </div>
+        <form onSubmit={handleAddUser} className="flex flex-wrap items-end gap-2">
+          <div className="flex flex-col gap-1">
+            <label className="text-[10px] font-mono text-slate-500">{t('auth.username')}</label>
+            <input
+              value={newLogin}
+              onChange={e => setNewLogin(e.target.value)}
+              placeholder="nickname"
+              className={`px-3 py-1.5 rounded-lg border text-xs font-mono outline-none w-32 ${input}`}
+            />
+          </div>
+          <div className="flex flex-col gap-1">
+            <label className="text-[10px] font-mono text-slate-500">{t('auth.email')} <span className="text-slate-600">({t('admin.users.optional')})</span></label>
+            <input
+              type="email"
+              value={newEmail}
+              onChange={e => setNewEmail(e.target.value)}
+              placeholder="user@example.com"
+              className={`px-3 py-1.5 rounded-lg border text-xs font-mono outline-none w-40 ${input}`}
+            />
+          </div>
+          <div className="flex flex-col gap-1">
+            <label className="text-[10px] font-mono text-slate-500">{t('auth.password')}</label>
+            <input
+              type="password"
+              value={newPassword}
+              onChange={e => setNewPassword(e.target.value)}
+              placeholder="********"
+              className={`px-3 py-1.5 rounded-lg border text-xs font-mono outline-none w-32 ${input}`}
+            />
+          </div>
+          <div className="flex flex-col gap-1">
+            <label className="text-[10px] font-mono text-slate-500">{t('admin.users.role')}</label>
+            <select
+              value={newRole}
+              onChange={e => setNewRole(e.target.value)}
+              className={`px-3 py-1.5 rounded-lg border text-xs font-mono outline-none ${input}`}
+            >
+              {roles.map(r => <option key={r} value={r}>{r}</option>)}
+            </select>
+          </div>
+          <button
+            type="submit"
+            disabled={adding}
+            className="px-4 py-1.5 rounded-lg bg-amber-500/20 border border-amber-500/30 text-amber-400 text-xs font-bold cursor-pointer hover:bg-amber-500/30 transition disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {adding ? t('common.loading') : t('admin.users.addUserBtn')}
+          </button>
+        </form>
+        {addError && <p className="text-[10px] text-red-400 mt-2">{addError}</p>}
+      </div>
+
+      {/* Users table */}
+      <div className={`p-4 rounded-2xl border ${card}`}>
+        <div className="flex items-center gap-2 mb-3">
+          <Users className="w-3.5 h-3.5 text-amber-500" />
+          <span className="text-xs font-bold font-mono uppercase tracking-wider">{t('admin.users.listTitle')}</span>
+          <span className="text-[10px] text-slate-500 font-mono">({users.length})</span>
+        </div>
+
+        {users.length === 0 ? (
+          <p className="text-xs text-slate-500">{t('admin.users.emptyList')}</p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs border-collapse">
+              <thead>
+                <tr className="text-[10px] font-mono font-bold uppercase tracking-wider text-slate-500 border-b border-white/5">
+                  <th className="text-left py-2 pr-3">{t('auth.username')}</th>
+                  <th className="text-left py-2 pr-3">{t('auth.email')}</th>
+                  <th className="text-left py-2 pr-3">{t('admin.users.role')}</th>
+                  <th className="text-left py-2 pr-3">{t('admin.users.registeredDate')}</th>
+                  <th className="text-right py-2">{t('admin.users.actions')}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {users.map(u => {
+                  const currentRole = editRoles[u.id] ?? u.role
+                  const hasChanged = currentRole !== u.role
+                  const isSelf = u.id === currentUser?.id
+                  const isPlaceholder = u.email.includes('@placeholder.local')
+                  return (
+                    <tr key={u.id} className="border-b border-white/5 hover:bg-white/[0.02]">
+                      <td className="py-2 pr-3 font-mono text-slate-300 max-w-[120px] truncate font-bold">{u.nickname}</td>
+                      <td className="py-2 pr-3 font-mono text-slate-500 max-w-[160px] truncate">{isPlaceholder ? '—' : u.email}</td>
+                      <td className="py-2 pr-3">
+                        <div className="flex items-center gap-1">
+                          <select
+                            value={currentRole}
+                            onChange={e => setEditRoles(prev => ({ ...prev, [u.id]: e.target.value }))}
+                            className={`px-2 py-1 rounded border text-[10px] font-mono outline-none w-20 ${input}`}
+                          >
+                            {roles.map(r => <option key={r} value={r}>{r}</option>)}
+                          </select>
+                          <button
+                            onClick={() => handleRoleSave(u.id)}
+                            disabled={!hasChanged || savingRoles[u.id]}
+                            className={`px-2 py-1 rounded text-[10px] font-bold font-mono transition cursor-pointer ${
+                              savedRoles[u.id]
+                                ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
+                                : hasChanged
+                                  ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30 hover:bg-amber-500/30'
+                                  : 'text-slate-600 border border-transparent cursor-not-allowed'
+                            }`}
+                          >
+                            {savingRoles[u.id] ? '...' : savedRoles[u.id] ? t('admin.users.saved') : t('admin.users.save')}
+                          </button>
+                        </div>
+                      </td>
+                      <td className="py-2 pr-3 font-mono text-slate-500 text-[10px]">
+                        {formatDate(u.createdAt)}
+                      </td>
+                      <td className="py-2 text-right">
+                        {isSelf ? (
+                          <span className="text-[10px] text-slate-600 italic">{t('admin.users.you')}</span>
+                        ) : (
+                          <button
+                            onClick={() => setDeleteTarget(u)}
+                            className="px-2 py-1 rounded text-[10px] text-rose-400/70 hover:text-rose-400 border border-transparent hover:border-rose-500/30 transition cursor-pointer"
+                          >
+                            <Trash2 className="w-3 h-3" />
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      {/* Delete confirmation modal */}
+      <AnimatePresence>
+        {deleteTarget && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[99999] flex items-center justify-center bg-black/60 backdrop-blur-sm"
+            onClick={() => !deleting && setDeleteTarget(null)}
+          >
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              transition={{ duration: 0.12 }}
+              className={`p-5 rounded-2xl border max-w-sm w-full mx-4 ${card}`}
+              onClick={e => e.stopPropagation()}
+            >
+              <div className="flex items-center gap-2 mb-3">
+                <Trash2 className="w-4 h-4 text-rose-400" />
+                <span className="text-xs font-bold font-mono uppercase tracking-wider">{t('admin.users.deleteTitle')}</span>
+              </div>
+              <p className="text-xs text-slate-400 mb-4">
+                {t('admin.users.deleteConfirm').replace('{email}', deleteTarget.email)}
+              </p>
+              {deleteError && <p className="text-[10px] text-red-400 mb-3">{deleteError}</p>}
+              <div className="flex justify-end gap-2">
+                <button
+                  onClick={() => { setDeleteTarget(null); setDeleteError(null) }}
+                  disabled={deleting}
+                  className="px-3 py-1.5 rounded-lg text-xs font-bold border border-white/10 text-slate-400 hover:text-white cursor-pointer transition disabled:opacity-50"
+                >
+                  {t('common.cancel')}
+                </button>
+                <button
+                  onClick={handleDeleteConfirm}
+                  disabled={deleting}
+                  className="px-3 py-1.5 rounded-lg text-xs font-bold bg-rose-500/20 border border-rose-500/30 text-rose-400 hover:bg-rose-500/30 cursor-pointer transition disabled:opacity-50"
+                >
+                  {deleting ? t('common.loading') : t('admin.users.deleteBtn')}
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   )
+}
+
+function formatDate(dateStr: string): string {
+  try {
+    const d = new Date(dateStr)
+    return d.toLocaleDateString('en-CA', { year: 'numeric', month: '2-digit', day: '2-digit' })
+  } catch {
+    return dateStr
+  }
 }
 
 function StatsTabPlaceholder({ isLight }: { isLight: boolean }) {

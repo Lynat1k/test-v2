@@ -9,6 +9,7 @@ export interface AuthUser {
   subscriptionStatus: string
   subscriptionPaidAt: string
   subscriptionExpiresAt: string
+  chartCompressionLocked?: boolean
 }
 
 interface AuthResponse {
@@ -35,6 +36,7 @@ interface ProfileData {
   subscriptionPaidAt: string
   subscriptionExpiresAt: string
   daysLeft: number
+  chartCompressionLocked?: boolean
 }
 
 const BASE = '/api/v1'
