@@ -27,8 +27,6 @@ export interface ApiClusterRow {
   AskVolume: number;
 }
 
-const IMBALANCE_RATIO = 1.8;
-
 function parseCandleOpen(ts: string): number {
   return new Date(ts).getTime();
 }
@@ -80,14 +78,6 @@ function apiRowsToCells(rows: ApiClusterRow[]): ClusterCell[] {
 
   if (pocIdx >= 0) {
     cells[pocIdx]!.isPoc = true;
-  }
-
-  const avgVolume =
-    cells.length > 0 ? cells.reduce((s, c) => s + c.volume, 0) / cells.length : 0;
-
-  for (const cell of cells) {
-    cell.isBuyImbalance = cell.ask > cell.bid * IMBALANCE_RATIO && cell.volume > avgVolume * 0.3;
-    cell.isSellImbalance = cell.bid > cell.ask * IMBALANCE_RATIO && cell.volume > avgVolume * 0.3;
   }
 
   return cells.sort((a, b) => b.price - a.price);

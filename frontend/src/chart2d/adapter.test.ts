@@ -86,12 +86,10 @@ describe("adapter", () => {
     expect(c.vah).toBeGreaterThanOrEqual(c.val);
   });
 
-  it("detects buy/sell imbalance correctly", () => {
+  it("does not set imbalance flags (ClusterChart computes locally)", () => {
     const candles = [makeCandle({ CandleOpen: "2024-01-15T10:30:00Z" })];
     const ts = new Date("2024-01-15T10:30:00Z").getTime();
 
-    // ask > bid * 1.8 = buy imbalance at 43075
-    // bid > ask * 1.8 = sell imbalance at 43090
     const rows: ApiClusterRow[] = [
       makeRow({ PriceLevel: 43090, BidVolume: 20, AskVolume: 2 }),
       makeRow({ PriceLevel: 43080, BidVolume: 4, AskVolume: 4 }),
@@ -102,18 +100,12 @@ describe("adapter", () => {
     const result = adapter(candles, clusterMap);
     const c = result[0]!;
 
-    const buyImb = c.cells.find((cell) => cell.isBuyImbalance);
-    const sellImb = c.cells.find((cell) => cell.isSellImbalance);
-
-    expect(buyImb).toBeDefined();
-    expect(buyImb!.price).toBe(43075);
-
-    expect(sellImb).toBeDefined();
-    expect(sellImb!.price).toBe(43090);
-
-    const neutral = c.cells.find((cell) => cell.price === 43080);
-    expect(neutral!.isBuyImbalance).toBe(false);
-    expect(neutral!.isSellImbalance).toBe(false);
+    // ClusterChart computes diagonal imbalance locally with ratio 3.0
+    // adapter must NOT pre-compute these flags
+    for (const cell of c.cells) {
+      expect(cell.isBuyImbalance).toBe(false);
+      expect(cell.isSellImbalance).toBe(false);
+    }
   });
 
   it("handles empty candle array", () => {
