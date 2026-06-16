@@ -1263,15 +1263,19 @@ export default function ClusterChart({
         const csMedMaxVolume = typeof csSettings.csMedMaxVolume === "number" ? csSettings.csMedMaxVolume : 500;
         const csMedMinSize = typeof csSettings.csMedMinSize === "number" ? csSettings.csMedMinSize : 4;
         const csMedMaxSize = typeof csSettings.csMedMaxSize === "number" ? csSettings.csMedMaxSize : 12;
+        const csMedShape = csSettings.csMedShape || "circle";
         const csMedColorBid = csSettings.csMedColorBid || "#ef4444";
         const csMedColorAsk = csSettings.csMedColorAsk || "#10b981";
+        const csMedOpacity = typeof csSettings.csMedOpacity === "number" ? csSettings.csMedOpacity : 0.70;
         
         // Large Filter
         const csLargeMinVolume = typeof csSettings.csLargeMinVolume === "number" ? csSettings.csLargeMinVolume : 500;
         const csLargeMinSize = typeof csSettings.csLargeMinSize === "number" ? csSettings.csLargeMinSize : 10;
         const csLargeMaxSize = typeof csSettings.csLargeMaxSize === "number" ? csSettings.csLargeMaxSize : 20;
+        const csLargeShape = csSettings.csLargeShape || "rhombus";
         const csLargeColorBid = csSettings.csLargeColorBid || "#f43f5e";
         const csLargeColorAsk = csSettings.csLargeColorAsk || "#34d399";
+        const csLargeOpacity = typeof csSettings.csLargeOpacity === "number" ? csSettings.csLargeOpacity : 0.90;
 
         // Check neighboring candles for overlapping geometric elements
         const startC = Math.max(0, colIdx - 1);
@@ -2786,6 +2790,8 @@ export default function ClusterChart({
 
         const deltaMidY = deltaPanelHeight / 2;
         const maxBarScaledHeight = deltaPanelHeight * 0.45;
+        const deltaShowLabels = deltaSettings.showLabels !== false;
+        const deltaSensitivity = typeof deltaSettings.sensitivity === "number" ? deltaSettings.sensitivity : 5;
 
         // Axis
         ctx.beginPath();
@@ -2798,52 +2804,54 @@ export default function ClusterChart({
         const barHeight = Math.max(2, (Math.abs(candle.delta) / zoomedMaxCandleDelta) * maxBarScaledHeight);
         const dStyles = deltaIndicator.getDeltaStyle(candle.delta, isLight);
 
-        if (deltaPlotType === "candles") {
-          const scaleFactor = maxBarScaledHeight / Math.max(0.001, zoomedMaxWickValue);
-          const ask = (candle.volume + candle.delta) / 2;
-          const bid = (candle.volume - candle.delta) / 2;
+        if (Math.abs(candle.delta) >= deltaSensitivity) {
+          if (deltaPlotType === "candles") {
+            const scaleFactor = maxBarScaledHeight / Math.max(0.001, zoomedMaxWickValue);
+            const ask = (candle.volume + candle.delta) / 2;
+            const bid = (candle.volume - candle.delta) / 2;
 
-          const yOpen = deltaMidY;
-          const yClose = deltaMidY - candle.delta * scaleFactor;
-          const yHigh = deltaMidY - ask * scaleFactor;
-          const yLow = deltaMidY + bid * scaleFactor;
+            const yOpen = deltaMidY;
+            const yClose = deltaMidY - candle.delta * scaleFactor;
+            const yHigh = deltaMidY - ask * scaleFactor;
+            const yLow = deltaMidY + bid * scaleFactor;
 
-          const isBullish = candle.delta >= 0;
+            const isBullish = candle.delta >= 0;
 
-          // Draw wicks
-          ctx.beginPath();
-          ctx.strokeStyle = isBullish 
-            ? (isLight ? "rgba(5, 150, 105, 0.55)" : "rgba(16, 185, 129, 0.65)")
-            : (isLight ? "rgba(220, 38, 38, 0.55)" : "rgba(244, 63, 94, 0.65)");
-          ctx.lineWidth = 1.0;
-          ctx.moveTo(x + candleWidth / 2, yLow);
-          ctx.lineTo(x + candleWidth / 2, yHigh);
-          ctx.stroke();
+            // Draw wicks
+            ctx.beginPath();
+            ctx.strokeStyle = isBullish 
+              ? (isLight ? "rgba(5, 150, 105, 0.55)" : "rgba(16, 185, 129, 0.65)")
+              : (isLight ? "rgba(220, 38, 38, 0.55)" : "rgba(244, 63, 94, 0.65)");
+            ctx.lineWidth = 1.0;
+            ctx.moveTo(x + candleWidth / 2, yLow);
+            ctx.lineTo(x + candleWidth / 2, yHigh);
+            ctx.stroke();
 
-          // Draw body
-          ctx.fillStyle = dStyles.fillStyle;
-          ctx.strokeStyle = isBullish 
-            ? "rgba(16, 185, 129, 0.85)" 
-            : "rgba(244, 63, 94, 0.85)";
-          ctx.lineWidth = 1.2;
+            // Draw body
+            ctx.fillStyle = dStyles.fillStyle;
+            ctx.strokeStyle = isBullish 
+              ? "rgba(16, 185, 129, 0.85)" 
+              : "rgba(244, 63, 94, 0.85)";
+            ctx.lineWidth = 1.2;
 
-          const rectY = Math.min(yOpen, yClose);
-          const rectH = Math.max(2, Math.abs(yClose - yOpen));
-          ctx.fillRect(x + 4, rectY, candleWidth - 8, rectH);
-          ctx.strokeRect(x + 4, rectY, candleWidth - 8, rectH);
-        } else {
-          const barY = candle.delta >= 0 ? deltaMidY - barHeight : deltaMidY;
+            const rectY = Math.min(yOpen, yClose);
+            const rectH = Math.max(2, Math.abs(yClose - yOpen));
+            ctx.fillRect(x + 4, rectY, candleWidth - 8, rectH);
+            ctx.strokeRect(x + 4, rectY, candleWidth - 8, rectH);
+          } else {
+            const barY = candle.delta >= 0 ? deltaMidY - barHeight : deltaMidY;
 
-          // Draw Delta volume bar
-          ctx.fillStyle = dStyles.fillStyle;
-          ctx.strokeStyle = candle.delta >= 0 ? "rgba(16, 185, 129, 0.85)" : "rgba(244, 63, 94, 0.85)";
-          ctx.lineWidth = 1.2;
-          ctx.fillRect(x + 4, barY, candleWidth - 8, barHeight);
-          ctx.strokeRect(x + 4, barY, candleWidth - 8, barHeight);
+            // Draw Delta volume bar
+            ctx.fillStyle = dStyles.fillStyle;
+            ctx.strokeStyle = candle.delta >= 0 ? "rgba(16, 185, 129, 0.85)" : "rgba(244, 63, 94, 0.85)";
+            ctx.lineWidth = 1.2;
+            ctx.fillRect(x + 4, barY, candleWidth - 8, barHeight);
+            ctx.strokeRect(x + 4, barY, candleWidth - 8, barHeight);
+          }
         }
 
         // Delta quantity text label
-        if (candleWidth >= 45) {
+        if (deltaShowLabels && candleWidth >= 45) {
           ctx.font = "bold 8.5px 'Inter', sans-serif";
           ctx.textAlign = "center";
           ctx.fillStyle = dStyles.textStyle;
