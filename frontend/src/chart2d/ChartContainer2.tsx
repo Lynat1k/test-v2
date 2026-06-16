@@ -1,4 +1,5 @@
 import type { CandleMode, VolumeMode } from '@/chart-engine'
+import type { Indicator } from '@/chart2d/types'
 import { useAuthContext } from '@/features/auth/AuthContext'
 import ClusterChartAdapter from './ClusterChartAdapter'
 import type { ClusterChartAdapterProps } from './ClusterChartAdapter'
@@ -13,6 +14,7 @@ interface ChartContainer2Props {
   compression: number
   palette: 'default' | 'alternative'
   layoutMode: 'single' | 'horizontal' | 'vertical'
+  indicators?: Indicator[] | undefined
   activeIndicators: Record<string, boolean>
   onToggleIndicator: (id: string) => void
   onToggleVisibility: (id: string) => void
@@ -45,7 +47,7 @@ const LAYOUT_MAP: Record<string, '1' | '2h' | '2v'> = {
 
 export function ChartContainer2({
   symbol, market, timeframe, mode, volumeMode, palette,
-  layoutMode, activeIndicators, onToggleIndicator, onToggleVisibility, onRemoveIndicator, onShowIndicatorsSettings,
+  layoutMode, indicators, activeIndicators, onToggleIndicator, onToggleVisibility, onRemoveIndicator, onShowIndicatorsSettings,
   onLayoutChange,
 }: ChartContainer2Props) {
   const { accessToken } = useAuthContext()
@@ -59,6 +61,7 @@ export function ChartContainer2({
         candleType={MODE_MAP[mode] ?? 'auto'}
         candleDataType={VOLUME_MAP[volumeMode] ?? 'bid_ask'}
         candlePalette={palette}
+        indicators={indicators}
         activeIndicators={activeIndicators}
         onToggleIndicator={onToggleIndicator}
         onToggleVisibility={onToggleVisibility}

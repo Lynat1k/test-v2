@@ -364,6 +364,7 @@ function AppShell() {
                           compression={slot0.compression}
                           palette={slot0.palette}
                           layoutMode={layoutMode}
+                          indicators={indicators}
                           activeIndicators={activeIndicators}
                             onToggleIndicator={onToggleIndicator}
                             onToggleVisibility={onToggleVisibility}
@@ -410,6 +411,7 @@ function AppShell() {
                             compression={slot0.compression}
                             palette={slot0.palette}
                             layoutMode={layoutMode}
+                            indicators={indicators}
                             activeIndicators={activeIndicators}
                             onToggleIndicator={onToggleIndicator}
                             onToggleVisibility={onToggleVisibility}
@@ -458,6 +460,7 @@ function AppShell() {
                             compression={slot1.compression}
                             palette={slot1.palette}
                             layoutMode={layoutMode}
+                            indicators={indicators}
                             activeIndicators={activeIndicators}
                             onToggleIndicator={onToggleIndicator}
                             onToggleVisibility={onToggleVisibility}
@@ -510,6 +513,7 @@ function AppShell() {
                             compression={slot0.compression}
                             palette={slot0.palette}
                             layoutMode={layoutMode}
+                            indicators={indicators}
                             activeIndicators={activeIndicators}
                             onToggleIndicator={onToggleIndicator}
                             onToggleVisibility={onToggleVisibility}
@@ -558,6 +562,7 @@ function AppShell() {
                             compression={slot1.compression}
                             palette={slot1.palette}
                             layoutMode={layoutMode}
+                            indicators={indicators}
                             activeIndicators={activeIndicators}
                             onToggleIndicator={onToggleIndicator}
                             onToggleVisibility={onToggleVisibility}

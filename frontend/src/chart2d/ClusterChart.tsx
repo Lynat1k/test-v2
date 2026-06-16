@@ -32,7 +32,6 @@ interface ClusterChartProps {
   activePair: CryptoPair;
   indicators?: Indicator[];
   activeIndicators?: Record<string, boolean>;
-  indicatorSettings?: Record<string, any>;
   marketType?: "SPOT" | "FUTURES";
   onToggleMarketType?: () => void;
   theme?: "dark" | "light";
@@ -64,7 +63,6 @@ export default function ClusterChart({
     stackedImbalance: false,
     depthOfMarket: false
   },
-  indicatorSettings,
   marketType = "SPOT",
   onToggleMarketType,
   theme = "dark",
@@ -95,6 +93,11 @@ export default function ClusterChart({
     window.addEventListener("resize", handleResize);
     return () => window.removeEventListener("resize", handleResize);
   }, []);
+
+  const indicatorSettings = useMemo(() => {
+    if (!indicators) return undefined
+    return Object.fromEntries(indicators.map(i => [i.id, i.settings]))
+  }, [indicators])
 
   // CVD indicator specific settings
   const cvdSettings = indicatorSettings?.cvd || {};

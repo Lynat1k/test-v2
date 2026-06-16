@@ -24,6 +24,7 @@ export interface ClusterChartAdapterProps {
   candleType?: "auto" | "japanese" | "footprint" | "clusters";
   candleDataType?: "bid_ask" | "delta" | "volume";
   candlePalette?: "default" | "alternative";
+  indicators?: import("@/chart2d/types").Indicator[] | undefined;
   activeIndicators?: Record<string, boolean>;
   onToggleIndicator?: (id: string) => void;
   onToggleVisibility?: (id: string) => void;
@@ -71,6 +72,7 @@ export default function ClusterChartAdapter({
   candleType = "auto",
   candleDataType = "bid_ask",
   candlePalette = "default",
+  indicators,
   activeIndicators,
   onToggleIndicator,
   onToggleVisibility,
@@ -259,6 +261,7 @@ export default function ClusterChartAdapter({
     <ClusterChart
       candles={candles}
       activePair={activePair}
+      {...(indicators ? { indicators } : {})}
       {...(activeIndicators ? { activeIndicators } : {})}
       {...(onToggleIndicator ? { onToggleIndicator } : {})}
       {...(onToggleVisibility ? { onToggleVisibility } : {})}
