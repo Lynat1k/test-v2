@@ -193,9 +193,6 @@ export default function ClusterChartAdapter({
 
         if (!cancelled) {
           const adapted = adapter(apiCandles, clusterMap);
-          if (adapted.length > 0) {
-            requestedOldestRef.current = adapted[0]!.timestamp;
-          }
           setCandles(adapted);
         }
       } catch (err: any) {
