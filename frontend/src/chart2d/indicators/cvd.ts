@@ -13,7 +13,8 @@ export const cvdIndicator: IndicatorModule & {
   calculateCVD: (
     candles: ClusterCandle[],
     period?: "all" | "day" | "week" | "month" | "visible",
-    visibleStartIdx?: number
+    visibleStartIdx?: number,
+    smoothing?: number
   ) => {
     value: number;
     timestamp: number;
@@ -37,9 +38,9 @@ export const cvdIndicator: IndicatorModule & {
   },
   isActiveDefault: true,
 
-  calculateCVD: (candles: ClusterCandle[], period = "all", visibleStartIdx = 0) => {
+  calculateCVD: (candles: ClusterCandle[], period = "all", visibleStartIdx = 0, smoothing = 10) => {
     let runningSum = 0;
-    return candles.map((candle, idx) => {
+    const raw = candles.map((candle, idx) => {
       const priorCandle = idx > 0 ? candles[idx - 1]! : null;
       let shouldReset = false;
 
@@ -77,18 +78,38 @@ export const cvdIndicator: IndicatorModule & {
       runningSum += candle.delta;
       const closeVal = runningSum;
 
-      const deltaAbs = Math.abs(candle.delta);
-      const highVal = Math.max(openVal, closeVal) + deltaAbs * 0.15;
-      const lowVal = Math.min(openVal, closeVal) - deltaAbs * 0.15;
-
       return {
         value: closeVal,
         timestamp: candle.timestamp,
         open: openVal,
-        high: highVal,
-        low: lowVal,
+        high: 0,
+        low: 0,
         close: closeVal
       };
     });
+
+    if (smoothing <= 1) return raw;
+
+    const windowSize = Math.max(1, Math.floor(smoothing));
+    const smoothed: typeof raw = [];
+    let windowSum = 0;
+    for (let i = 0; i < raw.length; i++) {
+      const cur = raw[i]!;
+      windowSum += cur.value;
+      if (i >= windowSize) windowSum -= raw[i - windowSize]!.value;
+      const count = Math.min(i + 1, windowSize);
+      const avg = windowSum / count;
+      const prevClose = smoothed.length > 0 ? smoothed[smoothed.length - 1]!.close : avg;
+      const deltaAbs = Math.abs(avg - prevClose);
+      smoothed.push({
+        value: avg,
+        timestamp: cur.timestamp,
+        open: prevClose,
+        high: Math.max(prevClose, avg) + deltaAbs * 0.15,
+        low: Math.min(prevClose, avg) - deltaAbs * 0.15,
+        close: avg
+      });
+    }
+    return smoothed;
   }
 };

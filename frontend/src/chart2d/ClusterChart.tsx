@@ -104,6 +104,7 @@ export default function ClusterChart({
   const cvdPeriod = cvdSettings.cvdPeriod || "all";
   const cvdLineColor = cvdSettings.cvdLineColor || "#a855f7";
   const cvdPlotType = cvdSettings.cvdPlotType || "line";
+  const cvdSmoothing = typeof cvdSettings.smoothing === "number" ? cvdSettings.smoothing : 10;
 
   // Delta indicator specific settings
   const deltaSettings = indicatorSettings?.delta || {};
@@ -1574,14 +1575,18 @@ export default function ClusterChart({
   }, [candles]);
 
   // Generate Cumulative Delta Line Coordinates (memoized)
+  // Heavy CVD calculation — depends only on data, not scroll position
+  const rawCvdValues = useMemo(() => {
+    return cvdIndicator.calculateCVD(candles, cvdPeriod, 0, cvdSmoothing);
+  }, [candles, cvdPeriod, cvdSmoothing]);
+
+  // Light coordinate mapping — recalculates on scroll/zoom but skips heavy CVD math
   const cumulativeDeltaPoints = useMemo(() => {
-    const startIdx = Math.max(0, Math.floor((visibleScrollLeft - margin.left - candleWidth) / (candleWidth + candleSpacing)));
-    const rawCvd = cvdIndicator.calculateCVD(candles, cvdPeriod, startIdx);
-    return rawCvd.map((item, i) => {
+    return rawCvdValues.map((item, i) => {
       const cx = margin.left + i * (candleWidth + candleSpacing) + candleWidth / 2;
       return { cx, value: item.value, open: item.open, high: item.high, low: item.low, close: item.close };
     });
-  }, [candles, candleWidth, candleSpacing, cvdPeriod, visibleScrollLeft, margin.left]);
+  }, [rawCvdValues, candleWidth, candleSpacing, margin.left]);
 
   // Dynamically calculate visible min and max cumulative delta for local auto-scaling to fill 80% height
   const { minCumDeltaVal, maxCumDeltaVal, cvdDeltaRange } = useMemo(() => {
