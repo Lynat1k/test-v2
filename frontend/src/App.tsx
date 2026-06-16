@@ -322,7 +322,7 @@ function AppShell() {
       </AnimatePresence>
 
       {/* Main content */}
-      <div className="flex-1 overflow-hidden flex flex-col">
+      <div className="flex-1 overflow-hidden flex flex-col p-1 sm:p-2 gap-1.5 sm:gap-2">
         {currentView === 'terminal' && (
           <div className="flex-1 flex flex-col h-full">
             {/* Chart header controls */}
@@ -331,8 +331,8 @@ function AppShell() {
             </div>
 
             {/* Chart area */}
-              <div ref={chartAreaRef} className="flex-1 flex relative overflow-hidden">
-                <div className={`flex-1 relative overflow-hidden ${activeMobileTab === 'dom' ? 'hidden lg:flex' : ''}`}>
+              <div ref={chartAreaRef} className="flex-1 flex relative overflow-hidden gap-3 lg:gap-5">
+                <div className={`flex-1 relative overflow-hidden min-h-0 min-w-0 ${activeMobileTab === 'dom' ? 'hidden lg:flex' : ''}`}>
                   {layoutMode === 'single' && (
                     <div className="absolute inset-0">
                       {useCanvas2d ? (
@@ -499,7 +499,7 @@ function AppShell() {
                     </div>
                   )}
                 </div>
-                <div className={`${activeMobileTab === 'chart' ? 'hidden lg:block shrink-0' : 'max-lg:flex-1 lg:shrink-0 max-lg:[&>div]:!w-full'}`}>
+                <div className={`relative flex min-h-0 flex-col transition-all duration-300 ease-in-out shrink-0 min-w-[24px] ${activeMobileTab === 'chart' ? 'hidden lg:block' : 'max-lg:flex-1 lg:shrink-0 max-lg:[&>div]:!w-full'}`}>
                   <DOMSidebar />
                 </div>
               </div>
