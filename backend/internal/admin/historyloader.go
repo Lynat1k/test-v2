@@ -693,6 +693,13 @@ func parseAggTradeCSV(reader io.Reader, symbol, market string) ([]model.Trade, e
 			continue
 		}
 
+		// Binance Vision spot aggTrade CSV stores timestamps in microseconds,
+		// futures in milliseconds. Convert to ms for spot.
+		// SEE ALSO: internal/history/csvparser.go:133 (same rule)
+		if market == "spot" {
+			timestampMs /= 1000
+		}
+
 		var isBuyerMaker bool
 		if market == "futures" {
 			val := strings.TrimSpace(record[6])

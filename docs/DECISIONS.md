@@ -3,6 +3,14 @@
 > Сюда пишем решения, которые меняют или фиксируют архитектуру/правила.
 > Новые — сверху. Если решение противоречит спеке — сначала обнови спеку.
 
+### [2026-06-16] Spot CSV timestamp: µs→ms в обоих парсерах
+- Контекст: Binance Vision хранит spot aggTrade timestamp в микросекундах, futures — в миллисекундах. Парсер CLI (`history/csvparser.go:133`) учитывал это (`/1000`), но парсер админки (`admin/historyloader.go:691-713`) — нет, что привело к записи 3.5M строк с битым `candle_open = 1900-01-01` в `clusters_spot`.
+- Решение:
+  - Добавлено `timestampMs /= 1000` для spot в `admin/historyloader.go:698-700`.
+  - Добавлена валидация `CandleOpen` перед INSERT в `clickhouse.go:136-139` (отсекает Year < 2009 || Year > 2100).
+  - Cross-reference комментарии: `history/csvparser.go:133` → `admin/historyloader.go` и обратно.
+- Правило на будущее: **Оба парсера должны синхронно обрабатывать µs→ms конвертацию для spot.** При изменении одного — менять другой.
+
 ### [2026-06-15] Фаза 12 Этап 2.1: tier_policies в БД + рефактор лимитов с трёхуровневым fallback
 - Контекст: Session limits (guest=1/free=1/pro=2/vip=2/admin=-1) и history gating (guest=7d/free=180d/pro+=unlimited) были захардкожены в AuthConfig и switch. Нужна БД для динамического управления через админку.
 - Решение:

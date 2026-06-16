@@ -31,7 +31,7 @@ function parseCandleOpen(ts: string): number {
   return new Date(ts).getTime();
 }
 
-function computeValueArea(cells: ClusterCell[]): { vah: number; val: number } {
+export function computeValueArea(cells: ClusterCell[]): { vah: number; val: number } {
   const totalVolume = cells.reduce((s, c) => s + c.volume, 0);
   if (totalVolume === 0 || cells.length === 0) {
     return { vah: 0, val: 0 };
@@ -53,7 +53,7 @@ function computeValueArea(cells: ClusterCell[]): { vah: number; val: number } {
   };
 }
 
-function apiRowsToCells(rows: ApiClusterRow[]): ClusterCell[] {
+export function apiRowsToCells(rows: ApiClusterRow[]): ClusterCell[] {
   if (!rows || rows.length === 0) return [];
 
   // Merge rows with the same PriceLevel by summing bid/ask/volume
@@ -102,33 +102,35 @@ export function adapter(
 ): ClusterCandle[] {
   if (!candles || candles.length === 0) return [];
 
-  return candles.map((raw) => {
-    const timestamp = parseCandleOpen(raw.CandleOpen);
-    const rows = clusterMap.get(timestamp);
-    const cells = rows ? apiRowsToCells(rows) : [];
+  return candles
+    .map((raw) => {
+      const timestamp = parseCandleOpen(raw.CandleOpen);
+      const rows = clusterMap.get(timestamp);
+      const cells = rows ? apiRowsToCells(rows) : [];
 
-    const pocCell = cells.find((c) => c.isPoc);
-    const pocPrice = pocCell ? pocCell.price : (raw.Open + raw.Close) / 2;
+      const pocCell = cells.find((c) => c.isPoc);
+      const pocPrice = pocCell ? pocCell.price : (raw.Open + raw.Close) / 2;
 
-    const { vah, val } = cells.length > 0
-      ? computeValueArea(cells)
-      : { vah: raw.High, val: raw.Low };
+      const { vah, val } = cells.length > 0
+        ? computeValueArea(cells)
+        : { vah: raw.High, val: raw.Low };
 
-    return {
-      timestamp,
-      open: raw.Open,
-      high: raw.High,
-      low: raw.Low,
-      close: raw.Close,
-      volume: raw.TotalVolume,
-      delta: raw.TotalDelta,
-      pocPrice,
-      cells,
-      vah,
-      val,
-      ...(raw.TradesCount > 0 ? { tickCount: raw.TradesCount } : {}),
-    } as ClusterCandle;
-  });
+      return {
+        timestamp,
+        open: raw.Open,
+        high: raw.High,
+        low: raw.Low,
+        close: raw.Close,
+        volume: raw.TotalVolume,
+        delta: raw.TotalDelta,
+        pocPrice,
+        cells,
+        vah,
+        val,
+        ...(raw.TradesCount > 0 ? { tickCount: raw.TradesCount } : {}),
+      } as ClusterCandle;
+    })
+    .sort((a, b) => a.timestamp - b.timestamp);
 }
 
 export function mergeLiveUpdate(

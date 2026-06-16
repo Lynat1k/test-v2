@@ -130,7 +130,7 @@ func parseRecord(record []string, market MarketType, lineNum int) (*model.Trade,
 		if err != nil {
 			return nil, fmt.Errorf("parse timestamp: %w", err)
 		}
-		timestampMs = timestampRaw / 1000
+		timestampMs = timestampRaw / 1000 // SEE ALSO: admin/historyloader.go parseAggTradeCSV (same µs→ms rule for spot)
 
 		isBuyerMaker = parseBoolFlexible(strings.TrimSpace(record[6]))
 	}

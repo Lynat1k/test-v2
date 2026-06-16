@@ -337,8 +337,8 @@ func TestParseAggTradeCSV_WithHeader(t *testing.T) {
 }
 
 func TestParseAggTradeCSV_Spot(t *testing.T) {
-	csv := `123456,42000.5,0.001,1000,1005,1697000000000,True,0.001
-123457,42001.0,0.002,1006,1010,1697000060000,False,0.002
+	csv := `123456,42000.5,0.001,1000,1005,1697000000000000,True,0.001
+123457,42001.0,0.002,1006,1010,1697000060000000,False,0.002
 `
 
 	trades, err := parseAggTradeCSV(strings.NewReader(csv), "BTCUSDT", "spot")

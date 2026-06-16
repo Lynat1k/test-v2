@@ -133,6 +133,10 @@ func (r *ClickhouseRepository) InsertClusterBatch(ctx context.Context, rows []mo
 	}
 
 	for _, row := range rows {
+		if row.CandleOpen.IsZero() || row.CandleOpen.Year() < 2009 || row.CandleOpen.Year() > 2100 {
+			log.Printf("[clickhouse] skipping row with invalid candle_open %v (symbol=%s timeframe=%s)", row.CandleOpen, row.Symbol, row.Timeframe)
+			continue
+		}
 		if err := batch.Append(
 			row.Symbol,
 			row.Timeframe,

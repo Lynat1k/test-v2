@@ -46,6 +46,8 @@ interface ClusterChartProps {
   onWorkspaceLayoutChange?: (layout: "1" | "2h" | "2v") => void;
   workspacesCount?: number;
   orderBook?: OrderBook;
+  onNeedHistory?: (oldestTimestamp: number) => void;
+  onVisibleTimestampsChange?: (timestamps: number[]) => void;
 }
 
 export default function ClusterChart({
@@ -74,7 +76,9 @@ export default function ClusterChart({
   workspaceLayout,
   onWorkspaceLayoutChange,
   workspacesCount = 1,
-  orderBook
+  orderBook,
+  onNeedHistory,
+  onVisibleTimestampsChange
 }: ClusterChartProps) {
   
   const isLight = theme === "light";
@@ -277,6 +281,63 @@ export default function ClusterChart({
   useEffect(() => {
     priceCenterOffsetRef.current = priceCenterOffset;
   }, [priceCenterOffset]);
+
+  // Refs for history-on-scroll and cluster-on-scroll
+  const prevCandlesLengthRef = useRef(0);
+  const lastRequestedOldestRef = useRef(0);
+  const lastVisibleTimestampsRef = useRef<string>('');
+  const visibleTimestampsTimerRef = useRef<ReturnType<typeof setTimeout>>();
+
+  // Adjust scrollLeft after history prepend to prevent viewport jump
+  useEffect(() => {
+    const prevLen = prevCandlesLengthRef.current;
+    const currLen = candles.length;
+    if (currLen > prevLen && prevLen > 0 && containerRef.current) {
+      const added = currLen - prevLen;
+      const spacing = Math.max(1, candleWidth < 30 ? Math.floor(candleWidth * 0.35) : 12);
+      containerRef.current.scrollLeft += added * (candleWidth + spacing);
+    }
+    prevCandlesLengthRef.current = currLen;
+  }, [candles.length, candleWidth]);
+
+  // Fire onNeedHistory when scroll approaches the left edge
+  useEffect(() => {
+    if (!onNeedHistory || candles.length === 0) return;
+    const spacing = Math.max(1, candleWidth < 30 ? Math.floor(candleWidth * 0.35) : 12);
+    const firstVisibleIdx = Math.floor((visibleScrollLeft - margin.left) / (candleWidth + spacing));
+    const oldest = candles[0].timestamp;
+    if (firstVisibleIdx < 100 && oldest !== lastRequestedOldestRef.current) {
+      lastRequestedOldestRef.current = oldest;
+      onNeedHistory(oldest);
+    }
+  }, [visibleScrollLeft, candleWidth, onNeedHistory, candles]);
+
+  // Fire onVisibleTimestampsChange (debounced) when visible candles change
+  useEffect(() => {
+    if (!onVisibleTimestampsChange || candles.length === 0) return;
+    const spacing = Math.max(1, candleWidth < 30 ? Math.floor(candleWidth * 0.35) : 12);
+    const firstIdx = Math.max(0, Math.floor((visibleScrollLeft - margin.left) / (candleWidth + spacing)));
+    const visibleCount = Math.ceil((visibleClientWidth || 800) / (candleWidth + spacing)) + 2;
+    const timestamps: number[] = [];
+    for (let i = firstIdx; i < Math.min(firstIdx + visibleCount, candles.length); i++) {
+      timestamps.push(candles[i].timestamp);
+    }
+    const key = timestamps.join(',');
+    if (key === lastVisibleTimestampsRef.current) return;
+    lastVisibleTimestampsRef.current = key;
+
+    if (visibleTimestampsTimerRef.current) clearTimeout(visibleTimestampsTimerRef.current);
+    visibleTimestampsTimerRef.current = setTimeout(() => {
+      onVisibleTimestampsChange(timestamps);
+    }, 300);
+  }, [visibleScrollLeft, visibleClientWidth, candleWidth, onVisibleTimestampsChange, candles]);
+
+  // Cleanup visible timestamps timer on unmount
+  useEffect(() => {
+    return () => {
+      if (visibleTimestampsTimerRef.current) clearTimeout(visibleTimestampsTimerRef.current);
+    };
+  }, []);
 
   // States and refs for interactive vertical scroll/zoom dragging on the price scale
   const [isDraggingPriceScale, setIsDraggingPriceScale] = useState(false);

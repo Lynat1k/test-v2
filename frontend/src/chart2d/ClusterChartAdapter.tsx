@@ -1,8 +1,11 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import ClusterChart from "./ClusterChart";
-import { adapter } from "./adapter";
+import { adapter, apiRowsToCells } from "./adapter";
 import type { ClusterCandle } from "./types";
 import type { ApiCandle, ApiClusterRow } from "./adapter";
+
+const BATCH_SIZE = 100;
+const PARALLEL_LIMIT = 3;
 
 export interface ClusterChartAdapterProps {
   symbol: string;
@@ -57,12 +60,119 @@ export default function ClusterChartAdapter({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  const allHistoryLoadedRef = useRef(false);
+  const historyLoadingRef = useRef(false);
+  const clusterLoadedTsRef = useRef<Set<number>>(new Set());
+  const requestedOldestRef = useRef(0);
+
+  useEffect(() => {
+    allHistoryLoadedRef.current = false;
+    historyLoadingRef.current = false;
+    clusterLoadedTsRef.current = new Set();
+    requestedOldestRef.current = 0;
+  }, [symbol, market, timeframe]);
+
+  const fetchClustersBatch = useCallback(async (timestamps: number[]): Promise<Map<number, ApiClusterRow[]>> => {
+    const clusterMap = new Map<number, ApiClusterRow[]>();
+    const unloaded = timestamps.filter(t => !clusterLoadedTsRef.current.has(t));
+    if (unloaded.length === 0) return clusterMap;
+
+    const chunks: number[][] = [];
+    for (let i = 0; i < unloaded.length; i += BATCH_SIZE) {
+      chunks.push(unloaded.slice(i, i + BATCH_SIZE));
+    }
+
+    for (let i = 0; i < chunks.length; i += PARALLEL_LIMIT) {
+      const batch = chunks.slice(i, i + PARALLEL_LIMIT);
+      await Promise.all(batch.map(async (chunk) => {
+        const candleOpens = chunk.join(',');
+        try {
+          const resp = await fetch(
+            `/api/v1/candles/${symbol}/clusters-batch?timeframe=${timeframe}&candleOpens=${candleOpens}`,
+            { headers: authHeaders(accessToken) }
+          );
+          if (!resp.ok) return;
+          const data = await resp.json();
+          if (data.ok && data.data?.clusters) {
+            for (const [ts, levels] of Object.entries(data.data.clusters)) {
+              const tsNum = Number(ts);
+              clusterLoadedTsRef.current.add(tsNum);
+              clusterMap.set(tsNum, levels as ApiClusterRow[]);
+            }
+          }
+        } catch (err) {
+          console.warn('[chart2d] clusters-batch fetch failed:', err);
+        }
+      }));
+    }
+    return clusterMap;
+  }, [symbol, market, timeframe, accessToken]);
+
+  const handleNeedHistory = useCallback(async (oldestTimestamp: number) => {
+    if (allHistoryLoadedRef.current || historyLoadingRef.current) return;
+    if (oldestTimestamp === requestedOldestRef.current) return;
+    requestedOldestRef.current = oldestTimestamp;
+    historyLoadingRef.current = true;
+
+    try {
+      const url = `/api/v1/candles?symbol=${symbol}&market=${market}&timeframe=${timeframe}&limit=200&before=${oldestTimestamp - 1}`;
+      const res = await fetch(url, { headers: authHeaders(accessToken) });
+      const data = await res.json();
+
+      if (!data.ok || !data.data?.candles || data.data.candles.length === 0) {
+        allHistoryLoadedRef.current = true;
+        return;
+      }
+
+      const apiCandles: ApiCandle[] = data.data.candles;
+      const clusterMap = await fetchClustersBatch(
+        apiCandles.map((c: ApiCandle) => new Date(c.CandleOpen).getTime())
+      );
+      const adapted = adapter(apiCandles, clusterMap);
+
+      setCandles(prev => {
+        const prevFirstTs = prev.length > 0 ? prev[0]!.timestamp : Infinity;
+        const unique = adapted.filter((c: ClusterCandle) => c.timestamp < prevFirstTs);
+        if (unique.length === 0) {
+          allHistoryLoadedRef.current = true;
+          return prev;
+        }
+        const merged = [...unique, ...prev].sort((a, b) => a.timestamp - b.timestamp);
+        requestedOldestRef.current = merged[0]!.timestamp;
+        return merged;
+      });
+    } catch (err) {
+      console.warn('[chart2d] history fetch failed:', err);
+    } finally {
+      historyLoadingRef.current = false;
+    }
+  }, [symbol, market, timeframe, accessToken, fetchClustersBatch]);
+
+  const handleVisibleTimestampsChange = useCallback((timestamps: number[]) => {
+    fetchClustersBatch(timestamps).then(clusterMap => {
+      if (clusterMap.size === 0) return;
+      setCandles(prev => prev.map(c => {
+        const levels = clusterMap.get(c.timestamp);
+        if (!levels) return c;
+        const cells = apiRowsToCells(levels);
+        const pocCell = cells.find(cell => cell.isPoc);
+        return {
+          ...c,
+          cells,
+          pocPrice: pocCell ? pocCell.price : (c.open + c.close) / 2,
+        } as ClusterCandle;
+      }));
+    });
+  }, [fetchClustersBatch]);
+
   useEffect(() => {
     let cancelled = false;
 
     async function load() {
       setLoading(true);
       setError(null);
+      allHistoryLoadedRef.current = false;
+      historyLoadingRef.current = false;
 
       try {
         const candleUrl = `/api/v1/candles?symbol=${symbol}&market=${market}&timeframe=${timeframe}&limit=200`;
@@ -79,45 +189,13 @@ export default function ClusterChartAdapter({
           new Date(c.CandleOpen).getTime()
         );
 
-        const clusterMap = new Map<number, ApiClusterRow[]>();
-        const BATCH_SIZE = 100;
-        const PARALLEL_LIMIT = 3;
-
-        const chunks: number[][] = [];
-        for (let i = 0; i < timestamps.length; i += BATCH_SIZE) {
-          chunks.push(timestamps.slice(i, i + BATCH_SIZE));
-        }
-
-        for (let i = 0; i < chunks.length; i += PARALLEL_LIMIT) {
-          const batch = chunks.slice(i, i + PARALLEL_LIMIT);
-          await Promise.all(batch.map(async (chunk) => {
-            const candleOpens = chunk.join(',');
-            try {
-              const resp = await fetch(
-                `/api/v1/candles/${symbol}/clusters-batch?timeframe=${timeframe}&candleOpens=${candleOpens}`,
-                { headers: authHeaders(accessToken) }
-              );
-              if (!resp.ok) {
-                const body = await resp.text().catch(() => '');
-                console.warn(`[chart2d] clusters-batch HTTP ${resp.status}: ${body}`);
-                return;
-              }
-              const clusterData = await resp.json();
-              if (clusterData.ok && clusterData.data?.clusters) {
-                for (const [ts, levels] of Object.entries(clusterData.data.clusters)) {
-                  clusterMap.set(Number(ts), levels as ApiClusterRow[]);
-                }
-              } else {
-                console.warn('[chart2d] clusters-batch API error:', clusterData.error);
-              }
-            } catch (err) {
-              console.warn('[chart2d] clusters-batch fetch failed:', err);
-            }
-          }));
-        }
+        const clusterMap = await fetchClustersBatch(timestamps);
 
         if (!cancelled) {
           const adapted = adapter(apiCandles, clusterMap);
+          if (adapted.length > 0) {
+            requestedOldestRef.current = adapted[0]!.timestamp;
+          }
           setCandles(adapted);
         }
       } catch (err: any) {
@@ -157,6 +235,8 @@ export default function ClusterChartAdapter({
       candleDataType={candleDataType}
       candlePalette={candlePalette}
       language={language}
+      onNeedHistory={handleNeedHistory}
+      onVisibleTimestampsChange={handleVisibleTimestampsChange}
     />
   );
 
