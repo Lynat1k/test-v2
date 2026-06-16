@@ -13,6 +13,7 @@ import { UserProfile } from '@/components/UserProfile'
 import { AdminPanel } from '@/components/AdminPanel'
 import { ChartContainer } from '@/components/ChartContainer'
 import { ChartPanel } from '@/components/ChartPanel'
+import { ChartContainer2 } from '@/chart2d/ChartContainer2'
 import { ChartHeader } from '@/components/ChartHeader'
 import { Splitter } from '@/components/Splitter'
 import { DOMSidebar } from '@/components/DOMSidebar'
@@ -27,6 +28,7 @@ function AppShell() {
   const { t } = useTranslation()
   const { showIndicatorsModal, setShowIndicatorsModal, getSlot, activeSlot, setActiveSlot } = useChartControls()
   const { layoutMode, splitRatio, setSplitRatio } = useLayout()
+  const useCanvas2d = import.meta.env['VITE_USE_CANVAS2D'] === 'true'
   const [currentView, setCurrentView] = useState<View>('terminal')
   const [fps, setFps] = useState(0)
   const handleFpsChange = useCallback((f: number) => setFps(f), [])
@@ -116,29 +118,19 @@ function AppShell() {
               <div className="flex-1 relative overflow-hidden">
                 {layoutMode === 'single' && (
                   <div className="absolute inset-0">
-                    <ChartContainer
-                      symbol={slot0.symbol}
-                      market={slot0.market}
-                      timeframe={slot0.timeframe}
-                      chartIndex={0}
-                      mode={slot0.candleMode}
-                      volumeMode={slot0.volumeMode}
-                      compression={slot0.compression}
-                      palette={slot0.palette}
-                      onFpsChange={handleFpsChange}
-                      onResolvedModeChange={handleResolvedModeChange}
-                    />
-                  </div>
-                )}
-
-                {layoutMode === 'horizontal' && (
-                  <div className="absolute inset-0 flex">
-                    <div
-                      style={{ width: `${splitRatio * 100}%` }}
-                      className={`h-full overflow-hidden ${activeSlot === 0 ? 'ring-1 ring-amber-500/40' : ''}`}
-                      onClick={() => setActiveSlot(0)}
-                    >
-                      <ChartPanel
+                    {useCanvas2d ? (
+                      <ChartContainer2
+                        symbol={slot0.symbol}
+                        market={slot0.market}
+                        timeframe={slot0.timeframe}
+                        chartIndex={0}
+                        mode={slot0.candleMode}
+                        volumeMode={slot0.volumeMode}
+                        compression={slot0.compression}
+                        palette={slot0.palette}
+                      />
+                    ) : (
+                      <ChartContainer
                         symbol={slot0.symbol}
                         market={slot0.market}
                         timeframe={slot0.timeframe}
@@ -150,6 +142,42 @@ function AppShell() {
                         onFpsChange={handleFpsChange}
                         onResolvedModeChange={handleResolvedModeChange}
                       />
+                    )}
+                  </div>
+                )}
+
+                {layoutMode === 'horizontal' && (
+                  <div className="absolute inset-0 flex">
+                    <div
+                      style={{ width: `${splitRatio * 100}%` }}
+                      className={`h-full overflow-hidden ${activeSlot === 0 ? 'ring-1 ring-amber-500/40' : ''}`}
+                      onClick={() => setActiveSlot(0)}
+                    >
+                      {useCanvas2d ? (
+                        <ChartContainer2
+                          symbol={slot0.symbol}
+                          market={slot0.market}
+                          timeframe={slot0.timeframe}
+                          chartIndex={0}
+                          mode={slot0.candleMode}
+                          volumeMode={slot0.volumeMode}
+                          compression={slot0.compression}
+                          palette={slot0.palette}
+                        />
+                      ) : (
+                        <ChartPanel
+                          symbol={slot0.symbol}
+                          market={slot0.market}
+                          timeframe={slot0.timeframe}
+                          chartIndex={0}
+                          mode={slot0.candleMode}
+                          volumeMode={slot0.volumeMode}
+                          compression={slot0.compression}
+                          palette={slot0.palette}
+                          onFpsChange={handleFpsChange}
+                          onResolvedModeChange={handleResolvedModeChange}
+                        />
+                      )}
                     </div>
                     <Splitter direction="horizontal" onDrag={handleSplitterDrag} />
                     <div
@@ -157,18 +185,31 @@ function AppShell() {
                       className={`h-full overflow-hidden ${activeSlot === 1 ? 'ring-1 ring-amber-500/40' : ''}`}
                       onClick={() => setActiveSlot(1)}
                     >
-                      <ChartPanel
-                        symbol={slot1.symbol}
-                        market={slot1.market}
-                        timeframe={slot1.timeframe}
-                        chartIndex={1}
-                        mode={slot1.candleMode}
-                        volumeMode={slot1.volumeMode}
-                        compression={slot1.compression}
-                        palette={slot1.palette}
-                        onFpsChange={handleFpsChange}
-                        onResolvedModeChange={handleResolvedModeChange}
-                      />
+                      {useCanvas2d ? (
+                        <ChartContainer2
+                          symbol={slot1.symbol}
+                          market={slot1.market}
+                          timeframe={slot1.timeframe}
+                          chartIndex={1}
+                          mode={slot1.candleMode}
+                          volumeMode={slot1.volumeMode}
+                          compression={slot1.compression}
+                          palette={slot1.palette}
+                        />
+                      ) : (
+                        <ChartPanel
+                          symbol={slot1.symbol}
+                          market={slot1.market}
+                          timeframe={slot1.timeframe}
+                          chartIndex={1}
+                          mode={slot1.candleMode}
+                          volumeMode={slot1.volumeMode}
+                          compression={slot1.compression}
+                          palette={slot1.palette}
+                          onFpsChange={handleFpsChange}
+                          onResolvedModeChange={handleResolvedModeChange}
+                        />
+                      )}
                     </div>
                   </div>
                 )}
@@ -180,18 +221,31 @@ function AppShell() {
                       className={`w-full overflow-hidden ${activeSlot === 0 ? 'ring-1 ring-amber-500/40' : ''}`}
                       onClick={() => setActiveSlot(0)}
                     >
-                      <ChartPanel
-                        symbol={slot0.symbol}
-                        market={slot0.market}
-                        timeframe={slot0.timeframe}
-                        chartIndex={0}
-                        mode={slot0.candleMode}
-                        volumeMode={slot0.volumeMode}
-                        compression={slot0.compression}
-                        palette={slot0.palette}
-                        onFpsChange={handleFpsChange}
-                        onResolvedModeChange={handleResolvedModeChange}
-                      />
+                      {useCanvas2d ? (
+                        <ChartContainer2
+                          symbol={slot0.symbol}
+                          market={slot0.market}
+                          timeframe={slot0.timeframe}
+                          chartIndex={0}
+                          mode={slot0.candleMode}
+                          volumeMode={slot0.volumeMode}
+                          compression={slot0.compression}
+                          palette={slot0.palette}
+                        />
+                      ) : (
+                        <ChartPanel
+                          symbol={slot0.symbol}
+                          market={slot0.market}
+                          timeframe={slot0.timeframe}
+                          chartIndex={0}
+                          mode={slot0.candleMode}
+                          volumeMode={slot0.volumeMode}
+                          compression={slot0.compression}
+                          palette={slot0.palette}
+                          onFpsChange={handleFpsChange}
+                          onResolvedModeChange={handleResolvedModeChange}
+                        />
+                      )}
                     </div>
                     <Splitter direction="vertical" onDrag={handleSplitterDrag} />
                     <div
@@ -199,18 +253,31 @@ function AppShell() {
                       className={`w-full overflow-hidden ${activeSlot === 1 ? 'ring-1 ring-amber-500/40' : ''}`}
                       onClick={() => setActiveSlot(1)}
                     >
-                      <ChartPanel
-                        symbol={slot1.symbol}
-                        market={slot1.market}
-                        timeframe={slot1.timeframe}
-                        chartIndex={1}
-                        mode={slot1.candleMode}
-                        volumeMode={slot1.volumeMode}
-                        compression={slot1.compression}
-                        palette={slot1.palette}
-                        onFpsChange={handleFpsChange}
-                        onResolvedModeChange={handleResolvedModeChange}
-                      />
+                      {useCanvas2d ? (
+                        <ChartContainer2
+                          symbol={slot1.symbol}
+                          market={slot1.market}
+                          timeframe={slot1.timeframe}
+                          chartIndex={1}
+                          mode={slot1.candleMode}
+                          volumeMode={slot1.volumeMode}
+                          compression={slot1.compression}
+                          palette={slot1.palette}
+                        />
+                      ) : (
+                        <ChartPanel
+                          symbol={slot1.symbol}
+                          market={slot1.market}
+                          timeframe={slot1.timeframe}
+                          chartIndex={1}
+                          mode={slot1.candleMode}
+                          volumeMode={slot1.volumeMode}
+                          compression={slot1.compression}
+                          palette={slot1.palette}
+                          onFpsChange={handleFpsChange}
+                          onResolvedModeChange={handleResolvedModeChange}
+                        />
+                      )}
                     </div>
                   </div>
                 )}

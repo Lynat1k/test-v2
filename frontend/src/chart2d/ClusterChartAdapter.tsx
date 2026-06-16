@@ -12,6 +12,7 @@ export interface ClusterChartAdapterProps {
   candleDataType?: "bid_ask" | "delta" | "volume";
   candlePalette?: "default" | "alternative";
   language?: "RU" | "EN" | "KZ";
+  accessToken?: string | null;
 }
 
 function estimatePriceStep(symbol: string): number {
@@ -38,6 +39,10 @@ function makePair(symbol: string, _market: string) {
   };
 }
 
+function authHeaders(token?: string | null): Record<string, string> {
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
 export default function ClusterChartAdapter({
   symbol,
   market,
@@ -46,6 +51,7 @@ export default function ClusterChartAdapter({
   candleDataType = "bid_ask",
   candlePalette = "default",
   language = "RU",
+  accessToken,
 }: ClusterChartAdapterProps) {
   const [candles, setCandles] = useState<ClusterCandle[]>([]);
   const [loading, setLoading] = useState(true);
@@ -60,7 +66,7 @@ export default function ClusterChartAdapter({
 
       try {
         const candleUrl = `/api/v1/candles?symbol=${symbol}&market=${market}&timeframe=${timeframe}&limit=200`;
-        const candleRes = await fetch(candleUrl);
+        const candleRes = await fetch(candleUrl, { headers: authHeaders(accessToken) });
         const candleData = await candleRes.json();
 
         if (!candleData.ok) {
@@ -88,7 +94,8 @@ export default function ClusterChartAdapter({
             const candleOpens = chunk.join(',');
             try {
               const resp = await fetch(
-                `/api/v1/candles/${symbol}/clusters-batch?timeframe=${timeframe}&candleOpens=${candleOpens}`
+                `/api/v1/candles/${symbol}/clusters-batch?timeframe=${timeframe}&candleOpens=${candleOpens}`,
+                { headers: authHeaders(accessToken) }
               );
               if (!resp.ok) {
                 const body = await resp.text().catch(() => '');
