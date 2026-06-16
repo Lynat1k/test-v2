@@ -113,6 +113,7 @@ func (h *AdminHandler) RegisterAdminRoutes(mux *http.ServeMux) {
 	mux.Handle("POST /api/v1/admin/history/download", wrap(h.handleStartDownload))
 	mux.Handle("GET /api/v1/admin/history/jobs", wrap(h.handleGetJobs))
 	mux.Handle("GET /api/v1/admin/history/jobs/{id}", wrap(h.handleGetJobStatus))
+	mux.Handle("POST /api/v1/admin/history/clear-jobs", wrap(h.handleClearJobs))
 
 	// Billing
 	mux.Handle("GET /api/v1/admin/billing", wrap(h.handleGetBilling))
@@ -453,6 +454,11 @@ func (h *AdminHandler) handleGetJobStatus(w http.ResponseWriter, r *http.Request
 	}
 
 	writeJSON(w, http.StatusOK, adminResponse{OK: true, Data: job})
+}
+
+func (h *AdminHandler) handleClearJobs(w http.ResponseWriter, r *http.Request) {
+	h.jobRegistry.ClearJobs()
+	writeJSON(w, http.StatusOK, adminResponse{OK: true, Data: "cleared"})
 }
 
 // --- Users ---

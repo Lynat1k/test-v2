@@ -19,7 +19,7 @@ import {
   Download,
   RefreshCw,
 } from 'lucide-react'
-import { apiGetMetrics, apiGetMetricsHistory, apiGetTickers, apiAddTicker, apiUpdateTicker, apiDeleteTicker, apiGetCompressions, apiUpsertCompressions, apiStartDownload, apiGetJobs, apiGetUserStats, apiListUsers, apiCreateUser, apiUpdateUserRole, apiDeleteUser, type ServerMetrics, type MetricsHistoryPoint, type Ticker, type DefaultCompression, type DownloadJob, type UserListItem, type UserStats } from '@/features/admin/api'
+import { apiGetMetrics, apiGetMetricsHistory, apiGetTickers, apiAddTicker, apiUpdateTicker, apiDeleteTicker, apiGetCompressions, apiUpsertCompressions, apiStartDownload, apiGetJobs, apiClearJobs, apiGetUserStats, apiListUsers, apiCreateUser, apiUpdateUserRole, apiDeleteUser, type ServerMetrics, type MetricsHistoryPoint, type Ticker, type DefaultCompression, type DownloadJob, type UserListItem, type UserStats } from '@/features/admin/api'
 
 type AdminTab = 'server' | 'database' | 'users' | 'stats'
 
@@ -802,6 +802,8 @@ function HistoryBlock({ isLight }: { isLight: boolean }) {
   const [jobs, setJobs] = useState<DownloadJob[]>([])
   const [submitting, setSubmitting] = useState(false)
   const [startErr, setStartErr] = useState<string | null>(null)
+  const [clearing, setClearing] = useState(false)
+  const [clearErr, setClearErr] = useState<string | null>(null)
 
   const fetchTickers = useCallback(async () => {
     try {
@@ -903,10 +905,36 @@ function HistoryBlock({ isLight }: { isLight: boolean }) {
       <div className="flex-1 overflow-y-auto rounded-xl border p-3 space-y-2 text-xs font-mono min-h-0 max-h-[400px] xl:max-h-none">
         <div className="flex items-center justify-between mb-2">
           <span className="text-[10px] font-bold font-mono text-slate-400 uppercase">{t('admin.database.jobs')}</span>
-          <button onClick={fetchJobs} className={`p-1 rounded cursor-pointer ${isLight ? 'hover:bg-slate-100 text-slate-500' : 'hover:bg-white/5 text-slate-400'}`}>
-            <RefreshCw className="w-3 h-3" />
-          </button>
+          <div className="flex items-center gap-1">
+            <button onClick={fetchJobs} className={`p-1 rounded cursor-pointer ${isLight ? 'hover:bg-slate-100 text-slate-500' : 'hover:bg-white/5 text-slate-400'}`}>
+              <RefreshCw className="w-3 h-3" />
+            </button>
+            <button
+              onClick={async () => {
+                setClearing(true)
+                setClearErr(null)
+                try {
+                  await apiClearJobs()
+                  await fetchJobs()
+                } catch (e: any) {
+                  setClearErr(e?.message || JSON.stringify(e))
+                }
+                setClearing(false)
+              }}
+              disabled={jobs.length === 0 || clearing || !navigator.onLine}
+              className={`p-1 rounded cursor-pointer transition-colors text-xs font-bold ${
+                clearing ? 'opacity-50 cursor-not-allowed' : ''
+              } ${isLight ? 'hover:bg-red-100 text-red-500' : 'hover:bg-red-500/10 text-red-400'}`}
+            >
+              {clearing ? '...' : <Trash2 className="w-3 h-3" />}
+            </button>
+          </div>
         </div>
+        {clearErr && (
+          <div className="px-2 py-1.5 rounded-lg bg-red-500/10 border border-red-500/20 text-red-400 text-[10px] font-mono mb-2">
+            {clearErr}
+          </div>
+        )}
         {jobs.length === 0 ? (
           <div className="text-slate-400 text-center py-6">{t('admin.database.noData')}</div>
         ) : (

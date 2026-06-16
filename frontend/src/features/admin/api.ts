@@ -203,6 +203,10 @@ export async function apiGetJobs(): Promise<DownloadJob[]> {
   return request<DownloadJob[]>('/admin/history/jobs')
 }
 
+export async function apiClearJobs(): Promise<void> {
+  await request('/admin/history/clear-jobs', { method: 'POST' })
+}
+
 // --- Billing ---
 
 export interface PaymentRecord {

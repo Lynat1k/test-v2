@@ -129,7 +129,7 @@ export function ChartHeader({ fps = 0 }: ChartHeaderProps) {
             onClick={() => setMarket(m)}
             className={`px-2.5 py-1 rounded-md text-[10px] font-black uppercase tracking-wider cursor-pointer transition-all ${
               market === m
-                ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30 shadow-sm'
+                ? 'bg-yellow-500/10 border border-yellow-500/25 text-yellow-500 font-extrabold shadow-inner'
                 : 'text-slate-500 hover:text-slate-300 border border-transparent'
             }`}
           >
@@ -148,7 +148,7 @@ export function ChartHeader({ fps = 0 }: ChartHeaderProps) {
             onClick={() => setTimeframe(tf)}
             className={`px-2 py-1 rounded-md text-[10px] font-bold font-mono cursor-pointer transition-all ${
               timeframe === tf
-                ? 'bg-white/15 text-white border border-white/10'
+                ? 'bg-yellow-500/10 border border-yellow-500/25 text-yellow-500 font-extrabold shadow-inner'
                 : 'text-slate-500 hover:text-slate-300 hover:bg-white/5 border border-transparent'
             }`}
           >
@@ -168,7 +168,7 @@ export function ChartHeader({ fps = 0 }: ChartHeaderProps) {
             title={t(labelKey)}
             className={`flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-bold cursor-pointer transition-all ${
               candleMode === mode
-                ? 'bg-white/15 text-white border border-white/10'
+                ? 'bg-yellow-500/10 border border-yellow-500/25 text-yellow-500 font-extrabold shadow-inner'
                 : 'text-slate-500 hover:text-slate-300 hover:bg-white/5 border border-transparent'
             }`}
           >
@@ -186,7 +186,7 @@ export function ChartHeader({ fps = 0 }: ChartHeaderProps) {
           onClick={() => handlePaletteChange('default')}
           className={`flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-bold cursor-pointer transition-all ${
             palette === 'default'
-              ? 'bg-white/15 text-white border border-white/10'
+              ? 'bg-yellow-500/10 border border-yellow-500/25 text-yellow-500 font-extrabold shadow-inner'
               : 'text-slate-500 hover:text-slate-300 border border-transparent'
           }`}
         >
@@ -200,7 +200,7 @@ export function ChartHeader({ fps = 0 }: ChartHeaderProps) {
           onClick={() => handlePaletteChange('alternative')}
           className={`flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-bold cursor-pointer transition-all ${
             palette === 'alternative'
-              ? 'bg-white/15 text-white border border-white/10'
+              ? 'bg-yellow-500/10 border border-yellow-500/25 text-yellow-500 font-extrabold shadow-inner'
               : 'text-slate-500 hover:text-slate-300 border border-transparent'
           }`}
         >
@@ -223,7 +223,7 @@ export function ChartHeader({ fps = 0 }: ChartHeaderProps) {
                 onClick={() => setVolumeMode(mode)}
                 className={`px-2 py-1 rounded-md text-[10px] font-bold cursor-pointer transition-all ${
                   volumeMode === mode
-                    ? 'bg-white/15 text-white border border-white/10'
+                    ? 'bg-yellow-500/10 border border-yellow-500/25 text-yellow-500 font-extrabold shadow-inner'
                     : 'text-slate-500 hover:text-slate-300 border border-transparent'
                 }`}
               >
@@ -280,7 +280,7 @@ export function ChartHeader({ fps = 0 }: ChartHeaderProps) {
             title={label}
             className={`flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-bold cursor-pointer transition-all ${
               layoutMode === mode
-                ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30'
+                ? 'bg-yellow-500/10 border border-yellow-500/25 text-yellow-500 font-extrabold shadow-inner'
                 : 'text-slate-500 hover:text-slate-300 hover:bg-white/5 border border-transparent'
             }`}
           >
@@ -300,7 +300,7 @@ export function ChartHeader({ fps = 0 }: ChartHeaderProps) {
               data-testid={`slot-${i}`}
               className={`px-2 py-1 rounded-md text-[10px] font-bold cursor-pointer transition-all ${
                 activeSlot === i
-                  ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30'
+                  ? 'bg-yellow-500/10 border border-yellow-500/25 text-yellow-500 font-extrabold shadow-inner'
                   : 'text-slate-500 hover:text-slate-300 hover:bg-white/5 border border-transparent'
               }`}
             >

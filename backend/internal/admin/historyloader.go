@@ -49,6 +49,7 @@ type JobRegistry struct {
 	jobs        map[string]*DownloadJob
 	db          *sql.DB
 	cancelFuncs map[string]context.CancelFunc
+	cleared     bool
 }
 
 func NewJobRegistry(db *sql.DB) *JobRegistry {
@@ -97,6 +98,7 @@ func (r *JobRegistry) CreateJob(symbol, market, startDate, endDate string) *Down
 
 	r.mu.Lock()
 	r.jobs[job.ID] = job
+	r.cleared = false
 	r.mu.Unlock()
 
 	_, err := r.db.Exec(
@@ -190,8 +192,15 @@ func (r *JobRegistry) UpdateJob(job *DownloadJob) {
 	job.UpdatedAt = time.Now().UTC()
 
 	r.mu.Lock()
-	r.jobs[job.ID] = job
+	cleared := r.cleared
+	if !cleared {
+		r.jobs[job.ID] = job
+	}
 	r.mu.Unlock()
+
+	if cleared {
+		return
+	}
 
 	_, err := r.db.Exec(
 		`UPDATE download_jobs SET status=?, progress=?, step_detail=?, error=?, total_ticks=?, updated_at=?, completed_at=? WHERE id=?`,
@@ -209,6 +218,21 @@ func (r *JobRegistry) StartDownload(chRepo HistoryClickHouse, tickerSymbol strin
 	r.cancelFuncs[job.ID] = cancel
 	r.mu.Unlock()
 	go r.downloadWorker(workerCtx, chRepo, config, job)
+}
+
+func (r *JobRegistry) ClearJobs() {
+	r.mu.Lock()
+	for _, cancel := range r.cancelFuncs {
+		cancel()
+	}
+	r.jobs = make(map[string]*DownloadJob)
+	r.cancelFuncs = make(map[string]context.CancelFunc)
+	r.cleared = true
+	r.mu.Unlock()
+
+	if _, err := r.db.Exec(`DELETE FROM download_jobs`); err != nil {
+		log.Printf("[jobregistry] clear jobs db: %v", err)
+	}
 }
 
 func (r *JobRegistry) CancelJob(id string) {

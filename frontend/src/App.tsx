@@ -2,7 +2,8 @@ import { useState, useCallback, useRef, useEffect } from 'react'
 import { ThemeProvider } from '@/contexts/ThemeContext'
 import { I18nProvider, useTranslation } from '@/i18n'
 import { CandlePaletteProvider } from '@/contexts/CandlePaletteContext'
-import { ChartControlsProvider, useChartControls } from '@/contexts/ChartControlsContext'
+import { ChartControlsProvider, useChartControls, AVAILABLE_TICKERS, TIMEFRAMES_BY_MARKET } from '@/contexts/ChartControlsContext'
+import type { MarketType } from '@/contexts/ChartControlsContext'
 import { LayoutProvider, useLayout } from '@/contexts/LayoutContext'
 import { UserSettingsProvider } from '@/contexts/UserSettingsContext'
 import { AuthProvider } from '@/features/auth/AuthContext'
@@ -20,14 +21,14 @@ import { UserDropdown } from '@/components/UserDropdown'
 import RoadmapModal from '@/components/RoadmapModal'
 import { Splitter } from '@/components/Splitter'
 import { DOMSidebar } from '@/components/DOMSidebar'
-import type { CandleMode } from '@/chart-engine'
-import { Sparkles } from 'lucide-react'
+import type { CandleMode, VolumeMode } from '@/chart-engine'
+import { Sparkles, Sliders, X, Layers } from 'lucide-react'
 import { AnimatePresence, motion } from 'motion/react'
 
 type View = 'terminal' | 'admin' | 'profile'
 
 function AppShell() {
-  const { showIndicatorsModal, setShowIndicatorsModal, getSlot, activeSlot, setActiveSlot } = useChartControls()
+  const { showIndicatorsModal, setShowIndicatorsModal, getSlot, activeSlot, setActiveSlot, setSymbol, setMarket, setTimeframe, setCandleMode, setVolumeMode, setPalette, setCompression, getTickerConfig } = useChartControls()
   const { layoutMode, splitRatio, setSplitRatio } = useLayout()
   const useCanvas2d = import.meta.env['VITE_USE_CANVAS2D'] === 'true'
   const [currentView, setCurrentView] = useState<View>('terminal')
@@ -37,6 +38,8 @@ function AppShell() {
   const [loginOpen, setLoginOpen] = useState(false)
   const [registerOpen, setRegisterOpen] = useState(false)
   const [isRoadmapOpen, setIsRoadmapOpen] = useState(false)
+  const [activeMobileTab, setActiveMobileTab] = useState<'chart' | 'dom'>('chart')
+  const [isMobileSettingsOpen, setIsMobileSettingsOpen] = useState(false)
   const { language } = useTranslation()
 
   const chartAreaRef = useRef<HTMLDivElement>(null)
@@ -63,214 +66,443 @@ function AppShell() {
       <VerifyEmailBanner />
 
       {/* Main app header */}
-      <header className="flex items-center justify-between px-2 py-2 sm:px-6 sm:py-3 border-b border-white/10 shrink-0 relative z-[1100] bg-slate-950/45 backdrop-blur-md">
-        <div className="flex items-center gap-2 relative z-10">
-          <Logo />
-          <button
-            onClick={() => setIsRoadmapOpen(true)}
-            className="ml-1 group flex items-center gap-1.5 px-3 py-1.5 rounded-full border text-[10px] font-black uppercase tracking-widest cursor-pointer transition-all duration-300 hover:scale-105 active:scale-98 select-none bg-amber-500/10 hover:bg-amber-500/20 border-amber-500/30 text-amber-500 shadow-md shadow-amber-500/5 animate-pulse"
-            style={{ animationDuration: '2.5s' }}
-          >
-            <Sparkles className="w-3.5 h-3.5 text-amber-500 group-hover:scale-110 group-hover:rotate-12 transition-transform duration-300" />
-            <span>BETA</span>
-          </button>
-        </div>
-        <div className="flex items-center gap-2 relative z-10">
-          {currentView !== 'terminal' && (
+      <header className="shrink-0 relative z-[1100] bg-slate-950/45 backdrop-blur-md">
+        {/* First row */}
+        <div className="flex items-center justify-between px-2 py-2 sm:px-6 sm:py-3 border-b border-white/10">
+          <div className="flex items-center gap-2 relative z-10">
+            <Logo />
             <button
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border cursor-pointer hover:scale-105 active:scale-95 transition-all text-xs font-bold leading-none select-none bg-slate-950/40 hover:bg-slate-900/60 border-white/5 text-slate-300 hover:text-white shadow-inner"
-              onClick={() => setCurrentView('terminal')}
+              onClick={() => setIsRoadmapOpen(true)}
+              className="ml-1 hidden lg:flex group items-center gap-1.5 px-3 py-1.5 rounded-full border text-[10px] font-black uppercase tracking-widest cursor-pointer transition-all duration-300 hover:scale-105 active:scale-98 select-none bg-amber-500/10 hover:bg-amber-500/20 border-amber-500/30 text-amber-500 shadow-md shadow-amber-500/5 animate-pulse"
+              style={{ animationDuration: '2.5s' }}
             >
-              Terminal
+              <Sparkles className="w-3.5 h-3.5 text-amber-500 group-hover:scale-110 group-hover:rotate-12 transition-transform duration-300" />
+              <span>BETA</span>
             </button>
-          )}
-          <UserDropdown
-            onOpenProfile={() => setCurrentView('profile')}
-            onOpenAdmin={() => setCurrentView('admin')}
-            onOpenLogin={() => setLoginOpen(true)}
-            onOpenHome={() => setCurrentView('terminal')}
-          />
+          </div>
+          <div className="flex items-center gap-2 relative z-10">
+            {currentView !== 'terminal' && (
+              <button
+                className="hidden lg:flex items-center gap-1.5 px-3 py-1.5 rounded-xl border cursor-pointer hover:scale-105 active:scale-95 transition-all text-xs font-bold leading-none select-none bg-slate-950/40 hover:bg-slate-900/60 border-white/5 text-slate-300 hover:text-white shadow-inner"
+                onClick={() => setCurrentView('terminal')}
+              >
+                Terminal
+              </button>
+            )}
+            <UserDropdown
+              onOpenProfile={() => setCurrentView('profile')}
+              onOpenAdmin={() => setCurrentView('admin')}
+              onOpenLogin={() => setLoginOpen(true)}
+              onOpenHome={() => setCurrentView('terminal')}
+            />
+          </div>
+        </div>
+
+        {/* Mobile second row: settings toggle + Chart/DOM tabs */}
+        <div className="flex lg:hidden w-full items-center justify-between gap-2.5 px-2 sm:px-6 pb-2 pt-1.5 border-t border-white/5 relative z-10">
+          <button
+            onClick={() => setIsMobileSettingsOpen(!isMobileSettingsOpen)}
+            className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 px-2 rounded-lg border text-[10px] font-black uppercase tracking-wider cursor-pointer transition-all duration-200 select-none ${
+              isMobileSettingsOpen
+                ? 'bg-yellow-500 text-slate-950 border-yellow-500 shadow-sm'
+                : 'bg-yellow-500/10 hover:bg-yellow-500/15 border-yellow-500/20 text-yellow-400 shadow-inner'
+            }`}
+          >
+            {isMobileSettingsOpen ? <X className="w-3.5 h-3.5" /> : <Sliders className="w-3.5 h-3.5" />}
+            <span>{language === 'RU' ? 'Настройки' : language === 'KZ' ? 'Реттеу' : 'Params'}</span>
+          </button>
+
+          <div className="flex items-center p-0.5 rounded-lg border text-[10px] font-bold select-none gap-0.5 bg-slate-900/60 border-white/5">
+            <button
+              onClick={() => setActiveMobileTab('chart')}
+              className={`px-3 py-1 rounded-md transition-all duration-200 cursor-pointer flex items-center gap-1 ${
+                activeMobileTab === 'chart'
+                  ? 'bg-yellow-500/25 border border-yellow-500/30 text-yellow-500 font-extrabold'
+                  : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              <span className="font-bold">{language === 'RU' ? 'ГРАФИК' : language === 'KZ' ? 'ГРАФИКА' : 'CHART'}</span>
+            </button>
+            <button
+              onClick={() => setActiveMobileTab('dom')}
+              className={`px-3 py-1 rounded-md transition-all duration-200 cursor-pointer flex items-center gap-1 ${
+                activeMobileTab === 'dom'
+                  ? 'bg-yellow-500/25 border border-yellow-500/30 text-yellow-500 font-extrabold'
+                  : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              <span className="font-bold">{language === 'RU' ? 'СТАКАН' : language === 'KZ' ? 'СТАКАН' : 'DOM'}</span>
+            </button>
+          </div>
         </div>
       </header>
+
+      {/* Mobile settings panel */}
+      <AnimatePresence>
+        {isMobileSettingsOpen && (
+          <motion.div
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: 'auto' }}
+            exit={{ opacity: 0, height: 0 }}
+            transition={{ type: 'spring', stiffness: 300, damping: 28 }}
+            className="lg:hidden border-b z-40 relative backdrop-blur-xl overflow-hidden select-none shadow-2xl bg-slate-950/95 border-slate-900/60 text-slate-100"
+          >
+            <div className="p-4 flex flex-col gap-4 max-h-[80vh] overflow-y-auto">
+              <div className="flex items-center justify-between border-b border-white/5 pb-2">
+                <span className="text-sm font-black uppercase tracking-wider flex items-center gap-2">
+                  <Sliders className="w-4 h-4 text-yellow-500" />
+                  <span>{language === 'RU' ? 'Настройки графика' : language === 'KZ' ? 'График реттеулері' : 'Chart settings'}</span>
+                </span>
+                <button
+                  onClick={() => setIsMobileSettingsOpen(false)}
+                  className="p-1.5 rounded-lg border transition hover:bg-white/10 border-white/5 text-slate-400"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3.5 sm:grid-cols-3">
+                {(() => {
+                  const active = getSlot(activeSlot)
+                  const tickerInfo = getTickerConfig()
+                  const base = active.market === 'futures' ? tickerInfo.baseFutures : tickerInfo.baseSpot
+                  return (
+                    <>
+                      {/* Ticker */}
+                      <div className="flex flex-col gap-1">
+                        <span className="text-[10px] uppercase font-mono tracking-widest font-bold text-slate-400/80">
+                          {language === 'EN' ? 'Active Ticker' : 'Пара (Ticker)'}
+                        </span>
+                        <select
+                          value={active.symbol}
+                          onChange={(e) => setSymbol(e.target.value)}
+                          className="px-2.5 py-1.5 rounded-lg text-xs font-bold font-mono cursor-pointer h-[35px] border focus:outline-none transition-all duration-200 outline-none w-full bg-slate-900 border-white/5 text-yellow-500"
+                        >
+                          {AVAILABLE_TICKERS.map((p) => (
+                            <option key={p.symbol} value={p.symbol} className="bg-slate-950 text-slate-100">
+                              {p.symbol}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+
+                      {/* Market Type */}
+                      <div className="flex flex-col gap-1">
+                        <span className="text-[10px] uppercase font-mono tracking-widest font-bold text-slate-400/80">
+                          {language === 'EN' ? 'Market Type' : 'Тип рынка (Market)'}
+                        </span>
+                        <div className="grid grid-cols-2 gap-0.5 p-[2px] rounded-lg h-[35px] items-center select-none border bg-slate-950/60 border-white/5">
+                          {(['SPOT', 'FUTURES'] as const).map((type) => {
+                            const mkt: MarketType = type === 'SPOT' ? 'spot' : 'futures'
+                            return (
+                              <button
+                                key={type}
+                                onClick={() => setMarket(mkt)}
+                                className={`py-1 rounded-md text-[10px] font-bold font-mono transition-colors duration-200 cursor-pointer text-center leading-none h-[29px] ${
+                                  active.market === mkt
+                                    ? 'bg-yellow-500/10 border border-yellow-500/25 text-yellow-500 font-extrabold shadow-inner'
+                                    : 'text-slate-400 hover:text-slate-200'
+                                }`}
+                              >
+                                {type}
+                              </button>
+                            )
+                          })}
+                        </div>
+                      </div>
+
+                      {/* Interval */}
+                      <div className="flex flex-col gap-1">
+                        <span className="text-[10px] uppercase font-mono tracking-widest font-bold text-slate-400/80">
+                          {language === 'EN' ? 'Interval' : 'Таймфрейм / Interval'}
+                        </span>
+                        <select
+                          value={active.timeframe}
+                          onChange={(e) => setTimeframe(e.target.value)}
+                          className="px-2.5 py-1.5 rounded-lg text-xs font-bold font-mono cursor-pointer h-[35px] border focus:outline-none transition-all duration-200 outline-none w-full bg-slate-900 border-white/5 text-slate-300 liquid-glass-button"
+                        >
+                          {TIMEFRAMES_BY_MARKET[active.market].map((item) => (
+                            <option key={item} value={item} className="bg-slate-950 text-slate-100">
+                              {item}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+
+                      {/* Candle Type */}
+                      <div className="flex flex-col gap-1">
+                        <span className="text-[10px] uppercase font-mono tracking-widest font-bold text-slate-400/80">
+                          {language === 'EN' ? 'Candle Type' : 'Тип Свечей'}
+                        </span>
+                        <select
+                          value={active.candleMode}
+                          onChange={(e) => setCandleMode(e.target.value as any)}
+                          className="px-2.5 py-1.5 rounded-lg text-xs font-bold font-sans cursor-pointer h-[35px] border focus:outline-none transition-all duration-200 outline-none w-full bg-slate-900 border-white/5 text-slate-300 liquid-glass-button"
+                        >
+                          <option value="auto" className="bg-slate-950 text-slate-100">{language === 'EN' ? 'Auto' : 'Автоматический / Auto'}</option>
+                          <option value="japanese" className="bg-slate-950 text-slate-100">{language === 'EN' ? 'Japanese' : 'Японские / Japanese'}</option>
+                          <option value="bars" className="bg-slate-950 text-slate-100">{language === 'EN' ? 'Bars' : 'Бары / Bars'}</option>
+                          <option value="footprint" className="bg-slate-950 text-slate-100">{language === 'EN' ? 'Footprint' : 'Футпринт / Footprint'}</option>
+                          <option value="clusters" className="bg-slate-950 text-slate-100">{language === 'EN' ? 'Clusters' : 'Кластера / Clusters'}</option>
+                        </select>
+                      </div>
+
+                      {/* Palette */}
+                      <div className="flex flex-col gap-1">
+                        <span className="text-[10px] uppercase font-mono tracking-widest font-bold text-slate-400/80">
+                          {language === 'EN' ? 'Palette' : 'Палитра'}
+                        </span>
+                        <select
+                          value={active.palette}
+                          onChange={(e) => setPalette(e.target.value as any)}
+                          className="px-2.5 py-1.5 rounded-lg text-xs font-bold font-sans cursor-pointer h-[35px] border focus:outline-none transition-all duration-200 outline-none w-full bg-slate-900 border-white/5 text-slate-300 liquid-glass-button"
+                        >
+                          <option value="default" className="bg-slate-950 text-slate-100">{language === 'EN' ? 'Default' : 'Стандарт / Default'}</option>
+                          <option value="alternative" className="bg-slate-950 text-slate-100">{language === 'EN' ? 'Alternative' : 'Альт / Alternative'}</option>
+                        </select>
+                      </div>
+
+                      {/* Candle Data (Volume Mode) */}
+                      <div className="flex flex-col gap-1">
+                        <span className="text-[10px] uppercase font-mono tracking-widest font-bold text-slate-400/80">
+                          {language === 'EN' ? 'Candle Data' : 'Данные свечей'}
+                        </span>
+                        <select
+                          value={active.volumeMode}
+                          onChange={(e) => setVolumeMode(e.target.value as VolumeMode)}
+                          className="px-2.5 py-1.5 rounded-lg text-xs font-bold font-sans cursor-pointer h-[35px] border focus:outline-none transition-all duration-200 outline-none w-full bg-slate-900 border-white/5 text-slate-300 liquid-glass-button"
+                        >
+                          <option value="bidask" className="bg-slate-950 text-slate-100">Bid Ask</option>
+                          <option value="volume" className="bg-slate-950 text-slate-100">{language === 'EN' ? 'Volume' : 'Объем / Volume'}</option>
+                          <option value="delta" className="bg-slate-950 text-slate-100">Delta</option>
+                        </select>
+                      </div>
+
+                      {/* Compression */}
+                      <div className="flex flex-col gap-1">
+                        <span className="text-[10px] uppercase font-mono tracking-widest font-bold text-slate-400/80">
+                          {language === 'EN' ? 'Compression' : 'Сжатие шага'}
+                        </span>
+                        <select
+                          value={active.compression}
+                          onChange={(e) => setCompression(parseInt(e.target.value))}
+                          className="px-2.5 py-1.5 rounded-lg text-xs font-bold font-mono cursor-pointer h-[35px] border focus:outline-none transition-all duration-200 outline-none w-full bg-slate-900 border-white/5 text-slate-300 liquid-glass-button"
+                        >
+                          {[1, 2, 3, 4, 5, 6].map((multiplier) => {
+                            const actualValue = base * multiplier
+                            return (
+                              <option key={multiplier} value={multiplier} className="bg-slate-950 text-slate-100">
+                                {multiplier}x ({actualValue})
+                              </option>
+                            )
+                          })}
+                        </select>
+                      </div>
+
+                      {/* Indicators trigger */}
+                      <div className="flex flex-col gap-1 justify-end">
+                        <button
+                          onClick={() => {
+                            setShowIndicatorsModal(true)
+                            setIsMobileSettingsOpen(false)
+                          }}
+                          className="flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg font-black text-xs cursor-pointer h-[35px] hover:scale-[1.01] active:scale-[0.99] transition-all border liquid-glass-button text-slate-300 hover:text-white border-white/5"
+                        >
+                          <Layers className="w-3.5 h-3.5 text-blue-400 animate-pulse" />
+                          <span>{language === 'EN' ? 'Indicators' : 'Индикаторы'}</span>
+                        </button>
+                      </div>
+                    </>
+                  )
+                })()}
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Main content */}
       <div className="flex-1 overflow-hidden flex flex-col">
         {currentView === 'terminal' && (
           <div className="flex-1 flex flex-col h-full">
             {/* Chart header controls */}
-            <ChartHeader fps={fps} />
+            <div className="hidden lg:block">
+              <ChartHeader fps={fps} />
+            </div>
 
             {/* Chart area */}
-            <div ref={chartAreaRef} className="flex-1 flex relative overflow-hidden">
-              <div className="flex-1 relative overflow-hidden">
-                {layoutMode === 'single' && (
-                  <div className="absolute inset-0">
-                    {useCanvas2d ? (
-                      <ChartContainer2
-                        symbol={slot0.symbol}
-                        market={slot0.market}
-                        timeframe={slot0.timeframe}
-                        chartIndex={0}
-                        mode={slot0.candleMode}
-                        volumeMode={slot0.volumeMode}
-                        compression={slot0.compression}
-                        palette={slot0.palette}
-                      />
-                    ) : (
-                      <ChartContainer
-                        symbol={slot0.symbol}
-                        market={slot0.market}
-                        timeframe={slot0.timeframe}
-                        chartIndex={0}
-                        mode={slot0.candleMode}
-                        volumeMode={slot0.volumeMode}
-                        compression={slot0.compression}
-                        palette={slot0.palette}
-                        onFpsChange={handleFpsChange}
-                        onResolvedModeChange={handleResolvedModeChange}
-                      />
-                    )}
-                  </div>
-                )}
+              <div ref={chartAreaRef} className="flex-1 flex relative overflow-hidden">
+                <div className={`flex-1 relative overflow-hidden ${activeMobileTab === 'dom' ? 'hidden lg:flex' : ''}`}>
+                  {layoutMode === 'single' && (
+                    <div className="absolute inset-0">
+                      {useCanvas2d ? (
+                        <ChartContainer2
+                          symbol={slot0.symbol}
+                          market={slot0.market}
+                          timeframe={slot0.timeframe}
+                          chartIndex={0}
+                          mode={slot0.candleMode}
+                          volumeMode={slot0.volumeMode}
+                          compression={slot0.compression}
+                          palette={slot0.palette}
+                        />
+                      ) : (
+                        <ChartContainer
+                          symbol={slot0.symbol}
+                          market={slot0.market}
+                          timeframe={slot0.timeframe}
+                          chartIndex={0}
+                          mode={slot0.candleMode}
+                          volumeMode={slot0.volumeMode}
+                          compression={slot0.compression}
+                          palette={slot0.palette}
+                          onFpsChange={handleFpsChange}
+                          onResolvedModeChange={handleResolvedModeChange}
+                        />
+                      )}
+                    </div>
+                  )}
 
-                {layoutMode === 'horizontal' && (
-                  <div className="absolute inset-0 flex">
-                    <div
-                      style={{ width: `${splitRatio * 100}%` }}
-                      className={`h-full overflow-hidden ${activeSlot === 0 ? 'ring-1 ring-amber-500/40' : ''}`}
-                      onClick={() => setActiveSlot(0)}
-                    >
-                      {useCanvas2d ? (
-                        <ChartContainer2
-                          symbol={slot0.symbol}
-                          market={slot0.market}
-                          timeframe={slot0.timeframe}
-                          chartIndex={0}
-                          mode={slot0.candleMode}
-                          volumeMode={slot0.volumeMode}
-                          compression={slot0.compression}
-                          palette={slot0.palette}
-                        />
-                      ) : (
-                        <ChartPanel
-                          symbol={slot0.symbol}
-                          market={slot0.market}
-                          timeframe={slot0.timeframe}
-                          chartIndex={0}
-                          mode={slot0.candleMode}
-                          volumeMode={slot0.volumeMode}
-                          compression={slot0.compression}
-                          palette={slot0.palette}
-                          onFpsChange={handleFpsChange}
-                          onResolvedModeChange={handleResolvedModeChange}
-                        />
-                      )}
+                  {layoutMode === 'horizontal' && (
+                    <div className="absolute inset-0 flex">
+                      <div
+                        style={{ width: `${splitRatio * 100}%` }}
+                        className={`h-full overflow-hidden ${activeSlot === 0 ? 'ring-1 ring-amber-500/40' : ''}`}
+                        onClick={() => setActiveSlot(0)}
+                      >
+                        {useCanvas2d ? (
+                          <ChartContainer2
+                            symbol={slot0.symbol}
+                            market={slot0.market}
+                            timeframe={slot0.timeframe}
+                            chartIndex={0}
+                            mode={slot0.candleMode}
+                            volumeMode={slot0.volumeMode}
+                            compression={slot0.compression}
+                            palette={slot0.palette}
+                          />
+                        ) : (
+                          <ChartPanel
+                            symbol={slot0.symbol}
+                            market={slot0.market}
+                            timeframe={slot0.timeframe}
+                            chartIndex={0}
+                            mode={slot0.candleMode}
+                            volumeMode={slot0.volumeMode}
+                            compression={slot0.compression}
+                            palette={slot0.palette}
+                            onFpsChange={handleFpsChange}
+                            onResolvedModeChange={handleResolvedModeChange}
+                          />
+                        )}
+                      </div>
+                      <Splitter direction="horizontal" onDrag={handleSplitterDrag} />
+                      <div
+                        style={{ width: `${(1 - splitRatio) * 100}%` }}
+                        className={`h-full overflow-hidden ${activeSlot === 1 ? 'ring-1 ring-amber-500/40' : ''}`}
+                        onClick={() => setActiveSlot(1)}
+                      >
+                        {useCanvas2d ? (
+                          <ChartContainer2
+                            symbol={slot1.symbol}
+                            market={slot1.market}
+                            timeframe={slot1.timeframe}
+                            chartIndex={1}
+                            mode={slot1.candleMode}
+                            volumeMode={slot1.volumeMode}
+                            compression={slot1.compression}
+                            palette={slot1.palette}
+                          />
+                        ) : (
+                          <ChartPanel
+                            symbol={slot1.symbol}
+                            market={slot1.market}
+                            timeframe={slot1.timeframe}
+                            chartIndex={1}
+                            mode={slot1.candleMode}
+                            volumeMode={slot1.volumeMode}
+                            compression={slot1.compression}
+                            palette={slot1.palette}
+                            onFpsChange={handleFpsChange}
+                            onResolvedModeChange={handleResolvedModeChange}
+                          />
+                        )}
+                      </div>
                     </div>
-                    <Splitter direction="horizontal" onDrag={handleSplitterDrag} />
-                    <div
-                      style={{ width: `${(1 - splitRatio) * 100}%` }}
-                      className={`h-full overflow-hidden ${activeSlot === 1 ? 'ring-1 ring-amber-500/40' : ''}`}
-                      onClick={() => setActiveSlot(1)}
-                    >
-                      {useCanvas2d ? (
-                        <ChartContainer2
-                          symbol={slot1.symbol}
-                          market={slot1.market}
-                          timeframe={slot1.timeframe}
-                          chartIndex={1}
-                          mode={slot1.candleMode}
-                          volumeMode={slot1.volumeMode}
-                          compression={slot1.compression}
-                          palette={slot1.palette}
-                        />
-                      ) : (
-                        <ChartPanel
-                          symbol={slot1.symbol}
-                          market={slot1.market}
-                          timeframe={slot1.timeframe}
-                          chartIndex={1}
-                          mode={slot1.candleMode}
-                          volumeMode={slot1.volumeMode}
-                          compression={slot1.compression}
-                          palette={slot1.palette}
-                          onFpsChange={handleFpsChange}
-                          onResolvedModeChange={handleResolvedModeChange}
-                        />
-                      )}
-                    </div>
-                  </div>
-                )}
+                  )}
 
-                {layoutMode === 'vertical' && (
-                  <div className="absolute inset-0 flex flex-col">
-                    <div
-                      style={{ height: `${splitRatio * 100}%` }}
-                      className={`w-full overflow-hidden ${activeSlot === 0 ? 'ring-1 ring-amber-500/40' : ''}`}
-                      onClick={() => setActiveSlot(0)}
-                    >
-                      {useCanvas2d ? (
-                        <ChartContainer2
-                          symbol={slot0.symbol}
-                          market={slot0.market}
-                          timeframe={slot0.timeframe}
-                          chartIndex={0}
-                          mode={slot0.candleMode}
-                          volumeMode={slot0.volumeMode}
-                          compression={slot0.compression}
-                          palette={slot0.palette}
-                        />
-                      ) : (
-                        <ChartPanel
-                          symbol={slot0.symbol}
-                          market={slot0.market}
-                          timeframe={slot0.timeframe}
-                          chartIndex={0}
-                          mode={slot0.candleMode}
-                          volumeMode={slot0.volumeMode}
-                          compression={slot0.compression}
-                          palette={slot0.palette}
-                          onFpsChange={handleFpsChange}
-                          onResolvedModeChange={handleResolvedModeChange}
-                        />
-                      )}
+                  {layoutMode === 'vertical' && (
+                    <div className="absolute inset-0 flex flex-col">
+                      <div
+                        style={{ height: `${splitRatio * 100}%` }}
+                        className={`w-full overflow-hidden ${activeSlot === 0 ? 'ring-1 ring-amber-500/40' : ''}`}
+                        onClick={() => setActiveSlot(0)}
+                      >
+                        {useCanvas2d ? (
+                          <ChartContainer2
+                            symbol={slot0.symbol}
+                            market={slot0.market}
+                            timeframe={slot0.timeframe}
+                            chartIndex={0}
+                            mode={slot0.candleMode}
+                            volumeMode={slot0.volumeMode}
+                            compression={slot0.compression}
+                            palette={slot0.palette}
+                          />
+                        ) : (
+                          <ChartPanel
+                            symbol={slot0.symbol}
+                            market={slot0.market}
+                            timeframe={slot0.timeframe}
+                            chartIndex={0}
+                            mode={slot0.candleMode}
+                            volumeMode={slot0.volumeMode}
+                            compression={slot0.compression}
+                            palette={slot0.palette}
+                            onFpsChange={handleFpsChange}
+                            onResolvedModeChange={handleResolvedModeChange}
+                          />
+                        )}
+                      </div>
+                      <Splitter direction="vertical" onDrag={handleSplitterDrag} />
+                      <div
+                        style={{ height: `${(1 - splitRatio) * 100}%` }}
+                        className={`w-full overflow-hidden ${activeSlot === 1 ? 'ring-1 ring-amber-500/40' : ''}`}
+                        onClick={() => setActiveSlot(1)}
+                      >
+                        {useCanvas2d ? (
+                          <ChartContainer2
+                            symbol={slot1.symbol}
+                            market={slot1.market}
+                            timeframe={slot1.timeframe}
+                            chartIndex={1}
+                            mode={slot1.candleMode}
+                            volumeMode={slot1.volumeMode}
+                            compression={slot1.compression}
+                            palette={slot1.palette}
+                          />
+                        ) : (
+                          <ChartPanel
+                            symbol={slot1.symbol}
+                            market={slot1.market}
+                            timeframe={slot1.timeframe}
+                            chartIndex={1}
+                            mode={slot1.candleMode}
+                            volumeMode={slot1.volumeMode}
+                            compression={slot1.compression}
+                            palette={slot1.palette}
+                            onFpsChange={handleFpsChange}
+                            onResolvedModeChange={handleResolvedModeChange}
+                          />
+                        )}
+                      </div>
                     </div>
-                    <Splitter direction="vertical" onDrag={handleSplitterDrag} />
-                    <div
-                      style={{ height: `${(1 - splitRatio) * 100}%` }}
-                      className={`w-full overflow-hidden ${activeSlot === 1 ? 'ring-1 ring-amber-500/40' : ''}`}
-                      onClick={() => setActiveSlot(1)}
-                    >
-                      {useCanvas2d ? (
-                        <ChartContainer2
-                          symbol={slot1.symbol}
-                          market={slot1.market}
-                          timeframe={slot1.timeframe}
-                          chartIndex={1}
-                          mode={slot1.candleMode}
-                          volumeMode={slot1.volumeMode}
-                          compression={slot1.compression}
-                          palette={slot1.palette}
-                        />
-                      ) : (
-                        <ChartPanel
-                          symbol={slot1.symbol}
-                          market={slot1.market}
-                          timeframe={slot1.timeframe}
-                          chartIndex={1}
-                          mode={slot1.candleMode}
-                          volumeMode={slot1.volumeMode}
-                          compression={slot1.compression}
-                          palette={slot1.palette}
-                          onFpsChange={handleFpsChange}
-                          onResolvedModeChange={handleResolvedModeChange}
-                        />
-                      )}
-                    </div>
-                  </div>
-                )}
+                  )}
+                </div>
+                <div className={`${activeMobileTab === 'chart' ? 'hidden lg:block shrink-0' : 'max-lg:flex-1 lg:shrink-0 max-lg:[&>div]:!w-full'}`}>
+                  <DOMSidebar />
+                </div>
               </div>
-              <DOMSidebar />
-            </div>
           </div>
         )}
         {currentView === 'admin' && (
