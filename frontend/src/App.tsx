@@ -1,6 +1,6 @@
 import { useState, useCallback, useRef, useEffect } from 'react'
 import { ThemeProvider } from '@/contexts/ThemeContext'
-import { I18nProvider } from '@/i18n'
+import { I18nProvider, useTranslation } from '@/i18n'
 import { CandlePaletteProvider } from '@/contexts/CandlePaletteContext'
 import { ChartControlsProvider, useChartControls } from '@/contexts/ChartControlsContext'
 import { LayoutProvider, useLayout } from '@/contexts/LayoutContext'
@@ -17,9 +17,11 @@ import { ChartContainer2 } from '@/chart2d/ChartContainer2'
 import { ChartHeader } from '@/components/ChartHeader'
 import { Logo } from '@/components/Logo'
 import { UserDropdown } from '@/components/UserDropdown'
+import RoadmapModal from '@/components/RoadmapModal'
 import { Splitter } from '@/components/Splitter'
 import { DOMSidebar } from '@/components/DOMSidebar'
 import type { CandleMode } from '@/chart-engine'
+import { Sparkles } from 'lucide-react'
 import { AnimatePresence, motion } from 'motion/react'
 
 type View = 'terminal' | 'admin' | 'profile'
@@ -34,6 +36,8 @@ function AppShell() {
   const handleResolvedModeChange = useCallback((_m: Exclude<CandleMode, 'auto'>) => {}, [])
   const [loginOpen, setLoginOpen] = useState(false)
   const [registerOpen, setRegisterOpen] = useState(false)
+  const [isRoadmapOpen, setIsRoadmapOpen] = useState(false)
+  const { language } = useTranslation()
 
   const chartAreaRef = useRef<HTMLDivElement>(null)
 
@@ -62,7 +66,14 @@ function AppShell() {
       <header className="flex items-center justify-between px-2 py-2 sm:px-6 sm:py-3 border-b border-white/10 shrink-0 relative z-[1100] bg-slate-950/45 backdrop-blur-md">
         <div className="flex items-center gap-2 relative z-10">
           <Logo />
-          <span className="ml-1 text-[10px] font-mono text-amber-400/70 border border-amber-400/30 rounded px-1.5 py-0.5">BETA</span>
+          <button
+            onClick={() => setIsRoadmapOpen(true)}
+            className="ml-1 group flex items-center gap-1.5 px-3 py-1.5 rounded-full border text-[10px] font-black uppercase tracking-widest cursor-pointer transition-all duration-300 hover:scale-105 active:scale-98 select-none bg-amber-500/10 hover:bg-amber-500/20 border-amber-500/30 text-amber-500 shadow-md shadow-amber-500/5 animate-pulse"
+            style={{ animationDuration: '2.5s' }}
+          >
+            <Sparkles className="w-3.5 h-3.5 text-amber-500 group-hover:scale-110 group-hover:rotate-12 transition-transform duration-300" />
+            <span>BETA</span>
+          </button>
         </div>
         <div className="flex items-center gap-2 relative z-10">
           {currentView !== 'terminal' && (
@@ -296,6 +307,7 @@ function AppShell() {
 
       <LoginModal open={loginOpen} onClose={() => setLoginOpen(false)} onSwitchToRegister={() => { setLoginOpen(false); setRegisterOpen(true) }} />
       <RegisterModal open={registerOpen} onClose={() => setRegisterOpen(false)} onSwitchToLogin={() => { setRegisterOpen(false); setLoginOpen(true) }} />
+      <RoadmapModal isOpen={isRoadmapOpen} onClose={() => setIsRoadmapOpen(false)} language={language} />
     </div>
   )
 }
