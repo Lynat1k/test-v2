@@ -5,7 +5,7 @@ import { CandlePaletteProvider } from '@/contexts/CandlePaletteContext'
 import { ChartControlsProvider, useChartControls } from '@/contexts/ChartControlsContext'
 import { LayoutProvider, useLayout } from '@/contexts/LayoutContext'
 import { UserSettingsProvider } from '@/contexts/UserSettingsContext'
-import { AuthProvider, useAuthContext } from '@/features/auth/AuthContext'
+import { AuthProvider } from '@/features/auth/AuthContext'
 import { LoginModal } from '@/features/auth/LoginModal'
 import { RegisterModal } from '@/features/auth/RegisterModal'
 import { VerifyEmailBanner } from '@/features/auth/VerifyEmailBanner'
@@ -15,17 +15,16 @@ import { ChartContainer } from '@/components/ChartContainer'
 import { ChartPanel } from '@/components/ChartPanel'
 import { ChartContainer2 } from '@/chart2d/ChartContainer2'
 import { ChartHeader } from '@/components/ChartHeader'
+import { Logo } from '@/components/Logo'
+import { UserDropdown } from '@/components/UserDropdown'
 import { Splitter } from '@/components/Splitter'
 import { DOMSidebar } from '@/components/DOMSidebar'
 import type { CandleMode } from '@/chart-engine'
 import { AnimatePresence, motion } from 'motion/react'
-import { useTranslation } from '@/i18n'
 
 type View = 'terminal' | 'admin' | 'profile'
 
 function AppShell() {
-  const { user, logout } = useAuthContext()
-  const { t } = useTranslation()
   const { showIndicatorsModal, setShowIndicatorsModal, getSlot, activeSlot, setActiveSlot } = useChartControls()
   const { layoutMode, splitRatio, setSplitRatio } = useLayout()
   const useCanvas2d = import.meta.env['VITE_USE_CANVAS2D'] === 'true'
@@ -55,54 +54,31 @@ function AppShell() {
     if (layoutMode === 'single') setActiveSlot(0);
   }, [layoutMode, setActiveSlot]);
 
-  const userRole = user?.role ?? 'guest'
-
   return (
     <div className="h-screen w-screen flex flex-col overflow-hidden bg-black text-white">
       <VerifyEmailBanner />
 
       {/* Main app header */}
-      <header className="h-12 flex items-center px-4 liquid-glass-card border-b border-white/5 shrink-0">
-        <span className="font-display font-bold text-lg tracking-tight">PROCLUSTER</span>
-        <span className="ml-2 text-[10px] font-mono text-amber-400/70 border border-amber-400/30 rounded px-1.5 py-0.5">BETA</span>
-        <div className="ml-auto flex items-center gap-2">
-          <button
-            className="liquid-glass-button px-3 py-1 rounded text-xs"
-            onClick={() => setCurrentView('terminal')}
-          >
-            Terminal
-          </button>
-          {userRole === 'admin' && (
+      <header className="flex items-center justify-between px-2 py-2 sm:px-6 sm:py-3 border-b border-white/10 shrink-0 relative z-[1100] bg-slate-950/45 backdrop-blur-md">
+        <div className="flex items-center gap-2 relative z-10">
+          <Logo />
+          <span className="ml-1 text-[10px] font-mono text-amber-400/70 border border-amber-400/30 rounded px-1.5 py-0.5">BETA</span>
+        </div>
+        <div className="flex items-center gap-2 relative z-10">
+          {currentView !== 'terminal' && (
             <button
-              className="liquid-glass-button px-3 py-1 rounded text-xs"
-              onClick={() => setCurrentView('admin')}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border cursor-pointer hover:scale-105 active:scale-95 transition-all text-xs font-bold leading-none select-none bg-slate-950/40 hover:bg-slate-900/60 border-white/5 text-slate-300 hover:text-white shadow-inner"
+              onClick={() => setCurrentView('terminal')}
             >
-              Admin
+              Terminal
             </button>
           )}
-          {user ? (
-            <div className="flex items-center gap-2">
-              <button
-                className="liquid-glass-button px-3 py-1 rounded text-xs"
-                onClick={() => setCurrentView('profile')}
-              >
-                {user.nickname}
-              </button>
-              <button
-                className="liquid-glass-button px-3 py-1 rounded text-xs text-slate-400 hover:text-white"
-                onClick={() => logout()}
-              >
-                {t('header.logout')}
-              </button>
-            </div>
-          ) : (
-            <button
-              className="px-3 py-1 rounded text-xs font-bold bg-amber-500/20 text-amber-400 border border-amber-500/30 hover:bg-amber-500/30 cursor-pointer"
-              onClick={() => setLoginOpen(true)}
-            >
-              {t('header.login')}
-            </button>
-          )}
+          <UserDropdown
+            onOpenProfile={() => setCurrentView('profile')}
+            onOpenAdmin={() => setCurrentView('admin')}
+            onOpenLogin={() => setLoginOpen(true)}
+            onOpenHome={() => setCurrentView('terminal')}
+          />
         </div>
       </header>
 
