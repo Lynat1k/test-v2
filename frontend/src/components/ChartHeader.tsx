@@ -16,7 +16,7 @@ import { JapaneseIcon } from '@/components/icons/JapaneseIcon'
 import { FootprintIcon } from '@/components/icons/FootprintIcon'
 import { ClustersIcon } from '@/components/icons/ClustersIcon'
 import { Portal } from '@/components/Portal'
-import { useLayout } from '@/contexts/LayoutContext'
+
 import { CandlePreviewIcon } from '@/components/icons/CandlePreviewIcon'
 import { useFavoritePairs } from '@/hooks/useFavoritePairs'
 
@@ -41,14 +41,12 @@ export function ChartHeader({ fps = 0 }: ChartHeaderProps) {
   const { t } = useTranslation()
   const { user } = useAuthContext()
   const {
-    activeSlot, setActiveSlot, getSlot,
+    activeSlot, getSlot,
     setSymbol, setMarket, setTimeframe, setCandleMode, setPalette: setControlsPalette,
     setVolumeMode, setCompression, setShowIndicatorsModal, showIndicatorsModal,
     getTickerConfig, getCompressionLevels,
   } = useChartControls()
   const { setActivePalette } = useCandlePalette()
-  const { layoutMode } = useLayout()
-
   const slot = getSlot(activeSlot)
   const { symbol, market, timeframe, candleMode, palette, volumeMode, compression } = slot
 

@@ -7,6 +7,7 @@
 import React, { useState, useRef, useEffect, useLayoutEffect, useMemo } from "react";
 import type { ClusterCandle, ClusterCell, CryptoPair, IndicatorSettings, Indicator, OrderBook } from "./types";
 import { ZoomIn, ZoomOut, Maximize2, Compass, Move, Layers, Activity, Eye, EyeOff, Settings, Trash2, Globe, Slash, Minus, Square, Grid3X3, Ruler, Type, BarChart3, Check, ChevronDown, LayoutGrid, ArrowUpRight, TrendingUp } from "lucide-react";
+import logoWatermark from "@/assets/images/procluster_logo_1779485281399.png";
 import { storage } from "./lib/storage";
 import { volumeOnChartIndicator, deltaIndicator, cvdIndicator, clusterSearchIndicator } from "./indicators";
 import { drawDrawingObjects } from "./utils/drawingRenderer";
@@ -3606,21 +3607,16 @@ export default function ClusterChart({
           )}
         </div>
 
-        {/* Dynamic Vector floating Watermark Overlay */}
-        <div 
-          className="absolute pointer-events-none select-none z-20 opacity-30 sm:opacity-40 transition-all duration-300 flex items-center gap-1.5"
-          style={{ 
-            right: `${isMobile ? 74 : 106}px`,
-            bottom: `${margin.bottom + deltaHeightTotal + cvdHeightTotal + 16}px` 
+        {/* Watermark logo overlay (bottom-right of price-pane, above time-axis and indicator sub-panes) */}
+        <img
+          src={logoWatermark}
+          alt=""
+          className="absolute pointer-events-none select-none z-10 h-7 w-auto opacity-[0.20]"
+          style={{
+            bottom: `${margin.bottom + deltaHeightTotal + cvdHeightTotal + 26}px`,
+            right: `${(isMobile ? 58 : 90) + 16}px`,
           }}
-        >
-          <div className="w-5 h-5 rounded bg-gradient-to-br from-yellow-400 to-amber-500 flex items-center justify-center shadow">
-            <Layers className="w-3 h-3 text-slate-955" strokeWidth={2.5} />
-          </div>
-          <span className={`text-[10px] font-black tracking-wider uppercase font-sans ${isLight ? "text-slate-800" : "text-slate-100"}`}>
-            PRO<span className={isLight ? "text-amber-600" : "text-amber-400"}>CLUSTER</span>
-          </span>
-        </div>
+        />
 
       {/* Fixed Price Scale Panel on the Right */}
       <div
