@@ -48,20 +48,18 @@ export function Splitter({ direction, onDrag, onDragEnd }: SplitterProps) {
   return (
     <div
       onMouseDown={handleMouseDown}
-      className={`group relative flex items-center justify-center shrink-0 z-10 ${
+      className={`group relative flex items-center justify-center shrink-0 z-10 transition-all duration-150 select-none ${
         isHorizontal
-          ? 'w-[5px] cursor-col-resize hover:bg-amber-500/30 active:bg-amber-500/50'
-          : 'h-[5px] cursor-row-resize hover:bg-amber-500/30 active:bg-amber-500/50'
+          ? 'w-2.5 hover:w-3 cursor-col-resize h-full mx-1'
+          : 'h-2.5 hover:h-3 cursor-row-resize w-full my-1'
       }`}
-      style={{
-        background: 'rgba(255,255,255,0.06)',
-      }}
     >
-      <div className={`${
+      <div className={`transition-colors duration-150 rounded-full ${
         isHorizontal
-          ? 'w-px h-6 group-hover:h-8'
-          : 'h-px w-6 group-hover:w-8'
-      } rounded-full bg-white/20 group-hover:bg-amber-400/60 transition-all`} />
+          ? 'w-[2px] h-3/4 group-hover:bg-yellow-500'
+          : 'h-[2px] w-3/4 group-hover:bg-yellow-500'
+      } bg-slate-800 animate-pulse`} />
+      <div className={`absolute w-1.5 h-1.5 rounded-full transition-transform scale-0 group-hover:scale-100 bg-yellow-500`} />
     </div>
   )
 }

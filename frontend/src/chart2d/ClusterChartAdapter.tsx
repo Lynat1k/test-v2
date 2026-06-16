@@ -26,6 +26,9 @@ export interface ClusterChartAdapterProps {
   candlePalette?: "default" | "alternative";
   language?: "RU" | "EN" | "KZ";
   accessToken?: string | null;
+  workspaceLayout?: "1" | "2h" | "2v";
+  onWorkspaceLayoutChange?: (layout: "1" | "2h" | "2v") => void;
+  workspacesCount?: number;
 }
 
 function estimatePriceStep(symbol: string): number {
@@ -65,6 +68,9 @@ export default function ClusterChartAdapter({
   candlePalette = "default",
   language = "RU",
   accessToken,
+  workspaceLayout,
+  onWorkspaceLayoutChange,
+  workspacesCount,
 }: ClusterChartAdapterProps) {
   const [candles, setCandles] = useState<ClusterCandle[]>([]);
   const [loading, setLoading] = useState(true);
@@ -247,6 +253,9 @@ export default function ClusterChartAdapter({
       candleDataType={candleDataType}
       candlePalette={candlePalette}
       language={language}
+      workspaceLayout={workspaceLayout ?? "1"}
+      onWorkspaceLayoutChange={onWorkspaceLayoutChange ?? (() => {})}
+      workspacesCount={workspacesCount ?? 1}
       onNeedHistory={handleNeedHistory}
       onVisibleTimestampsChange={handleVisibleTimestampsChange}
     />

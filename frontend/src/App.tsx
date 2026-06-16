@@ -29,7 +29,7 @@ type View = 'terminal' | 'admin' | 'profile'
 
 function AppShell() {
   const { showIndicatorsModal, setShowIndicatorsModal, getSlot, activeSlot, setActiveSlot, setSymbol, setMarket, setTimeframe, setCandleMode, setVolumeMode, setPalette, setCompression, getTickerConfig } = useChartControls()
-  const { layoutMode, splitRatio, setSplitRatio } = useLayout()
+  const { layoutMode, setLayoutMode, splitRatio, setSplitRatio } = useLayout()
   const useCanvas2d = import.meta.env['VITE_USE_CANVAS2D'] === 'true'
   const [currentView, setCurrentView] = useState<View>('terminal')
   const [fps, setFps] = useState(0)
@@ -352,6 +352,8 @@ function AppShell() {
                           volumeMode={slot0.volumeMode}
                           compression={slot0.compression}
                           palette={slot0.palette}
+                          layoutMode={layoutMode}
+                          onLayoutChange={setLayoutMode}
                         />
                       ) : (
                         <ChartContainer
@@ -374,7 +376,11 @@ function AppShell() {
                     <div className="absolute inset-0 flex">
                       <div
                         style={{ width: `${splitRatio * 100}%` }}
-                        className={`h-full overflow-hidden ${activeSlot === 0 ? 'ring-1 ring-amber-500/40' : ''}`}
+                        className={`relative h-full overflow-hidden border-2 transition-all duration-150 ${
+                          activeSlot === 0
+                            ? 'border-yellow-500/50 shadow-md shadow-yellow-500/5 bg-slate-900/10'
+                            : 'border-transparent'
+                        }`}
                         onClick={() => setActiveSlot(0)}
                       >
                         {useCanvas2d ? (
@@ -387,6 +393,8 @@ function AppShell() {
                             volumeMode={slot0.volumeMode}
                             compression={slot0.compression}
                             palette={slot0.palette}
+                            layoutMode={layoutMode}
+                            onLayoutChange={setLayoutMode}
                           />
                         ) : (
                           <ChartPanel
@@ -402,11 +410,20 @@ function AppShell() {
                             onResolvedModeChange={handleResolvedModeChange}
                           />
                         )}
+                        {activeSlot === 0 && (
+                          <div className="absolute top-2 right-2.5 z-45 bg-yellow-500 text-slate-950 text-[8px] font-black uppercase px-2 py-0.5 rounded shadow-md tracking-widest leading-none select-none">
+                            {language === 'RU' ? 'Активен' : language === 'KZ' ? 'Белсенді' : 'Active'}
+                          </div>
+                        )}
                       </div>
                       <Splitter direction="horizontal" onDrag={handleSplitterDrag} />
                       <div
                         style={{ width: `${(1 - splitRatio) * 100}%` }}
-                        className={`h-full overflow-hidden ${activeSlot === 1 ? 'ring-1 ring-amber-500/40' : ''}`}
+                        className={`relative h-full overflow-hidden border-2 transition-all duration-150 ${
+                          activeSlot === 1
+                            ? 'border-yellow-500/50 shadow-md shadow-yellow-500/5 bg-slate-900/10'
+                            : 'border-transparent'
+                        }`}
                         onClick={() => setActiveSlot(1)}
                       >
                         {useCanvas2d ? (
@@ -419,6 +436,8 @@ function AppShell() {
                             volumeMode={slot1.volumeMode}
                             compression={slot1.compression}
                             palette={slot1.palette}
+                            layoutMode={layoutMode}
+                            onLayoutChange={setLayoutMode}
                           />
                         ) : (
                           <ChartPanel
@@ -433,6 +452,11 @@ function AppShell() {
                             onFpsChange={handleFpsChange}
                             onResolvedModeChange={handleResolvedModeChange}
                           />
+                        )}
+                        {activeSlot === 1 && (
+                          <div className="absolute top-2 right-2.5 z-45 bg-yellow-500 text-slate-950 text-[8px] font-black uppercase px-2 py-0.5 rounded shadow-md tracking-widest leading-none select-none">
+                            {language === 'RU' ? 'Активен' : language === 'KZ' ? 'Белсенді' : 'Active'}
+                          </div>
                         )}
                       </div>
                     </div>
@@ -442,7 +466,11 @@ function AppShell() {
                     <div className="absolute inset-0 flex flex-col">
                       <div
                         style={{ height: `${splitRatio * 100}%` }}
-                        className={`w-full overflow-hidden ${activeSlot === 0 ? 'ring-1 ring-amber-500/40' : ''}`}
+                        className={`relative w-full overflow-hidden border-2 transition-all duration-150 ${
+                          activeSlot === 0
+                            ? 'border-yellow-500/50 shadow-md shadow-yellow-500/5 bg-slate-900/10'
+                            : 'border-transparent'
+                        }`}
                         onClick={() => setActiveSlot(0)}
                       >
                         {useCanvas2d ? (
@@ -455,6 +483,8 @@ function AppShell() {
                             volumeMode={slot0.volumeMode}
                             compression={slot0.compression}
                             palette={slot0.palette}
+                            layoutMode={layoutMode}
+                            onLayoutChange={setLayoutMode}
                           />
                         ) : (
                           <ChartPanel
@@ -470,11 +500,20 @@ function AppShell() {
                             onResolvedModeChange={handleResolvedModeChange}
                           />
                         )}
+                        {activeSlot === 0 && (
+                          <div className="absolute top-2 right-2.5 z-45 bg-yellow-500 text-slate-950 text-[8px] font-black uppercase px-2 py-0.5 rounded shadow-md tracking-widest leading-none select-none">
+                            {language === 'RU' ? 'Активен' : language === 'KZ' ? 'Белсенді' : 'Active'}
+                          </div>
+                        )}
                       </div>
                       <Splitter direction="vertical" onDrag={handleSplitterDrag} />
                       <div
                         style={{ height: `${(1 - splitRatio) * 100}%` }}
-                        className={`w-full overflow-hidden ${activeSlot === 1 ? 'ring-1 ring-amber-500/40' : ''}`}
+                        className={`relative w-full overflow-hidden border-2 transition-all duration-150 ${
+                          activeSlot === 1
+                            ? 'border-yellow-500/50 shadow-md shadow-yellow-500/5 bg-slate-900/10'
+                            : 'border-transparent'
+                        }`}
                         onClick={() => setActiveSlot(1)}
                       >
                         {useCanvas2d ? (
@@ -487,6 +526,8 @@ function AppShell() {
                             volumeMode={slot1.volumeMode}
                             compression={slot1.compression}
                             palette={slot1.palette}
+                            layoutMode={layoutMode}
+                            onLayoutChange={setLayoutMode}
                           />
                         ) : (
                           <ChartPanel
@@ -501,6 +542,11 @@ function AppShell() {
                             onFpsChange={handleFpsChange}
                             onResolvedModeChange={handleResolvedModeChange}
                           />
+                        )}
+                        {activeSlot === 1 && (
+                          <div className="absolute top-2 right-2.5 z-45 bg-yellow-500 text-slate-950 text-[8px] font-black uppercase px-2 py-0.5 rounded shadow-md tracking-widest leading-none select-none">
+                            {language === 'RU' ? 'Активен' : language === 'KZ' ? 'Белсенді' : 'Active'}
+                          </div>
                         )}
                       </div>
                     </div>

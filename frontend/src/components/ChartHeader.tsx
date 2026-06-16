@@ -15,9 +15,8 @@ import { AutoIcon } from '@/components/icons/AutoIcon'
 import { JapaneseIcon } from '@/components/icons/JapaneseIcon'
 import { FootprintIcon } from '@/components/icons/FootprintIcon'
 import { ClustersIcon } from '@/components/icons/ClustersIcon'
-import { SingleChartIcon, HorizontalSplitIcon, VerticalSplitIcon } from '@/components/icons/LayoutIcons'
 import { Portal } from '@/components/Portal'
-import { useLayout, type LayoutMode } from '@/contexts/LayoutContext'
+import { useLayout } from '@/contexts/LayoutContext'
 import { CandlePreviewIcon } from '@/components/icons/CandlePreviewIcon'
 import { useFavoritePairs } from '@/hooks/useFavoritePairs'
 
@@ -48,7 +47,7 @@ export function ChartHeader({ fps = 0 }: ChartHeaderProps) {
     getTickerConfig, getCompressionLevels,
   } = useChartControls()
   const { setActivePalette } = useCandlePalette()
-  const { layoutMode, setLayoutMode } = useLayout()
+  const { layoutMode } = useLayout()
 
   const slot = getSlot(activeSlot)
   const { symbol, market, timeframe, candleMode, palette, volumeMode, compression } = slot
@@ -288,52 +287,6 @@ export function ChartHeader({ fps = 0 }: ChartHeaderProps) {
           <span className="hidden md:inline">{t('chart.indicators')}</span>
         </button>
       </div>
-
-      <div className="w-px h-5 bg-white/10 mx-0.5" />
-
-      {/* 9. Layout switcher */}
-      <div className="flex items-center p-0.5 rounded-lg bg-slate-950/60 border border-white/5">
-        {([
-          { mode: 'single' as LayoutMode, icon: SingleChartIcon, label: t('chart.layoutSingle'), testId: 'layout-single' },
-          { mode: 'horizontal' as LayoutMode, icon: HorizontalSplitIcon, label: t('chart.layoutHorizontal'), testId: 'layout-horizontal' },
-          { mode: 'vertical' as LayoutMode, icon: VerticalSplitIcon, label: t('chart.layoutVertical'), testId: 'layout-vertical' },
-        ]).map(({ mode, icon: Icon, label, testId }) => (
-          <button
-            key={mode}
-            data-testid={testId}
-            onClick={() => setLayoutMode(mode)}
-            title={label}
-            className={`flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-bold cursor-pointer transition-all duration-200 h-[30px] ${
-              layoutMode === mode
-                ? 'liquid-glass-active text-yellow-400 font-black'
-                : 'liquid-glass-button text-slate-400 hover:text-slate-100'
-            }`}
-          >
-            <Icon className="w-3.5 h-3.5" />
-            <span className="hidden lg:inline">{label}</span>
-          </button>
-        ))}
-      </div>
-
-      {/* 10. Active chart indicator (dual mode) */}
-      {layoutMode !== 'single' && (
-        <div className="flex items-center gap-1 p-0.5 rounded-lg bg-slate-950/60 border border-white/5">
-          {[0, 1].map((i) => (
-            <button
-              key={i}
-              onClick={() => setActiveSlot(i as 0 | 1)}
-              data-testid={`slot-${i}`}
-              className={`px-2 py-1 rounded-lg text-xs font-bold cursor-pointer transition-all duration-200 h-[30px] ${
-                activeSlot === i
-                  ? 'liquid-glass-active text-yellow-400 font-black'
-                  : 'liquid-glass-button text-slate-400 hover:text-slate-100'
-              }`}
-            >
-              {i + 1}
-            </button>
-          ))}
-        </div>
-      )}
 
       {/* FPS counter */}
       <div className="ml-auto flex items-center gap-1.5 px-2 py-1 text-[10px] font-mono text-slate-500">

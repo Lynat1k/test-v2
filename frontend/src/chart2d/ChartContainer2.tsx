@@ -12,6 +12,8 @@ interface ChartContainer2Props {
   volumeMode: VolumeMode
   compression: number
   palette: 'default' | 'alternative'
+  layoutMode: 'single' | 'horizontal' | 'vertical'
+  onLayoutChange?: (mode: 'single' | 'horizontal' | 'vertical') => void
   onFpsChange?: (fps: number) => void
   onResolvedModeChange?: (mode: Exclude<CandleMode, 'auto'>) => void
 }
@@ -30,8 +32,15 @@ const MODE_MAP: Record<string, ClusterChartAdapterProps['candleType']> = {
   bars: 'japanese',
 }
 
+const LAYOUT_MAP: Record<string, '1' | '2h' | '2v'> = {
+  single: '1',
+  horizontal: '2h',
+  vertical: '2v',
+}
+
 export function ChartContainer2({
   symbol, market, timeframe, mode, volumeMode, palette,
+  layoutMode, onLayoutChange,
 }: ChartContainer2Props) {
   const { accessToken } = useAuthContext()
 
@@ -45,6 +54,16 @@ export function ChartContainer2({
         candleDataType={VOLUME_MAP[volumeMode] ?? 'bid_ask'}
         candlePalette={palette}
         accessToken={accessToken}
+        workspaceLayout={LAYOUT_MAP[layoutMode] ?? '1'}
+        onWorkspaceLayoutChange={(id) => {
+          const map: Record<string, 'single' | 'horizontal' | 'vertical'> = {
+            '1': 'single',
+            '2h': 'horizontal',
+            '2v': 'vertical',
+          }
+          onLayoutChange?.(map[id] ?? 'single')
+        }}
+        workspacesCount={2}
       />
     </div>
   )
