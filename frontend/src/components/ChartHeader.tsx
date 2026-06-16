@@ -10,7 +10,7 @@ import {
 import { useCandlePalette } from '@/contexts/CandlePaletteContext'
 import type { CandleMode, VolumeMode } from '@/chart-engine'
 import { motion, AnimatePresence } from 'motion/react'
-import { ChevronDown, SlidersHorizontal, Zap, Lock } from 'lucide-react'
+import { ChevronDown, SlidersHorizontal, Zap, Lock, Check, Star } from 'lucide-react'
 import { AutoIcon } from '@/components/icons/AutoIcon'
 import { JapaneseIcon } from '@/components/icons/JapaneseIcon'
 import { FootprintIcon } from '@/components/icons/FootprintIcon'
@@ -18,11 +18,12 @@ import { ClustersIcon } from '@/components/icons/ClustersIcon'
 import { SingleChartIcon, HorizontalSplitIcon, VerticalSplitIcon } from '@/components/icons/LayoutIcons'
 import { Portal } from '@/components/Portal'
 import { useLayout, type LayoutMode } from '@/contexts/LayoutContext'
+import { CandlePreviewIcon } from '@/components/icons/CandlePreviewIcon'
+import { useFavoritePairs } from '@/hooks/useFavoritePairs'
 
 const CANDLE_MODES: { mode: CandleMode; icon: typeof AutoIcon; labelKey: string }[] = [
   { mode: 'auto', icon: AutoIcon, labelKey: 'chart.auto' },
   { mode: 'japanese', icon: JapaneseIcon, labelKey: 'chart.japanese' },
-  { mode: 'bars', icon: null as any, labelKey: 'chart.bars' },
   { mode: 'footprint', icon: FootprintIcon, labelKey: 'chart.footprint' },
   { mode: 'clusters', icon: ClustersIcon, labelKey: 'chart.clusters' },
 ]
@@ -60,6 +61,11 @@ export function ChartHeader({ fps = 0 }: ChartHeaderProps) {
   const compressionPortalRef = useRef<HTMLDivElement>(null)
   const [tickerBtnRect, setTickerBtnRect] = useState<DOMRect | null>(null)
   const [compressionBtnRect, setCompressionBtnRect] = useState<DOMRect | null>(null)
+  const [paletteDropdownOpen, setPaletteDropdownOpen] = useState(false)
+  const paletteRef = useRef<HTMLDivElement>(null)
+  const palettePortalRef = useRef<HTMLDivElement>(null)
+  const [paletteBtnRect, setPaletteBtnRect] = useState<DOMRect | null>(null)
+  const { isFavorite, toggleFavorite } = useFavoritePairs()
 
   const tickerConfig = getTickerConfig()
   const compressionLevels = getCompressionLevels()
@@ -87,6 +93,15 @@ export function ChartHeader({ fps = 0 }: ChartHeaderProps) {
     setTickerDropdownOpen(false)
   }, [])
 
+  const openPaletteDropdown = useCallback(() => {
+    if (paletteRef.current) {
+      setPaletteBtnRect(paletteRef.current.getBoundingClientRect())
+    }
+    setPaletteDropdownOpen(true)
+    setTickerDropdownOpen(false)
+    setCompressionDropdownOpen(false)
+  }, [])
+
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
       const target = e.target as Node
@@ -95,6 +110,9 @@ export function ChartHeader({ fps = 0 }: ChartHeaderProps) {
       }
       if (compressionRef.current && !compressionRef.current.contains(target) && !compressionPortalRef.current?.contains(target)) {
         setCompressionDropdownOpen(false)
+      }
+      if (paletteRef.current && !paletteRef.current.contains(target) && !palettePortalRef.current?.contains(target)) {
+        setPaletteDropdownOpen(false)
       }
     }
     document.addEventListener('mousedown', handleClickOutside)
@@ -107,9 +125,11 @@ export function ChartHeader({ fps = 0 }: ChartHeaderProps) {
   }, [setControlsPalette, setActivePalette, activeSlot])
 
   return (
-    <div className="relative flex items-center gap-1 px-2 py-1.5 liquid-glass-card border-b border-white/5 shrink-0 overflow-x-auto" style={{ zIndex: 1000 }}>
+    <div className="relative flex items-center gap-1 px-2 py-2.5 liquid-glass-card border-b border-white/5 shrink-0 overflow-x-auto flex-wrap lg:flex-nowrap items-end" style={{ zIndex: 1000 }}>
       {/* 1. Ticker selector */}
-      <div className="relative" ref={tickerRef}>
+      <div className="shrink-0">
+        <span className="text-[10px] uppercase font-mono tracking-widest font-bold block mb-0.5 text-slate-400/80">Active Ticker</span>
+        <div className="relative" ref={tickerRef}>
         <button
           onClick={() => tickerDropdownOpen ? setTickerDropdownOpen(false) : openTickerDropdown()}
           className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg liquid-glass-button text-xs font-bold cursor-pointer select-none whitespace-nowrap"
@@ -118,118 +138,117 @@ export function ChartHeader({ fps = 0 }: ChartHeaderProps) {
           <ChevronDown className={`w-3 h-3 text-slate-400 transition-transform ${tickerDropdownOpen ? 'rotate-180' : ''}`} />
         </button>
       </div>
+      </div>
 
       <div className="w-px h-5 bg-white/10 mx-0.5" />
 
       {/* 2. Market type SPOT / FUTURES */}
-      <div className="flex items-center p-0.5 rounded-lg bg-black/30 border border-white/5">
-        {(['futures', 'spot'] as MarketType[]).map((m) => (
-          <button
-            key={m}
-            onClick={() => setMarket(m)}
-            className={`px-2.5 py-1 rounded-md text-[10px] font-black uppercase tracking-wider cursor-pointer transition-all ${
-              market === m
-                ? 'bg-yellow-500/10 border border-yellow-500/25 text-yellow-500 font-extrabold shadow-inner'
-                : 'text-slate-500 hover:text-slate-300 border border-transparent'
-            }`}
-          >
-            {m === 'spot' ? t('chart.spot') : t('chart.futures')}
-          </button>
-        ))}
+      <div className="shrink-0">
+        <span className="text-[10px] uppercase font-mono tracking-widest font-bold block mb-0.5 text-slate-400/80">Market Type</span>
+        <div className="flex items-center p-0.5 rounded-lg bg-slate-950/60 border border-white/5">
+          {(['futures', 'spot'] as MarketType[]).map((m) => (
+            <button
+              key={m}
+              onClick={() => setMarket(m)}
+              className={`px-2.5 py-1 rounded-md text-[10px] font-black uppercase tracking-wider cursor-pointer transition-all ${
+                market === m
+                  ? 'bg-yellow-500/10 border border-yellow-500/25 text-yellow-500 font-extrabold shadow-inner'
+                  : 'text-slate-400 hover:text-slate-200 border border-transparent'
+              }`}
+            >
+              {m === 'spot' ? t('chart.spot') : t('chart.futures')}
+            </button>
+          ))}
+        </div>
       </div>
 
       <div className="w-px h-5 bg-white/10 mx-0.5" />
 
       {/* 3. Timeframes */}
-      <div className="flex items-center gap-0.5">
-        {TIMEFRAMES_BY_MARKET[market].map((tf) => (
-          <button
-            key={tf}
-            onClick={() => setTimeframe(tf)}
-            className={`px-2 py-1 rounded-md text-[10px] font-bold font-mono cursor-pointer transition-all ${
-              timeframe === tf
-                ? 'bg-yellow-500/10 border border-yellow-500/25 text-yellow-500 font-extrabold shadow-inner'
-                : 'text-slate-500 hover:text-slate-300 hover:bg-white/5 border border-transparent'
-            }`}
-          >
-            {tf}
-          </button>
-        ))}
+      <div className="shrink-0">
+        <span className="text-[10px] uppercase font-mono tracking-widest font-bold block mb-0.5 text-slate-400/80">Interval</span>
+        <div className="flex items-center gap-0.5">
+          {TIMEFRAMES_BY_MARKET[market].map((tf) => (
+            <button
+              key={tf}
+              onClick={() => setTimeframe(tf)}
+              className={`px-2 py-1 rounded-lg text-xs font-bold font-mono cursor-pointer transition-all duration-200 h-[30px] ${
+                timeframe === tf
+                  ? 'liquid-glass-active text-yellow-400 font-black'
+                  : 'liquid-glass-button text-slate-400 hover:text-slate-100'
+              }`}
+            >
+              {tf}
+            </button>
+          ))}
+        </div>
       </div>
 
       <div className="w-px h-5 bg-white/10 mx-0.5" />
 
       {/* 4. Candle type */}
-      <div className="flex items-center gap-0.5">
-        {CANDLE_MODES.map(({ mode, icon: Icon, labelKey }) => (
-          <button
-            key={mode}
-            onClick={() => setCandleMode(mode)}
-            title={t(labelKey)}
-            className={`flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-bold cursor-pointer transition-all ${
-              candleMode === mode
-                ? 'bg-yellow-500/10 border border-yellow-500/25 text-yellow-500 font-extrabold shadow-inner'
-                : 'text-slate-500 hover:text-slate-300 hover:bg-white/5 border border-transparent'
-            }`}
-          >
-            {Icon && <Icon className="w-3.5 h-3.5" />}
-            <span className="hidden lg:inline">{t(labelKey)}</span>
-          </button>
-        ))}
+      <div className="shrink-0">
+        <span className="text-[10px] uppercase font-mono tracking-widest font-bold block mb-0.5 text-slate-400/80">{t('chart.candleType')}</span>
+        <div className="flex items-center gap-0.5">
+          {CANDLE_MODES.map(({ mode, icon: Icon, labelKey }) => (
+            <button
+              key={mode}
+              onClick={() => setCandleMode(mode)}
+              title={t(labelKey)}
+              className={`flex items-center justify-center px-2 py-0.5 rounded-md text-xs font-bold cursor-pointer transition-all h-[24px] ${
+                candleMode === mode
+                  ? 'bg-yellow-500/10 border border-yellow-500/25 text-yellow-500 font-extrabold shadow-inner'
+                  : 'text-slate-400 hover:text-slate-200 border border-transparent'
+              }`}
+            >
+              {Icon && <Icon className="w-3.5 h-3.5" />}
+            </button>
+          ))}
+        </div>
       </div>
 
       <div className="w-px h-5 bg-white/10 mx-0.5" />
 
-      {/* 5. Palette */}
-      <div className="flex items-center p-0.5 rounded-lg bg-black/30 border border-white/5">
-        <button
-          onClick={() => handlePaletteChange('default')}
-          className={`flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-bold cursor-pointer transition-all ${
-            palette === 'default'
-              ? 'bg-yellow-500/10 border border-yellow-500/25 text-yellow-500 font-extrabold shadow-inner'
-              : 'text-slate-500 hover:text-slate-300 border border-transparent'
-          }`}
-        >
-          <span className="inline-flex gap-0.5">
-            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-            <span className="w-1.5 h-1.5 rounded-full bg-rose-500" />
-          </span>
-          <span className="hidden xl:inline">{t('chart.classic')}</span>
-        </button>
-        <button
-          onClick={() => handlePaletteChange('alternative')}
-          className={`flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-bold cursor-pointer transition-all ${
-            palette === 'alternative'
-              ? 'bg-yellow-500/10 border border-yellow-500/25 text-yellow-500 font-extrabold shadow-inner'
-              : 'text-slate-500 hover:text-slate-300 border border-transparent'
-          }`}
-        >
-          <span className="inline-flex gap-0.5">
-            <span className="w-1.5 h-1.5 rounded-full bg-slate-200" />
-            <span className="w-1.5 h-1.5 rounded-full bg-gray-600" />
-          </span>
-          <span className="hidden xl:inline">{t('chart.alternative')}</span>
-        </button>
+      {/* 5. Palette dropdown */}
+      <div className="shrink-0">
+        <span className="text-[10px] uppercase font-mono tracking-widest font-bold block mb-0.5 text-slate-400/80">Palette</span>
+        <div className="relative" ref={paletteRef}>
+          <button
+            onClick={() => paletteDropdownOpen ? setPaletteDropdownOpen(false) : openPaletteDropdown()}
+            className="flex items-center justify-between gap-1.5 px-2.5 py-1 rounded-lg text-xs cursor-pointer hover:scale-[1.01] active:scale-[0.99] transition-all min-w-[110px] sm:min-w-[135px] h-[30px] select-none border liquid-glass-button border-white/5 text-slate-200 font-black"
+          >
+            <div className="flex items-center gap-1 leading-none">
+              <CandlePreviewIcon palette={palette} />
+              <span className="font-mono text-[10px] whitespace-nowrap text-white font-extrabold">
+                {t(palette === 'default' ? 'chart.classic' : 'chart.alternative')}
+              </span>
+            </div>
+            <ChevronDown className={`w-3 h-3 transition-transform duration-200 shrink-0 text-slate-400 ${paletteDropdownOpen ? 'rotate-180' : ''}`} />
+          </button>
+        </div>
       </div>
 
       {/* 6. Volume mode — visible only for clusters/footprint */}
       {showVolumeMode && (
         <>
           <div className="w-px h-5 bg-white/10 mx-0.5" />
-          <div className="flex items-center p-0.5 rounded-lg bg-black/30 border border-white/5">
-            {VOLUME_MODES.map(({ mode, labelKey }) => (
-              <button
-                key={mode}
-                onClick={() => setVolumeMode(mode)}
-                className={`px-2 py-1 rounded-md text-[10px] font-bold cursor-pointer transition-all ${
-                  volumeMode === mode
-                    ? 'bg-yellow-500/10 border border-yellow-500/25 text-yellow-500 font-extrabold shadow-inner'
-                    : 'text-slate-500 hover:text-slate-300 border border-transparent'
-                }`}
-              >
-                {t(labelKey)}
-              </button>
-            ))}
+          <div className="shrink-0">
+            <span className="text-[10px] uppercase font-mono tracking-widest font-bold block mb-0.5 text-slate-400/80">{t('chart.volumeData')}</span>
+            <div className="flex items-center p-0.5 rounded-lg bg-slate-950/60 border border-white/5">
+              {VOLUME_MODES.map(({ mode, labelKey }) => (
+                <button
+                  key={mode}
+                  onClick={() => setVolumeMode(mode)}
+                  className={`px-2 py-1 rounded-md text-[10px] font-bold cursor-pointer transition-all ${
+                    volumeMode === mode
+                      ? 'bg-yellow-500/10 border border-yellow-500/25 text-yellow-500 font-extrabold shadow-inner'
+                      : 'text-slate-400 hover:text-slate-200 border border-transparent'
+                  }`}
+                >
+                  {t(labelKey)}
+                </button>
+              ))}
+            </div>
           </div>
         </>
       )}
@@ -237,7 +256,9 @@ export function ChartHeader({ fps = 0 }: ChartHeaderProps) {
       <div className="w-px h-5 bg-white/10 mx-0.5" />
 
       {/* 7. Compression */}
-      <div className="relative" ref={compressionRef}>
+      <div className="shrink-0">
+        <span className="text-[10px] uppercase font-mono tracking-widest font-bold block mb-0.5 text-slate-400/80">{t('chart.compression')}</span>
+        <div className="relative" ref={compressionRef}>
         <button
           onClick={() => compressionDropdownOpen ? setCompressionDropdownOpen(false) : openCompressionDropdown()}
           className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg liquid-glass-button text-xs font-bold cursor-pointer select-none whitespace-nowrap ${
@@ -251,23 +272,27 @@ export function ChartHeader({ fps = 0 }: ChartHeaderProps) {
           <ChevronDown className={`w-3 h-3 text-slate-400 transition-transform ${compressionDropdownOpen ? 'rotate-180' : ''}`} />
         </button>
       </div>
+      </div>
 
       <div className="w-px h-5 bg-white/10 mx-0.5" />
 
       {/* 8. Indicators button */}
-      <button
-        onClick={() => setShowIndicatorsModal(!showIndicatorsModal)}
-        className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg liquid-glass-button text-xs font-bold cursor-pointer select-none"
-        title={t('chart.indicators')}
-      >
-        <SlidersHorizontal className="w-3.5 h-3.5 text-amber-400" />
-        <span className="hidden md:inline">{t('chart.indicators')}</span>
-      </button>
+      <div className="shrink-0">
+        <span className="text-[10px] uppercase font-mono tracking-widest font-bold block mb-0.5 text-slate-400/80">Controls</span>
+        <button
+          onClick={() => setShowIndicatorsModal(!showIndicatorsModal)}
+          className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg liquid-glass-button text-xs font-bold cursor-pointer select-none"
+          title={t('chart.indicators')}
+        >
+          <SlidersHorizontal className="w-3.5 h-3.5 text-amber-400" />
+          <span className="hidden md:inline">{t('chart.indicators')}</span>
+        </button>
+      </div>
 
       <div className="w-px h-5 bg-white/10 mx-0.5" />
 
       {/* 9. Layout switcher */}
-      <div className="flex items-center p-0.5 rounded-lg bg-black/30 border border-white/5">
+      <div className="flex items-center p-0.5 rounded-lg bg-slate-950/60 border border-white/5">
         {([
           { mode: 'single' as LayoutMode, icon: SingleChartIcon, label: t('chart.layoutSingle'), testId: 'layout-single' },
           { mode: 'horizontal' as LayoutMode, icon: HorizontalSplitIcon, label: t('chart.layoutHorizontal'), testId: 'layout-horizontal' },
@@ -278,10 +303,10 @@ export function ChartHeader({ fps = 0 }: ChartHeaderProps) {
             data-testid={testId}
             onClick={() => setLayoutMode(mode)}
             title={label}
-            className={`flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-bold cursor-pointer transition-all ${
+            className={`flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-bold cursor-pointer transition-all duration-200 h-[30px] ${
               layoutMode === mode
-                ? 'bg-yellow-500/10 border border-yellow-500/25 text-yellow-500 font-extrabold shadow-inner'
-                : 'text-slate-500 hover:text-slate-300 hover:bg-white/5 border border-transparent'
+                ? 'liquid-glass-active text-yellow-400 font-black'
+                : 'liquid-glass-button text-slate-400 hover:text-slate-100'
             }`}
           >
             <Icon className="w-3.5 h-3.5" />
@@ -292,16 +317,16 @@ export function ChartHeader({ fps = 0 }: ChartHeaderProps) {
 
       {/* 10. Active chart indicator (dual mode) */}
       {layoutMode !== 'single' && (
-        <div className="flex items-center gap-1 p-0.5 rounded-lg bg-black/30 border border-white/5">
+        <div className="flex items-center gap-1 p-0.5 rounded-lg bg-slate-950/60 border border-white/5">
           {[0, 1].map((i) => (
             <button
               key={i}
               onClick={() => setActiveSlot(i as 0 | 1)}
               data-testid={`slot-${i}`}
-              className={`px-2 py-1 rounded-md text-[10px] font-bold cursor-pointer transition-all ${
+              className={`px-2 py-1 rounded-lg text-xs font-bold cursor-pointer transition-all duration-200 h-[30px] ${
                 activeSlot === i
-                  ? 'bg-yellow-500/10 border border-yellow-500/25 text-yellow-500 font-extrabold shadow-inner'
-                  : 'text-slate-500 hover:text-slate-300 hover:bg-white/5 border border-transparent'
+                  ? 'liquid-glass-active text-yellow-400 font-black'
+                  : 'liquid-glass-button text-slate-400 hover:text-slate-100'
               }`}
             >
               {i + 1}
@@ -325,7 +350,7 @@ export function ChartHeader({ fps = 0 }: ChartHeaderProps) {
               animate={{ opacity: 1, y: 0, scale: 1 }}
               exit={{ opacity: 0, y: -4, scale: 0.97 }}
               transition={{ duration: 0.12 }}
-              className="muddy-glass-popover rounded-xl p-1.5 min-w-[140px]"
+              className="muddy-glass-popover rounded-xl p-2 min-w-[200px]"
               ref={tickerPortalRef}
               style={{
                 position: 'fixed',
@@ -334,20 +359,56 @@ export function ChartHeader({ fps = 0 }: ChartHeaderProps) {
                 zIndex: 99999,
               }}
             >
-              {AVAILABLE_TICKERS.map((ticker) => (
-                <button
-                  key={ticker.symbol}
-                  onClick={() => { setSymbol(ticker.symbol); setTickerDropdownOpen(false) }}
-                  className={`w-full flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-bold text-left transition cursor-pointer ${
-                    symbol === ticker.symbol
-                      ? 'bg-amber-500/15 text-amber-400'
-                      : 'text-slate-300 hover:bg-white/5 hover:text-white'
-                  }`}
-                >
-                  <span className="font-mono text-[11px]">{ticker.symbol}</span>
-                  <span className="text-[10px] text-slate-500">{ticker.name}</span>
-                </button>
-              ))}
+              <div className="text-[9px] font-bold px-2 pb-1 border-b border-white/5 mb-1.5 uppercase tracking-widest text-slate-400">
+                Available Pairs
+              </div>
+              <div className="flex flex-col gap-0.5 max-h-[300px] overflow-y-auto pr-1">
+                {[...AVAILABLE_TICKERS]
+                  .sort((a, b) => {
+                    const aFav = isFavorite(a.symbol) ? 1 : 0
+                    const bFav = isFavorite(b.symbol) ? 1 : 0
+                    if (aFav !== bFav) return bFav - aFav
+                    return a.name.localeCompare(b.name)
+                  })
+                  .map((ticker) => {
+                  const isActive = symbol === ticker.symbol
+                  const isFav = isFavorite(ticker.symbol)
+                  return (
+                    <div
+                      key={ticker.symbol}
+                      className={`flex items-center justify-between px-2 py-1 rounded-lg transition-all ${
+                        isActive
+                          ? 'bg-yellow-500/10 text-yellow-500 font-extrabold border border-yellow-500/25'
+                          : 'text-slate-300 hover:text-white hover:bg-white/5'
+                      }`}
+                    >
+                      <div className="flex items-center gap-1.5 flex-1 min-w-0">
+                        <button
+                          type="button"
+                          onClick={(e) => { e.stopPropagation(); toggleFavorite(ticker.symbol) }}
+                          className={`p-0.5 rounded cursor-pointer transition-all duration-100 active:scale-90 ${
+                            isFav
+                              ? 'text-yellow-400 hover:text-yellow-500'
+                              : 'text-slate-600 hover:text-slate-400'
+                          }`}
+                          title={isFav ? 'Remove from favorites' : 'Add to favorites'}
+                        >
+                          <Star className={`w-3.5 h-3.5 ${isFav ? 'fill-current' : ''}`} />
+                        </button>
+                        <button
+                          onClick={() => { setSymbol(ticker.symbol); setTickerDropdownOpen(false) }}
+                          className="flex-1 text-left font-mono text-xs font-bold truncate cursor-pointer bg-transparent border-none p-0 outline-none"
+                        >
+                          {ticker.name}
+                        </button>
+                      </div>
+                      {isActive && (
+                        <Check className="w-3 h-3 shrink-0 ml-1" />
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
             </motion.div>
           )}
         </AnimatePresence>
@@ -405,6 +466,55 @@ export function ChartHeader({ fps = 0 }: ChartHeaderProps) {
                   </button>
                 )
               })}
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </Portal>
+
+      <Portal>
+        <AnimatePresence>
+          {paletteDropdownOpen && paletteBtnRect && (
+            <motion.div
+              initial={{ opacity: 0, y: -4, scale: 0.97 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: -4, scale: 0.97 }}
+              transition={{ duration: 0.12 }}
+              className="muddy-glass-popover rounded-xl p-1.5 min-w-[160px]"
+              ref={palettePortalRef}
+              style={{
+                position: 'fixed',
+                top: paletteBtnRect.bottom + 4,
+                left: paletteBtnRect.left,
+                zIndex: 99999,
+              }}
+            >
+              <div className="flex flex-col gap-0.5">
+                {([
+                  { id: 'default' as const, labelKey: 'chart.classic' },
+                  { id: 'alternative' as const, labelKey: 'chart.alternative' },
+                ]).map(({ id, labelKey }) => {
+                  const isSelected = palette === id
+                  return (
+                    <button
+                      key={id}
+                      onClick={() => { handlePaletteChange(id); setPaletteDropdownOpen(false) }}
+                      className={`flex items-center justify-between px-2 py-1.5 rounded-lg text-left cursor-pointer transition-all w-full text-xs font-bold ${
+                        isSelected
+                          ? 'bg-white/5 text-white font-extrabold'
+                          : 'text-slate-300 hover:text-white hover:bg-white/5'
+                      }`}
+                    >
+                      <div className="flex items-center gap-1.5 select-none">
+                        <CandlePreviewIcon palette={id} />
+                        <span className="font-mono text-[10px] font-bold">{t(labelKey)}</span>
+                      </div>
+                      {isSelected && (
+                        <Check className="w-3 tracking-tight ml-1 text-amber-500 shrink-0" />
+                      )}
+                    </button>
+                  )
+                })}
+              </div>
             </motion.div>
           )}
         </AnimatePresence>
