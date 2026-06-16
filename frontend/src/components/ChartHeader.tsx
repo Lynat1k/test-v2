@@ -125,7 +125,7 @@ export function ChartHeader({ fps = 0 }: ChartHeaderProps) {
   }, [setControlsPalette, setActivePalette, activeSlot])
 
   return (
-    <div className="relative flex items-center gap-1 px-2 py-2.5 liquid-glass-card border-b border-white/5 shrink-0 overflow-x-auto flex-wrap lg:flex-nowrap items-end" style={{ zIndex: 1000 }}>
+    <div className="relative flex items-center gap-1 px-2 py-2.5 bg-slate-950/40 border-b border-slate-900/60 shadow-md backdrop-blur-md shrink-0 overflow-x-auto flex-wrap lg:flex-nowrap items-end" style={{ zIndex: 1000 }}>
       {/* 1. Ticker selector */}
       <div className="shrink-0">
         <span className="text-[10px] uppercase font-mono tracking-widest font-bold block mb-0.5 text-slate-400/80">Active Ticker</span>

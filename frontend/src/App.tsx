@@ -62,7 +62,14 @@ function AppShell() {
   }, [layoutMode, setActiveSlot]);
 
   return (
-    <div className="h-screen w-screen flex flex-col overflow-hidden bg-black text-white">
+    <div className="h-screen w-screen flex flex-col overflow-hidden bg-[#030712]/92 text-white terminal-grid">
+      {/* Dynamic Drifting Liquid Background Blobs */}
+      <div className="absolute inset-0 overflow-hidden pointer-events-none z-0">
+        <div className="absolute top-[5%] left-[3%] w-[450px] h-[450px] rounded-full liquid-blob-cyan blur-[100px] opacity-40" />
+        <div className="absolute top-[50%] right-[5%] w-[550px] h-[550px] rounded-full liquid-blob-magenta blur-[120px] opacity-35" />
+        <div className="absolute top-[30%] left-[45%] -translate-x-1/2 w-[420px] h-[420px] rounded-full liquid-blob-emerald blur-[90px] opacity-20" />
+        <div className="absolute bottom-[2%] left-[10%] w-[380px] h-[380px] rounded-full liquid-blob-gold blur-[100px] opacity-30" />
+      </div>
       <VerifyEmailBanner />
 
       {/* Main app header */}
@@ -322,9 +329,9 @@ function AppShell() {
       </AnimatePresence>
 
       {/* Main content */}
-      <div className="flex-1 overflow-hidden flex flex-col p-1 sm:p-2 gap-1.5 sm:gap-2">
+      <div className="flex-1 overflow-hidden flex flex-col pt-0 px-1 sm:px-2 pb-1 sm:pb-2 gap-1.5 sm:gap-2">
         {currentView === 'terminal' && (
-          <div className="flex-1 flex flex-col h-full">
+          <div className="flex-1 flex flex-col h-full gap-1 sm:gap-2">
             {/* Chart header controls */}
             <div className="hidden lg:block">
               <ChartHeader fps={fps} />
