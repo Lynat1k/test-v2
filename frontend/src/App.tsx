@@ -17,6 +17,7 @@ import { ChartPanel } from '@/components/ChartPanel'
 import { ChartContainer2 } from '@/chart2d/ChartContainer2'
 import { ChartHeader } from '@/components/ChartHeader'
 import { Logo } from '@/components/Logo'
+import IndicatorsModal from '@/components/IndicatorsModal'
 import { UserDropdown } from '@/components/UserDropdown'
 import RoadmapModal from '@/components/RoadmapModal'
 import { Splitter } from '@/components/Splitter'
@@ -566,29 +567,11 @@ function AppShell() {
         )}
       </div>
 
-      {/* Indicators Modal */}
-      <AnimatePresence>
-        {showIndicatorsModal && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60" onClick={() => setShowIndicatorsModal(false)}>
-            <motion.div
-              initial={{ scale: 0.9, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              exit={{ scale: 0.9, opacity: 0 }}
-              className="liquid-glass-card rounded-2xl p-6 w-96 muddy-glass-popover"
-              onClick={e => e.stopPropagation()}
-            >
-              <h3 className="text-sm font-bold text-white mb-3">Indicators</h3>
-              <p className="text-xs text-slate-400">Indicators modal — фаза 11 (Cluster Search, логика не трогается)</p>
-              <button
-                className="liquid-glass-button mt-4 px-4 py-2 rounded-lg text-xs font-bold text-white cursor-pointer"
-                onClick={() => setShowIndicatorsModal(false)}
-              >
-                Close
-              </button>
-            </motion.div>
-          </div>
-        )}
-      </AnimatePresence>
+      <IndicatorsModal
+        isOpen={showIndicatorsModal}
+        onClose={() => setShowIndicatorsModal(false)}
+        symbol={slot0.symbol}
+      />
 
       <LoginModal open={loginOpen} onClose={() => setLoginOpen(false)} onSwitchToRegister={() => { setLoginOpen(false); setRegisterOpen(true) }} />
       <RegisterModal open={registerOpen} onClose={() => setRegisterOpen(false)} onSwitchToLogin={() => { setRegisterOpen(false); setLoginOpen(true) }} />
