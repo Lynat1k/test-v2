@@ -284,29 +284,58 @@ export default function ClusterChart({
 
   // Refs for history-on-scroll and cluster-on-scroll
   const prevCandlesLengthRef = useRef(0);
+  const prevFirstTsRef = useRef(0);
   const lastRequestedOldestRef = useRef(0);
   const lastVisibleTimestampsRef = useRef<string>('');
   const visibleTimestampsTimerRef = useRef<ReturnType<typeof setTimeout>>();
+  const pendingScrollAnchorRef = useRef<{ ts: number; offset: number } | null>(null);
+  const frozenPriceBoundsRef = useRef<{ maxPriceRaw: number; minPriceRaw: number; priceRange: number; basePriceCenter: number } | null>(null);
 
-  // Adjust scrollLeft after history prepend to prevent viewport jump
-  useEffect(() => {
+  // Adjust scrollLeft after history prepend to prevent viewport jump (sync before paint)
+  // Uses timestamp-anchor from the trigger effect to find the candle at the same position in the new array
+  useLayoutEffect(() => {
+    const anchor = pendingScrollAnchorRef.current;
     const prevLen = prevCandlesLengthRef.current;
     const currLen = candles.length;
-    if (currLen > prevLen && prevLen > 0 && containerRef.current) {
-      const added = currLen - prevLen;
-      const spacing = Math.max(1, candleWidth < 30 ? Math.floor(candleWidth * 0.35) : 12);
-      containerRef.current.scrollLeft += added * (candleWidth + spacing);
-    }
+    const currFirstTs = candles[0]?.timestamp ?? 0;
+    const prevFirstTs = prevFirstTsRef.current;
     prevCandlesLengthRef.current = currLen;
+    prevFirstTsRef.current = currFirstTs;
+
+    if (anchor && currLen > prevLen && prevLen > 0 && currFirstTs !== prevFirstTs && containerRef.current) {
+      pendingScrollAnchorRef.current = null;
+      const newIdx = candles.findIndex(c => c.timestamp === anchor.ts);
+      if (newIdx >= 0) {
+        containerRef.current.scrollLeft = margin.left + newIdx * (candleWidth + candleSpacing) + anchor.offset;
+        setVisibleScrollLeft(containerRef.current.scrollLeft);
+      }
+      // If after correction we're at the left edge and history isn't exhausted,
+      // force another prepend — no more scroll events will fire.
+      if (onNeedHistory && containerRef.current.scrollLeft <= margin.left + candleWidth) {
+        const oldest = candles[0]?.timestamp;
+        if (oldest) {
+          lastRequestedOldestRef.current = 0;
+          onNeedHistory(oldest);
+        }
+      }
+    }
   }, [candles.length, candleWidth]);
 
   // Fire onNeedHistory when scroll approaches the left edge
   useEffect(() => {
     if (!onNeedHistory || candles.length === 0) return;
-    const spacing = Math.max(1, candleWidth < 30 ? Math.floor(candleWidth * 0.35) : 12);
-    const firstVisibleIdx = Math.floor((visibleScrollLeft - margin.left) / (candleWidth + spacing));
+    const firstVisibleIdx = Math.floor((visibleScrollLeft - margin.left) / (candleWidth + candleSpacing));
     const oldest = candles[0].timestamp;
     if (firstVisibleIdx < 100 && oldest !== lastRequestedOldestRef.current) {
+      // Capture scroll anchor BEFORE prepend (only if no anchor is pending, to prevent
+      // overwrite by subsequent scroll events while a prepend is in flight).
+      if (!pendingScrollAnchorRef.current) {
+        const idx = Math.max(0, Math.min(firstVisibleIdx, candles.length - 1));
+        pendingScrollAnchorRef.current = {
+          ts: candles[idx]!.timestamp,
+          offset: (visibleScrollLeft - margin.left) - idx * (candleWidth + candleSpacing),
+        };
+      }
       lastRequestedOldestRef.current = oldest;
       onNeedHistory(oldest);
     }
@@ -315,9 +344,8 @@ export default function ClusterChart({
   // Fire onVisibleTimestampsChange (debounced) when visible candles change
   useEffect(() => {
     if (!onVisibleTimestampsChange || candles.length === 0) return;
-    const spacing = Math.max(1, candleWidth < 30 ? Math.floor(candleWidth * 0.35) : 12);
-    const firstIdx = Math.max(0, Math.floor((visibleScrollLeft - margin.left) / (candleWidth + spacing)));
-    const visibleCount = Math.ceil((visibleClientWidth || 800) / (candleWidth + spacing)) + 2;
+    const firstIdx = Math.max(0, Math.floor((visibleScrollLeft - margin.left) / (candleWidth + candleSpacing)));
+    const visibleCount = Math.ceil((visibleClientWidth || 800) / (candleWidth + candleSpacing)) + 2;
     const timestamps: number[] = [];
     for (let i = firstIdx; i < Math.min(firstIdx + visibleCount, candles.length); i++) {
       timestamps.push(candles[i].timestamp);
@@ -398,20 +426,37 @@ export default function ClusterChart({
   }, [candles]);
 
   const priceBounds = useMemo(() => {
-    if (candlesToScale.length === 0) {
-      return { maxPriceRaw: 100, minPriceRaw: 0, priceRange: 100, basePriceCenter: 50 };
+    // During prepend (anchor != null), return FROZEN values — priceRange/basePriceCenter don't change
+    // until the prepend is applied and anchor is cleared in useLayoutEffect.
+    if (pendingScrollAnchorRef.current && frozenPriceBoundsRef.current) {
+      return frozenPriceBoundsRef.current;
     }
-    let maxPriceRaw = candlesToScale[0].high;
-    let minPriceRaw = candlesToScale[0].low;
-    for (let i = 0; i < candlesToScale.length; i++) {
-      const c = candlesToScale[i];
+
+    if (candles.length === 0) {
+      const base = { maxPriceRaw: 100, minPriceRaw: 0, priceRange: 100, basePriceCenter: 50 };
+      frozenPriceBoundsRef.current = base;
+      return base;
+    }
+
+    // Normal mode: compute from visible window
+    const firstIdx = Math.max(0, Math.floor((visibleScrollLeft - margin.left) / (candleWidth + candleSpacing)));
+    const visibleCount = Math.ceil((visibleClientWidth || 800) / (candleWidth + candleSpacing)) + 2;
+    const lastIdx = Math.min(firstIdx + visibleCount, candles.length);
+    const lo = firstIdx < candles.length ? firstIdx : 0;
+    const hi = lo < candles.length ? Math.max(lo + 1, lastIdx) : candles.length;
+    let maxPriceRaw = candles[lo]!.high;
+    let minPriceRaw = candles[lo]!.low;
+    for (let i = lo; i < hi; i++) {
+      const c = candles[i]!;
       if (c.high > maxPriceRaw) maxPriceRaw = c.high;
       if (c.low < minPriceRaw) minPriceRaw = c.low;
     }
     const priceRange = maxPriceRaw - minPriceRaw || 1;
     const basePriceCenter = (maxPriceRaw + minPriceRaw) / 2;
-    return { maxPriceRaw, minPriceRaw, priceRange, basePriceCenter };
-  }, [candlesToScale]);
+    const result = { maxPriceRaw, minPriceRaw, priceRange, basePriceCenter };
+    frozenPriceBoundsRef.current = result;
+    return result;
+  }, [candles, visibleScrollLeft, visibleClientWidth, candleWidth, candleSpacing]);
 
   const { maxPriceRaw, minPriceRaw, priceRange, basePriceCenter } = priceBounds;
 
@@ -665,7 +710,7 @@ export default function ClusterChart({
       setVisibleScrollLeft(finalScrollLeft);
       setVisibleClientWidth(clientWidth);
     }
-  }, [activePair.symbol, candles.length, visibleClientWidth, priceRange, basePriceCenter]);
+  }, [activePair.symbol, visibleClientWidth]);
 
   // Adjust canvas zoom
   const handleZoom = (factor: number) => {

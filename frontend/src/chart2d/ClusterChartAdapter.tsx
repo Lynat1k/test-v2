@@ -7,6 +7,16 @@ import type { ApiCandle, ApiClusterRow } from "./adapter";
 const BATCH_SIZE = 100;
 const PARALLEL_LIMIT = 3;
 
+const TF_LIMIT: Record<string, number> = {
+  "1m": 500,
+  "5m": 500,
+  "15m": 500,
+  "30m": 400,
+  "1h": 300,
+  "4h": 200,
+  "1d": 200,
+};
+
 export interface ClusterChartAdapterProps {
   symbol: string;
   market: string;
@@ -63,13 +73,16 @@ export default function ClusterChartAdapter({
   const allHistoryLoadedRef = useRef(false);
   const historyLoadingRef = useRef(false);
   const clusterLoadedTsRef = useRef<Set<number>>(new Set());
-  const requestedOldestRef = useRef(0);
+  const accessTokenRef = useRef(accessToken);
+
+  useEffect(() => {
+    accessTokenRef.current = accessToken;
+  }, [accessToken]);
 
   useEffect(() => {
     allHistoryLoadedRef.current = false;
     historyLoadingRef.current = false;
     clusterLoadedTsRef.current = new Set();
-    requestedOldestRef.current = 0;
   }, [symbol, market, timeframe]);
 
   const fetchClustersBatch = useCallback(async (timestamps: number[]): Promise<Map<number, ApiClusterRow[]>> => {
@@ -89,7 +102,7 @@ export default function ClusterChartAdapter({
         try {
           const resp = await fetch(
             `/api/v1/candles/${symbol}/clusters-batch?timeframe=${timeframe}&candleOpens=${candleOpens}`,
-            { headers: authHeaders(accessToken) }
+            { headers: authHeaders(accessTokenRef.current) }
           );
           if (!resp.ok) return;
           const data = await resp.json();
@@ -106,17 +119,18 @@ export default function ClusterChartAdapter({
       }));
     }
     return clusterMap;
-  }, [symbol, market, timeframe, accessToken]);
+  }, [symbol, market, timeframe]);
 
   const handleNeedHistory = useCallback(async (oldestTimestamp: number) => {
-    if (allHistoryLoadedRef.current || historyLoadingRef.current) return;
-    if (oldestTimestamp === requestedOldestRef.current) return;
-    requestedOldestRef.current = oldestTimestamp;
+    if (allHistoryLoadedRef.current) return;
+    if (historyLoadingRef.current) return;
     historyLoadingRef.current = true;
 
     try {
-      const url = `/api/v1/candles?symbol=${symbol}&market=${market}&timeframe=${timeframe}&limit=200&before=${oldestTimestamp - 1}`;
-      const res = await fetch(url, { headers: authHeaders(accessToken) });
+      const limit = TF_LIMIT[timeframe] ?? 200;
+      const before = oldestTimestamp - 1;
+      const url = `/api/v1/candles?symbol=${symbol}&market=${market}&timeframe=${timeframe}&limit=${limit}&before=${before}`;
+      const res = await fetch(url, { headers: authHeaders(accessTokenRef.current) });
       const data = await res.json();
 
       if (!data.ok || !data.data?.candles || data.data.candles.length === 0) {
@@ -125,6 +139,7 @@ export default function ClusterChartAdapter({
       }
 
       const apiCandles: ApiCandle[] = data.data.candles;
+
       const clusterMap = await fetchClustersBatch(
         apiCandles.map((c: ApiCandle) => new Date(c.CandleOpen).getTime())
       );
@@ -138,7 +153,6 @@ export default function ClusterChartAdapter({
           return prev;
         }
         const merged = [...unique, ...prev].sort((a, b) => a.timestamp - b.timestamp);
-        requestedOldestRef.current = merged[0]!.timestamp;
         return merged;
       });
     } catch (err) {
@@ -146,7 +160,7 @@ export default function ClusterChartAdapter({
     } finally {
       historyLoadingRef.current = false;
     }
-  }, [symbol, market, timeframe, accessToken, fetchClustersBatch]);
+  }, [symbol, market, timeframe, fetchClustersBatch]);
 
   const handleVisibleTimestampsChange = useCallback((timestamps: number[]) => {
     fetchClustersBatch(timestamps).then(clusterMap => {
@@ -175,8 +189,9 @@ export default function ClusterChartAdapter({
       historyLoadingRef.current = false;
 
       try {
-        const candleUrl = `/api/v1/candles?symbol=${symbol}&market=${market}&timeframe=${timeframe}&limit=200`;
-        const candleRes = await fetch(candleUrl, { headers: authHeaders(accessToken) });
+        const limit = TF_LIMIT[timeframe] ?? 200;
+        const candleUrl = `/api/v1/candles?symbol=${symbol}&market=${market}&timeframe=${timeframe}&limit=${limit}`;
+        const candleRes = await fetch(candleUrl, { headers: authHeaders(accessTokenRef.current) });
         const candleData = await candleRes.json();
 
         if (!candleData.ok) {
@@ -208,7 +223,7 @@ export default function ClusterChartAdapter({
 
     load();
     return () => { cancelled = true; };
-  }, [symbol, market, timeframe]);
+  }, [symbol, market, timeframe, accessToken]);
 
   const activePair = makePair(symbol, market);
 
