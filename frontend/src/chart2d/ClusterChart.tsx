@@ -40,8 +40,9 @@ interface ClusterChartProps {
   candleDataType?: "bid_ask" | "delta" | "volume";
   candlePalette?: "default" | "alternative";
   onToggleIndicator?: (id: string) => void;
+  onToggleVisibility?: (id: string) => void;
   onRemoveIndicator?: (id: string) => void;
-  onShowIndicatorsSettings?: () => void;
+  onShowIndicatorsSettings?: (id?: string) => void;
   language?: "RU" | "EN" | "KZ";
   workspaceLayout?: "1" | "2h" | "2v";
   onWorkspaceLayoutChange?: (layout: "1" | "2h" | "2v") => void;
@@ -3943,7 +3944,7 @@ export default function ClusterChart({
           {/* Control Buttons */}
           <div className="flex items-center gap-1.5">
             <button
-              onClick={() => onToggleIndicator?.("delta")}
+              onClick={() => onToggleVisibility?.("delta")}
               className={`p-0.5 rounded transition-all duration-150 cursor-pointer ${
                 isLight 
                   ? "hover:bg-slate-200 text-slate-500 hover:text-slate-800" 
@@ -3955,7 +3956,7 @@ export default function ClusterChart({
             </button>
 
             <button
-              onClick={onShowIndicatorsSettings}
+              onClick={() => onShowIndicatorsSettings?.("delta")}
               className={`p-0.5 rounded transition-all duration-150 cursor-pointer ${
                 isLight 
                   ? "hover:bg-slate-200 text-slate-500 hover:text-slate-800" 
@@ -4015,7 +4016,7 @@ export default function ClusterChart({
           {/* Control Buttons */}
           <div className="flex items-center gap-1.5">
             <button
-              onClick={() => onToggleIndicator?.("cvd")}
+              onClick={() => onToggleVisibility?.("cvd")}
               className={`p-0.5 rounded transition-all duration-150 cursor-pointer ${
                 isLight 
                   ? "hover:bg-slate-200 text-slate-500 hover:text-slate-800" 
@@ -4027,7 +4028,7 @@ export default function ClusterChart({
             </button>
 
             <button
-              onClick={onShowIndicatorsSettings}
+              onClick={() => onShowIndicatorsSettings?.("cvd")}
               className={`p-0.5 rounded transition-all duration-150 cursor-pointer ${
                 isLight 
                   ? "hover:bg-slate-200 text-slate-500 hover:text-slate-800" 

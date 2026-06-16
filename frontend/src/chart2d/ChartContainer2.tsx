@@ -13,6 +13,11 @@ interface ChartContainer2Props {
   compression: number
   palette: 'default' | 'alternative'
   layoutMode: 'single' | 'horizontal' | 'vertical'
+  activeIndicators: Record<string, boolean>
+  onToggleIndicator: (id: string) => void
+  onToggleVisibility: (id: string) => void
+  onRemoveIndicator: (id: string) => void
+  onShowIndicatorsSettings: (id?: string) => void
   onLayoutChange?: (mode: 'single' | 'horizontal' | 'vertical') => void
   onFpsChange?: (fps: number) => void
   onResolvedModeChange?: (mode: Exclude<CandleMode, 'auto'>) => void
@@ -40,7 +45,8 @@ const LAYOUT_MAP: Record<string, '1' | '2h' | '2v'> = {
 
 export function ChartContainer2({
   symbol, market, timeframe, mode, volumeMode, palette,
-  layoutMode, onLayoutChange,
+  layoutMode, activeIndicators, onToggleIndicator, onToggleVisibility, onRemoveIndicator, onShowIndicatorsSettings,
+  onLayoutChange,
 }: ChartContainer2Props) {
   const { accessToken } = useAuthContext()
 
@@ -53,6 +59,11 @@ export function ChartContainer2({
         candleType={MODE_MAP[mode] ?? 'auto'}
         candleDataType={VOLUME_MAP[volumeMode] ?? 'bid_ask'}
         candlePalette={palette}
+        activeIndicators={activeIndicators}
+        onToggleIndicator={onToggleIndicator}
+        onToggleVisibility={onToggleVisibility}
+        onRemoveIndicator={onRemoveIndicator}
+        onShowIndicatorsSettings={onShowIndicatorsSettings}
         accessToken={accessToken}
         workspaceLayout={LAYOUT_MAP[layoutMode] ?? '1'}
         onWorkspaceLayoutChange={(id) => {

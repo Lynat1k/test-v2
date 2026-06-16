@@ -24,6 +24,11 @@ export interface ClusterChartAdapterProps {
   candleType?: "auto" | "japanese" | "footprint" | "clusters";
   candleDataType?: "bid_ask" | "delta" | "volume";
   candlePalette?: "default" | "alternative";
+  activeIndicators?: Record<string, boolean>;
+  onToggleIndicator?: (id: string) => void;
+  onToggleVisibility?: (id: string) => void;
+  onRemoveIndicator?: (id: string) => void;
+  onShowIndicatorsSettings?: (id?: string) => void;
   language?: "RU" | "EN" | "KZ";
   accessToken?: string | null;
   workspaceLayout?: "1" | "2h" | "2v";
@@ -66,6 +71,11 @@ export default function ClusterChartAdapter({
   candleType = "auto",
   candleDataType = "bid_ask",
   candlePalette = "default",
+  activeIndicators,
+  onToggleIndicator,
+  onToggleVisibility,
+  onRemoveIndicator,
+  onShowIndicatorsSettings,
   language = "RU",
   accessToken,
   workspaceLayout,
@@ -249,6 +259,11 @@ export default function ClusterChartAdapter({
     <ClusterChart
       candles={candles}
       activePair={activePair}
+      {...(activeIndicators ? { activeIndicators } : {})}
+      {...(onToggleIndicator ? { onToggleIndicator } : {})}
+      {...(onToggleVisibility ? { onToggleVisibility } : {})}
+      {...(onRemoveIndicator ? { onRemoveIndicator } : {})}
+      {...(onShowIndicatorsSettings ? { onShowIndicatorsSettings } : {})}
       candleType={candleType === "auto" ? "japanese" : candleType}
       candleDataType={candleDataType}
       candlePalette={candlePalette}

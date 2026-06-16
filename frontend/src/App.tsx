@@ -18,6 +18,7 @@ import { ChartContainer2 } from '@/chart2d/ChartContainer2'
 import { ChartHeader } from '@/components/ChartHeader'
 import { Logo } from '@/components/Logo'
 import IndicatorsModal from '@/components/IndicatorsModal'
+import { useIndicators } from '@/features/indicators/useIndicators'
 import { UserDropdown } from '@/components/UserDropdown'
 import RoadmapModal from '@/components/RoadmapModal'
 import { Splitter } from '@/components/Splitter'
@@ -32,10 +33,19 @@ function AppShell() {
   const { showIndicatorsModal, setShowIndicatorsModal, getSlot, activeSlot, setActiveSlot, setSymbol, setMarket, setTimeframe, setCandleMode, setVolumeMode, setPalette, setCompression, getTickerConfig } = useChartControls()
   const { layoutMode, setLayoutMode, splitRatio, setSplitRatio } = useLayout()
   const useCanvas2d = import.meta.env['VITE_USE_CANVAS2D'] === 'true'
+  const { indicators, activeIndicators, handleIndicatorToggle, handleIndicatorDeactivate, handleIndicatorVisibility, handleApplyIndicators } = useIndicators()
   const [currentView, setCurrentView] = useState<View>('terminal')
   const [fps, setFps] = useState(0)
+  const [focusIndicatorId, setFocusIndicatorId] = useState<string | null>(null)
   const handleFpsChange = useCallback((f: number) => setFps(f), [])
   const handleResolvedModeChange = useCallback((_m: Exclude<CandleMode, 'auto'>) => {}, [])
+  const onToggleIndicator = useCallback((id: string) => handleIndicatorToggle(id), [handleIndicatorToggle])
+  const onToggleVisibility = useCallback((id: string) => handleIndicatorVisibility(id), [handleIndicatorVisibility])
+  const onRemoveIndicator = useCallback((id: string) => handleIndicatorDeactivate(id), [handleIndicatorDeactivate])
+  const onShowIndicatorsSettings = useCallback((id?: string) => {
+    if (id) setFocusIndicatorId(id); else setFocusIndicatorId(null)
+    setShowIndicatorsModal(true)
+  }, [setShowIndicatorsModal])
   const [loginOpen, setLoginOpen] = useState(false)
   const [registerOpen, setRegisterOpen] = useState(false)
   const [isRoadmapOpen, setIsRoadmapOpen] = useState(false)
@@ -354,6 +364,11 @@ function AppShell() {
                           compression={slot0.compression}
                           palette={slot0.palette}
                           layoutMode={layoutMode}
+                          activeIndicators={activeIndicators}
+                            onToggleIndicator={onToggleIndicator}
+                            onToggleVisibility={onToggleVisibility}
+                            onRemoveIndicator={onRemoveIndicator}
+                          onShowIndicatorsSettings={onShowIndicatorsSettings}
                           onLayoutChange={setLayoutMode}
                         />
                       ) : (
@@ -395,6 +410,11 @@ function AppShell() {
                             compression={slot0.compression}
                             palette={slot0.palette}
                             layoutMode={layoutMode}
+                            activeIndicators={activeIndicators}
+                            onToggleIndicator={onToggleIndicator}
+                            onToggleVisibility={onToggleVisibility}
+                            onRemoveIndicator={onRemoveIndicator}
+                            onShowIndicatorsSettings={onShowIndicatorsSettings}
                             onLayoutChange={setLayoutMode}
                           />
                         ) : (
@@ -438,6 +458,11 @@ function AppShell() {
                             compression={slot1.compression}
                             palette={slot1.palette}
                             layoutMode={layoutMode}
+                            activeIndicators={activeIndicators}
+                            onToggleIndicator={onToggleIndicator}
+                            onToggleVisibility={onToggleVisibility}
+                            onRemoveIndicator={onRemoveIndicator}
+                            onShowIndicatorsSettings={onShowIndicatorsSettings}
                             onLayoutChange={setLayoutMode}
                           />
                         ) : (
@@ -485,6 +510,11 @@ function AppShell() {
                             compression={slot0.compression}
                             palette={slot0.palette}
                             layoutMode={layoutMode}
+                            activeIndicators={activeIndicators}
+                            onToggleIndicator={onToggleIndicator}
+                            onToggleVisibility={onToggleVisibility}
+                            onRemoveIndicator={onRemoveIndicator}
+                            onShowIndicatorsSettings={onShowIndicatorsSettings}
                             onLayoutChange={setLayoutMode}
                           />
                         ) : (
@@ -528,6 +558,11 @@ function AppShell() {
                             compression={slot1.compression}
                             palette={slot1.palette}
                             layoutMode={layoutMode}
+                            activeIndicators={activeIndicators}
+                            onToggleIndicator={onToggleIndicator}
+                            onToggleVisibility={onToggleVisibility}
+                            onRemoveIndicator={onRemoveIndicator}
+                            onShowIndicatorsSettings={onShowIndicatorsSettings}
                             onLayoutChange={setLayoutMode}
                           />
                         ) : (
@@ -569,8 +604,11 @@ function AppShell() {
 
       <IndicatorsModal
         isOpen={showIndicatorsModal}
-        onClose={() => setShowIndicatorsModal(false)}
+        onClose={() => { setShowIndicatorsModal(false); setFocusIndicatorId(null) }}
         symbol={slot0.symbol}
+        indicators={indicators}
+        focusIndicatorId={focusIndicatorId}
+        onApplyIndicators={handleApplyIndicators}
       />
 
       <LoginModal open={loginOpen} onClose={() => setLoginOpen(false)} onSwitchToRegister={() => { setLoginOpen(false); setRegisterOpen(true) }} />

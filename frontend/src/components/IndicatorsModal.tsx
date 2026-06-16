@@ -9,6 +9,10 @@ interface IndicatorsModalProps {
   isOpen: boolean
   onClose: () => void
   symbol?: string
+  indicators?: Indicator[]
+  focusIndicatorId?: string | null
+  onApplyIndicators?: (indicators: Indicator[]) => void
+  onToggleVisibility?: (id: string) => void
 }
 
 const TIER_STUB = { limits: { maxIndicators: 10, customIndicatorSettings: true }, group: "PRO" as const }
@@ -26,7 +30,7 @@ function buildDefaultIndicators(): Indicator[] {
   }))
 }
 
-export default function IndicatorsModal({ isOpen, onClose, symbol = "" }: IndicatorsModalProps) {
+export default function IndicatorsModal({ isOpen, onClose, symbol = "", indicators, focusIndicatorId, onApplyIndicators, onToggleVisibility }: IndicatorsModalProps) {
   const { limits, group } = TIER_STUB
 
   const [draft, setDraft] = useState<Indicator[]>([])
@@ -79,14 +83,16 @@ export default function IndicatorsModal({ isOpen, onClose, symbol = "" }: Indica
 
   useEffect(() => {
     if (isOpen && !prevIsOpen.current) {
-      const cloned = JSON.parse(JSON.stringify(buildDefaultIndicators())) as Indicator[]
+      const source = (indicators && indicators.length > 0) ? indicators : buildDefaultIndicators()
+      const cloned = JSON.parse(JSON.stringify(source)) as Indicator[]
       setDraft(cloned)
       initialIndicators.current = cloned
+      if (focusIndicatorId) setSelectedId(focusIndicatorId)
       setOffset({ x: 0, y: 0 })
       setSize({ width: 855, height: 800 })
     }
     prevIsOpen.current = isOpen
-  }, [isOpen])
+  }, [isOpen, indicators, focusIndicatorId])
 
   const handleCancel = () => {
     onClose()
@@ -232,6 +238,7 @@ export default function IndicatorsModal({ isOpen, onClose, symbol = "" }: Indica
   }
 
   const handleApply = () => {
+    onApplyIndicators?.(draft)
     onClose()
   }
 
@@ -338,7 +345,7 @@ export default function IndicatorsModal({ isOpen, onClose, symbol = "" }: Indica
                                 <ArrowDown className="w-3.5 h-3.5" />
                               </button>
                               <button
-                                onClick={(e) => toggleVisibility(ind.id, e)}
+                                onClick={(e) => { toggleVisibility(ind.id, e); onToggleVisibility?.(ind.id) }}
                                 className={`p-1 rounded transition ${isLight ? "hover:bg-slate-200/80 text-slate-500 hover:text-slate-850" : "hover:bg-white/10 text-slate-400 hover:text-slate-200"}`}
                                 title={isVisible ? "Скрыть на графике" : "Показать на графике"}
                               >

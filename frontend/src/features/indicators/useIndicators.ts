@@ -1,34 +1,58 @@
-import { useState, useEffect } from 'react'
-import type { Indicator } from '@/types'
+import { useState, useEffect, useMemo } from 'react'
+import { MODULAR_INDICATORS } from '@/chart2d/indicators'
+import type { Indicator } from '@/chart2d/types'
 
-const STORAGE_KEY = 'procluster_indicators'
+const STORAGE_KEY = 'procluster_indicators_v2'
 
-const DEFAULT_INDICATORS: Indicator[] = [
-  { id: 'volume', label: 'Volume', category: 'Все индикаторы', type: 'Подвальный', isFavorite: false, isActive: false, settings: {} },
-  { id: 'volumeOnChart', label: 'Volume on Chart', category: 'Все индикаторы', type: 'Оверлей', isFavorite: false, isActive: false, settings: {} },
-  { id: 'volumeProfile', label: 'Volume Profile', category: 'Все индикаторы', type: 'Оверлей', isFavorite: false, isActive: false, settings: {} },
-  { id: 'marketProfile', label: 'Market Profile', category: 'Все индикаторы', type: 'Оверлей', isFavorite: false, isActive: false, settings: {} },
-  { id: 'delta', label: 'Delta', category: 'Все индикаторы', type: 'Подвальный', isFavorite: false, isActive: false, settings: {} },
-  { id: 'cvd', label: 'CVD', category: 'Все индикаторы', type: 'Подвальный', isFavorite: false, isActive: false, settings: {} },
-  { id: 'liquidations', label: 'Liquidations', category: 'Все индикаторы', type: 'Оверлей', isFavorite: false, isActive: false, settings: {} },
-  { id: 'clusterSearch', label: 'Cluster Search', category: 'Все индикаторы', type: 'Оверлей', isFavorite: false, isActive: false, settings: {} },
-  { id: 'reversalClusters', label: 'Reversal Clusters', category: 'Все индикаторы', type: 'Оверлей', isFavorite: false, isActive: false, settings: {} },
-  { id: 'absorption', label: 'Absorption', category: 'Все индикаторы', type: 'Оверлей', isFavorite: false, isActive: false, settings: {} },
-  { id: 'stackedImbalance', label: 'Stacked Imbalance', category: 'Все индикаторы', type: 'Оверлей', isFavorite: false, isActive: false, settings: {} },
-]
+function buildDefaultIndicators(): Indicator[] {
+  return MODULAR_INDICATORS.map((mod) => ({
+    id: mod.id,
+    label: mod.label,
+    category: mod.category,
+    type: mod.type,
+    isFavorite: false,
+    isActive: mod.isActiveDefault ?? false,
+    isVisible: true,
+    settings: { ...mod.defaultSettings },
+  }))
+}
+
+function mergeSaved(saved: Indicator[]): Indicator[] {
+  const defaults = buildDefaultIndicators()
+  const savedMap = new Map(saved.map((i) => [i.id, i]))
+  return defaults.map((def) => {
+    const s = savedMap.get(def.id)
+    if (!s) return def
+    return {
+      ...def,
+      isFavorite: s.isFavorite ?? def.isFavorite,
+      isActive: s.isActive ?? def.isActive,
+      isVisible: s.isVisible ?? def.isVisible ?? true,
+      settings: { ...def.settings, ...s.settings },
+    }
+  })
+}
 
 export function useIndicators() {
   const [indicators, setIndicators] = useState<Indicator[]>(() => {
     try {
       const stored = localStorage.getItem(STORAGE_KEY)
-      return stored ? JSON.parse(stored) as Indicator[] : DEFAULT_INDICATORS
+      return stored ? mergeSaved(JSON.parse(stored)) : buildDefaultIndicators()
     } catch {
-      return DEFAULT_INDICATORS
+      return buildDefaultIndicators()
     }
   })
 
   useEffect(() => {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(indicators))
+  }, [indicators])
+
+  const activeIndicators = useMemo<Record<string, boolean>>(() => {
+    const record: Record<string, boolean> = { volume: true }
+    for (const ind of indicators) {
+      record[ind.id] = ind.isActive && ind.isVisible !== false
+    }
+    return record
   }, [indicators])
 
   const handleIndicatorUpdate = (id: string, settings: Partial<Indicator['settings']>) => {
@@ -43,11 +67,36 @@ export function useIndicators() {
     ))
   }
 
+  const handleIndicatorDeactivate = (id: string) => {
+    setIndicators(prev => prev.map(ind =>
+      ind.id === id ? { ...ind, isActive: false } : ind
+    ))
+  }
+
+  const handleIndicatorVisibility = (id: string) => {
+    setIndicators(prev => prev.map(ind =>
+      ind.id === id ? { ...ind, isVisible: ind.isVisible === false ? true : false } : ind
+    ))
+  }
+
   const handleIndicatorFavorite = (id: string) => {
     setIndicators(prev => prev.map(ind =>
       ind.id === id ? { ...ind, isFavorite: !ind.isFavorite } : ind
     ))
   }
 
-  return { indicators, handleIndicatorUpdate, handleIndicatorToggle, handleIndicatorFavorite }
+  const handleApplyIndicators = (updated: Indicator[]) => {
+    setIndicators(updated)
+  }
+
+  return {
+    indicators,
+    activeIndicators,
+    handleIndicatorUpdate,
+    handleIndicatorToggle,
+    handleIndicatorDeactivate,
+    handleIndicatorVisibility,
+    handleIndicatorFavorite,
+    handleApplyIndicators,
+  }
 }
