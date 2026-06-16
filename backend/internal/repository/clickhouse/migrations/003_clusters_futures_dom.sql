@@ -8,4 +8,5 @@ CREATE TABLE IF NOT EXISTS clusters_futures_dom (
 ) ENGINE = MergeTree()
 PARTITION BY toYYYYMM(snapshot_ts)
 ORDER BY (symbol, snapshot_ts, price_level)
-TTL snapshot_ts + INTERVAL 6 MONTH;
+TTL toDateTime(snapshot_ts) + INTERVAL 6 MONTH;
+

@@ -11,4 +11,5 @@ CREATE TABLE IF NOT EXISTS clusters_futures (
 ) ENGINE = MergeTree()
 PARTITION BY toYYYYMM(candle_open)
 ORDER BY (symbol, timeframe, candle_open, price_level)
-TTL candle_open + INTERVAL 1 YEAR;
+TTL toDateTime(candle_open) + INTERVAL 1 YEAR;
+

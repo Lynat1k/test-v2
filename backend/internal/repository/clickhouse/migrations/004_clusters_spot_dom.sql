@@ -8,4 +8,5 @@ CREATE TABLE IF NOT EXISTS clusters_spot_dom (
 ) ENGINE = MergeTree()
 PARTITION BY toYYYYMM(snapshot_ts)
 ORDER BY (symbol, snapshot_ts, price_level)
-TTL snapshot_ts + INTERVAL 1 YEAR;
+TTL toDateTime(snapshot_ts) + INTERVAL 1 YEAR;
+
