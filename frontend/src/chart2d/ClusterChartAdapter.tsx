@@ -21,6 +21,7 @@ export interface ClusterChartAdapterProps {
   symbol: string;
   market: string;
   timeframe: string;
+  compression?: number;
   candleType?: "auto" | "japanese" | "footprint" | "clusters";
   candleDataType?: "bid_ask" | "delta" | "volume";
   candlePalette?: "default" | "alternative";
@@ -43,6 +44,15 @@ function estimatePriceStep(symbol: string): number {
   if (upper.startsWith("ETH")) return 0.25;
   if (upper.startsWith("SOL")) return 0.25;
   return 0.1;
+}
+
+function computePriceStep(symbol: string, market: string, compressionMultiplier: number): number {
+  const isFutures = market.toLowerCase() === "futures";
+  const isBtc = symbol.toUpperCase().includes("BTC");
+  const baseTickStep = isBtc ? (isFutures ? 0.1 : 0.01) : 0.01;
+  const baseCompression = isBtc ? (isFutures ? 25 : 500) : 25;
+  const compression = baseCompression * compressionMultiplier;
+  return baseTickStep * compression;
 }
 
 function makePair(symbol: string, _market: string) {
@@ -69,6 +79,7 @@ export default function ClusterChartAdapter({
   symbol,
   market,
   timeframe,
+  compression = 1,
   candleType = "auto",
   candleDataType = "bid_ask",
   candlePalette = "default",
@@ -84,6 +95,7 @@ export default function ClusterChartAdapter({
   onWorkspaceLayoutChange,
   workspacesCount,
 }: ClusterChartAdapterProps) {
+  const priceStep = computePriceStep(symbol, market, compression);
   const [candles, setCandles] = useState<ClusterCandle[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -101,7 +113,7 @@ export default function ClusterChartAdapter({
     allHistoryLoadedRef.current = false;
     historyLoadingRef.current = false;
     clusterLoadedTsRef.current = new Set();
-  }, [symbol, market, timeframe]);
+  }, [symbol, market, timeframe, compression]);
 
   const fetchClustersBatch = useCallback(async (timestamps: number[]): Promise<Map<number, ApiClusterRow[]>> => {
     const clusterMap = new Map<number, ApiClusterRow[]>();
@@ -119,7 +131,7 @@ export default function ClusterChartAdapter({
         const candleOpens = chunk.join(',');
         try {
           const resp = await fetch(
-            `/api/v1/candles/${symbol}/clusters-batch?timeframe=${timeframe}&candleOpens=${candleOpens}`,
+            `/api/v1/candles/${symbol}/clusters-batch?timeframe=${timeframe}&candleOpens=${candleOpens}&priceStep=${priceStep}`,
             { headers: authHeaders(accessTokenRef.current) }
           );
           if (!resp.ok) return;
@@ -137,7 +149,7 @@ export default function ClusterChartAdapter({
       }));
     }
     return clusterMap;
-  }, [symbol, market, timeframe]);
+  }, [symbol, market, timeframe, priceStep]);
 
   const handleNeedHistory = useCallback(async (oldestTimestamp: number) => {
     if (allHistoryLoadedRef.current) return;
@@ -241,7 +253,7 @@ export default function ClusterChartAdapter({
 
     load();
     return () => { cancelled = true; };
-  }, [symbol, market, timeframe, accessToken]);
+  }, [symbol, market, timeframe, compression, accessToken]);
 
   const activePair = makePair(symbol, market);
 

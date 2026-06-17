@@ -42,11 +42,6 @@ var validMarkets = map[string]bool{
 	"spot":    true,
 }
 
-// TODO(phase12-billing): enforce chart compression gating on backend once frontend
-// passes a `compression` query param. Currently compression is client-side only
-// (DataStore.compressLevels), so gating is enforced on the frontend via
-// chartCompressionLocked flag from tier_policies. See ADR phase12 step 2.3.
-
 func (s *Server) handleCandles(w http.ResponseWriter, r *http.Request) {
 	symbol := strings.TrimSpace(r.URL.Query().Get("symbol"))
 	if symbol == "" {
@@ -248,9 +243,17 @@ func (s *Server) handleClustersBatch(w http.ResponseWriter, r *http.Request) {
 		candleOpens = append(candleOpens, ts)
 	}
 
+	// Parse priceStep for cluster aggregation (optional, 0 = no aggregation)
+	priceStep := 0.0
+	if psStr := r.URL.Query().Get("priceStep"); psStr != "" {
+		if ps, err := strconv.ParseFloat(psStr, 64); err == nil && ps > 0 {
+			priceStep = ps
+		}
+	}
+
 	ctx := r.Context()
 
-	clustersMap, err := s.repo.GetClustersBatch(ctx, symbol, timeframe, candleOpens)
+	clustersMap, err := s.repo.GetClustersBatch(ctx, symbol, timeframe, candleOpens, priceStep)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "DB_ERROR", "failed to fetch clusters batch")
 		return

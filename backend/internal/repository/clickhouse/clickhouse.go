@@ -327,7 +327,7 @@ func (r *ClickhouseRepository) GetClusters(ctx context.Context, symbol, timefram
 	return result, rows.Err()
 }
 
-func (r *ClickhouseRepository) GetClustersBatch(ctx context.Context, symbol, timeframe string, candleOpens []int64) (map[int64][]model.ClusterRow, error) {
+func (r *ClickhouseRepository) GetClustersBatch(ctx context.Context, symbol, timeframe string, candleOpens []int64, priceStep float64) (map[int64][]model.ClusterRow, error) {
 	if len(candleOpens) == 0 {
 		return nil, nil
 	}
@@ -343,21 +343,49 @@ func (r *ClickhouseRepository) GetClustersBatch(ctx context.Context, symbol, tim
 		args = append(args, time.UnixMilli(ts))
 	}
 
-	query := fmt.Sprintf(`
-		SELECT
-			symbol,
-			timeframe,
-			candle_open,
-			price_level,
-			bid_volume,
-			ask_volume,
-			compression
-		FROM clusters_futures
-		WHERE symbol = ? AND timeframe = ? AND (%s)
-		ORDER BY candle_open, price_level ASC
-	`, whereConditions)
+	var query string
+	if priceStep > 0 {
+		// Aggregate clusters into larger buckets by priceStep
+		query = fmt.Sprintf(`
+			SELECT
+				symbol,
+				timeframe,
+				candle_open,
+				floor(price_level / ?) * ? AS price_level,
+				sum(bid_volume) AS bid_volume,
+				sum(ask_volume) AS ask_volume,
+				0 AS compression
+			FROM clusters_futures
+			WHERE symbol = ? AND timeframe = ? AND (%s)
+			GROUP BY symbol, timeframe, candle_open, floor(price_level / ?) * ?
+			ORDER BY candle_open, price_level ASC
+		`, whereConditions)
+		// priceStep appears 4 times: floor div, floor mul, GROUP BY div, GROUP BY mul
+		aggArgs := []interface{}{priceStep, priceStep}
+		args = append(aggArgs[:1:1], aggArgs[1:]...)
+		// Rebuild args: [priceStep, priceStep, symbol, timeframe, ...candleOpens, priceStep, priceStep]
+		newArgs := []interface{}{priceStep, priceStep, symbol, timeframe}
+		newArgs = append(newArgs, args[2:]...) // candleOpens
+		newArgs = append(newArgs, priceStep, priceStep)
+		args = newArgs
+	} else {
+		// No aggregation — return raw clusters
+		query = fmt.Sprintf(`
+			SELECT
+				symbol,
+				timeframe,
+				candle_open,
+				price_level,
+				bid_volume,
+				ask_volume,
+				compression
+			FROM clusters_futures
+			WHERE symbol = ? AND timeframe = ? AND (%s)
+			ORDER BY candle_open, price_level ASC
+		`, whereConditions)
+	}
 
-	log.Printf("[clickhouse] GetClustersBatch: symbol=%s tf=%s n=%d", symbol, timeframe, len(candleOpens))
+	log.Printf("[clickhouse] GetClustersBatch: symbol=%s tf=%s n=%d priceStep=%.2f", symbol, timeframe, len(candleOpens), priceStep)
 
 	rows, err := r.conn.Query(ctx, query, args...)
 	if err != nil {
