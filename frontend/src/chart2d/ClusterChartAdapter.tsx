@@ -271,6 +271,7 @@ export default function ClusterChartAdapter({
       candleType={candleType === "auto" ? "japanese" : candleType}
       candleDataType={candleDataType}
       candlePalette={candlePalette}
+      timeframe={timeframe}
       language={language}
       workspaceLayout={workspaceLayout ?? "1"}
       onWorkspaceLayoutChange={onWorkspaceLayoutChange ?? (() => {})}

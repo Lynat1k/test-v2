@@ -38,6 +38,7 @@ interface ClusterChartProps {
   candleType?: "auto" | "japanese" | "footprint" | "clusters";
   candleDataType?: "bid_ask" | "delta" | "volume";
   candlePalette?: "default" | "alternative";
+  timeframe?: string;
   onToggleIndicator?: (id: string) => void;
   onToggleVisibility?: (id: string) => void;
   onRemoveIndicator?: (id: string) => void;
@@ -69,7 +70,9 @@ export default function ClusterChart({
   candleType = "auto",
   candleDataType = "bid_ask",
   candlePalette = "default",
+  timeframe,
   onToggleIndicator,
+  onToggleVisibility,
   onRemoveIndicator,
   onShowIndicatorsSettings,
   language = "EN",
@@ -131,6 +134,9 @@ export default function ClusterChart({
   const [textInputColor, setTextInputColor] = useState<string>("#3b82f6");
   const [areDrawingsVisible, setAreDrawingsVisible] = useState<boolean>(() => {
     try { return storage.get("procluster_drawings_visible") !== "false" } catch { return true }
+  });
+  const [isOverlayLegendCollapsed, setIsOverlayLegendCollapsed] = useState<boolean>(() => {
+    return storage.get("chart_overlay_legend_collapsed") === "true";
   });
 
   const [selectedTimezone, setSelectedTimezone] = useState<string>(() => {
@@ -3524,6 +3530,136 @@ export default function ClusterChart({
 
       {/* 2D Panning Chart Workspace */}
       <div className="flex-1 flex relative overflow-hidden">
+
+        {/* Overlay Legend — top-left, collapsible panel for overlay indicators */}
+        {(() => {
+          const overlayIndicatorIds = ["clusterSearch", "volumeOnChart", "stackedImbalance"];
+          const activeOverlayIndicators = indicators ? indicators.filter(ind => ind.isActive && overlayIndicatorIds.includes(ind.id)) : [];
+
+          if (activeOverlayIndicators.length === 0) return null;
+
+          return (
+            <div className="absolute left-[52px] top-3 pointer-events-none z-30">
+              <div className="pointer-events-auto flex flex-col gap-1.5 font-sans select-none max-w-sm sm:max-w-md transition-all duration-300">
+                
+                {/* Collapse/Expand Toggle Button */}
+                <div className="flex items-center gap-1 select-none shrink-0">
+                  <button
+                    onClick={() => {
+                      const next = !isOverlayLegendCollapsed;
+                      setIsOverlayLegendCollapsed(next);
+                      storage.set("chart_overlay_legend_collapsed", String(next));
+                    }}
+                    className={`flex items-center gap-1 font-mono text-[8px] sm:text-[9px] font-bold uppercase tracking-wider py-0.5 px-2 rounded transition-all cursor-pointer border ${
+                      isLight
+                        ? "bg-slate-100 hover:bg-slate-200 border-slate-200 text-slate-600 hover:text-slate-900 shadow-sm"
+                        : "bg-white/[0.04] hover:bg-white/[0.08] border-white/5 text-slate-400 hover:text-white"
+                    }`}
+                  >
+                    {isOverlayLegendCollapsed ? (
+                      <>
+                        {language === "RU" ? "Индикаторы" : "Indicators"} ({activeOverlayIndicators.length})
+                        <ChevronDown className="w-3 h-3 text-amber-500 ml-0.5" />
+                      </>
+                    ) : (
+                      <>
+                        {language === "RU" ? "Свернуть" : "Collapse"}
+                        <ChevronDown className="w-3 h-3 text-rose-500 ml-0.5 transform rotate-180" />
+                      </>
+                    )}
+                  </button>
+                </div>
+
+                {/* Indicators list (Only shown if NOT collapsed) */}
+                {!isOverlayLegendCollapsed && (
+                  <div className="flex flex-col gap-1 pl-0.5">
+                    {activeOverlayIndicators.map(ind => {
+                      const isVisible = ind.isVisible !== false;
+                      
+                      let label = ind.label.replace(/^\(PROCLUSTER\)\s+/i, "").replace(/\s+\(PROCLUSTER\)$/i, "");
+                      if (ind.id === "volumeOnChart") label = "Footprint";
+
+                      return (
+                        <div 
+                          key={ind.id}
+                          className={`group flex items-center justify-between gap-3 px-1.5 py-0.5 rounded transition-all duration-150 flex-nowrap whitespace-nowrap ${
+                            isLight 
+                              ? "hover:bg-slate-200/50" 
+                              : "hover:bg-white/[0.04]"
+                          } ${!isVisible ? "opacity-35" : ""}`}
+                        >
+                          {/* Label & Pair Info */}
+                          <div className="flex items-center gap-1.5 font-mono text-[9.5px] sm:text-[10px] select-text min-w-0 font-bold flex-nowrap whitespace-nowrap">
+                            <span className={`font-bold shrink-0 whitespace-nowrap ${
+                              isLight ? "text-[#4f46e5]" : "text-cyan-400"
+                            }`}>&lt;ProCluster&gt;</span>
+
+                            <span className={`tracking-wide shrink whitespace-nowrap leading-tight hover:underline truncate ${
+                              isLight ? "text-slate-800" : "text-slate-100"
+                            } ${!isVisible ? "line-through text-slate-500" : ""}`}>
+                              {label}
+                            </span>
+                            <span className={`text-[8px] sm:text-[8.5px] shrink-0 font-medium whitespace-nowrap ${
+                              isLight ? "text-slate-500" : "text-slate-400"
+                            }`}>
+                              ({activePair.symbol.replace("/", "")}, {timeframe || "30m"})
+                            </span>
+                          </div>
+
+                          {/* Micro control actions */}
+                          <div className="flex items-center gap-0.5 shrink-0 opacity-100 sm:opacity-0 group-hover:opacity-100 transition-all duration-150">
+                            <button
+                              onClick={() => {
+                                if (onToggleVisibility) {
+                                  onToggleVisibility(ind.id);
+                                } else {
+                                  onToggleIndicator?.(ind.id);
+                                }
+                              }}
+                              className={`p-0.5 rounded cursor-pointer transition-colors ${
+                                isLight ? "hover:bg-slate-300 text-slate-600 hover:text-slate-900" : "hover:bg-white/10 text-slate-300 hover:text-white"
+                              }`}
+                              title={language === "RU" ? (isVisible ? "Скрыть" : "Показать") : "Toggle Visibility"}
+                            >
+                              {isVisible ? (
+                                <Eye className={`w-3 h-3 ${isLight ? "text-emerald-600" : "text-emerald-400"}`} />
+                              ) : (
+                                <EyeOff className="w-3 h-3 text-rose-500" />
+                              )}
+                            </button>
+
+                            <button
+                              onClick={() => onShowIndicatorsSettings?.(ind.id)}
+                              className={`p-0.5 rounded cursor-pointer transition-colors ${
+                                isLight ? "hover:bg-slate-300 text-slate-600 hover:text-slate-900" : "hover:bg-white/10 text-slate-300 hover:text-white"
+                              }`}
+                              title={language === "RU" ? "Настройки" : "Settings"}
+                            >
+                              <Settings className="w-3 h-3 text-amber-500" />
+                            </button>
+
+                            <button
+                              onClick={() => onRemoveIndicator?.(ind.id)}
+                              className={`p-0.5 rounded cursor-pointer transition-colors ${
+                                isLight 
+                                  ? "hover:bg-slate-300 text-slate-600 hover:text-rose-600" 
+                                  : "hover:bg-rose-500/10 text-slate-300 hover:text-rose-400"
+                              }`}
+                              title={language === "RU" ? "Удалить" : "Remove"}
+                            >
+                              <Trash2 className="w-3 h-3 text-rose-500" />
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            </div>
+          );
+        })()}
+
         {/* Drawing Tools sidebar panel */}
         <div className={`w-11 flex-none flex flex-col items-center py-3 border-r select-none transition-all duration-300 relative z-30 ${
           isLight 
