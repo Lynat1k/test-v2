@@ -24,7 +24,7 @@ import RoadmapModal from '@/components/RoadmapModal'
 import { Splitter } from '@/components/Splitter'
 import { DOMSidebar } from '@/components/DOMSidebar'
 import type { CandleMode, VolumeMode } from '@/chart-engine'
-import { Sparkles, Sliders, X, Layers } from 'lucide-react'
+import { Sparkles, Sliders, X, Layers, ChevronLeft, ChevronRight } from 'lucide-react'
 import { AnimatePresence, motion } from 'motion/react'
 
 type View = 'terminal' | 'admin' | 'profile'
@@ -51,7 +51,17 @@ function AppShell() {
   const [isRoadmapOpen, setIsRoadmapOpen] = useState(false)
   const [activeMobileTab, setActiveMobileTab] = useState<'chart' | 'dom'>('chart')
   const [isMobileSettingsOpen, setIsMobileSettingsOpen] = useState(false)
-  const { language } = useTranslation()
+  const [domCollapsed, setDomCollapsed] = useState(() => {
+    try { return localStorage.getItem('procluster_dom_collapsed') === 'true' } catch { return false }
+  })
+  const toggleDomCollapsed = useCallback(() => {
+    setDomCollapsed(prev => {
+      const next = !prev
+      try { localStorage.setItem('procluster_dom_collapsed', String(next)) } catch {}
+      return next
+    })
+  }, [])
+  const { language, t } = useTranslation()
 
   const chartAreaRef = useRef<HTMLDivElement>(null)
 
@@ -340,7 +350,7 @@ function AppShell() {
       </AnimatePresence>
 
       {/* Main content */}
-      <div className="flex-1 overflow-hidden flex flex-col pt-0 px-1 sm:px-2 pb-1 sm:pb-2 gap-1.5 sm:gap-2">
+      <div className="flex-1 overflow-hidden flex flex-col pt-0 pl-1 sm:pl-2 pr-0 pb-1 sm:pb-2 gap-1.5 sm:gap-2">
         {currentView === 'terminal' && (
           <div className="flex-1 flex flex-col h-full gap-1 sm:gap-2">
             {/* Chart header controls */}
@@ -593,9 +603,20 @@ function AppShell() {
                     </div>
                   )}
                 </div>
-                <div className={`relative flex min-h-0 flex-col transition-all duration-300 ease-in-out shrink-0 min-w-[24px] ${activeMobileTab === 'chart' ? 'hidden lg:block' : 'max-lg:flex-1 lg:shrink-0 max-lg:[&>div]:!w-full'}`}>
-                  <DOMSidebar />
+                <div
+                  className={`relative flex min-h-0 flex-col transition-all duration-300 ease-in-out shrink-0 min-w-[24px] ${activeMobileTab === 'chart' ? 'hidden lg:block' : 'max-lg:flex-1 lg:shrink-0 max-lg:[&>div]:!w-full'}`}
+                >
+                  <DOMSidebar collapsed={domCollapsed} />
                 </div>
+
+                {/* DOMSidebar collapse chip — absolute inside chart row, overflow-hidden won't clip (chip within bounds) */}
+                <button
+                  onClick={toggleDomCollapsed}
+                  className={`hidden lg:flex absolute top-1/2 -translate-y-1/2 z-50 items-center justify-center w-6 h-12 rounded-lg border transition-all duration-200 cursor-pointer liquid-glass-card hover:bg-white/5 border-white/5 text-white/40 hover:text-white/70 ${domCollapsed ? 'right-0' : 'right-[268px]'}`}
+                  title={domCollapsed ? t('dom.expand') : t('dom.collapse')}
+                >
+                  {domCollapsed ? <ChevronLeft className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
+                </button>
               </div>
           </div>
         )}

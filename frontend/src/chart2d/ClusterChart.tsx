@@ -3941,7 +3941,7 @@ export default function ClusterChart({
         <div 
           className="absolute z-30 flex items-center gap-2 px-3 py-1 rounded-lg border shadow-xl backdrop-blur-md transition-all duration-300 select-none"
           style={{
-            top: `${deltaTopY + 6}px`,
+            top: `${deltaTopY + 1}px`,
             right: "100px", // Pinned just to the left of the 90px price scale panel
             backgroundColor: isLight ? "rgba(241, 245, 249, 0.9)" : "rgba(15, 23, 42, 0.75)",
             borderColor: isLight ? "rgba(203, 213, 225, 0.8)" : "rgba(255, 255, 255, 0.08)",
@@ -4002,7 +4002,7 @@ export default function ClusterChart({
         <div 
           className="absolute z-30 flex items-center gap-2 px-3 py-1 rounded-lg border shadow-xl backdrop-blur-md transition-all duration-300 select-none"
           style={{
-            top: `${cvdTopY + 6}px`,
+            top: `${cvdTopY + 1}px`,
             right: "100px",
             backgroundColor: isLight ? "rgba(241, 245, 249, 0.9)" : "rgba(15, 23, 42, 0.75)",
             borderColor: isLight ? "rgba(203, 213, 225, 0.8)" : "rgba(255, 255, 255, 0.08)",

@@ -248,7 +248,7 @@ const ru = {
     bars: 'Бары',
     footprint: 'Футпринт',
     clusters: 'Кластеры',
-    palette: 'Палитра',
+    palette: 'ЦВЕТ',
     classic: 'Классическая',
     alternative: 'Альтернативная',
     volumeData: 'Данные в свечах',

@@ -248,7 +248,7 @@ const en = {
     bars: 'Bars',
     footprint: 'Footprint',
     clusters: 'Clusters',
-    palette: 'Palette',
+    palette: 'COLOR',
     classic: 'Classic',
     alternative: 'Alternative',
     volumeData: 'Volume Data',

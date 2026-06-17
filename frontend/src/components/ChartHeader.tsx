@@ -122,7 +122,7 @@ export function ChartHeader({ fps = 0 }: ChartHeaderProps) {
   }, [setControlsPalette, setActivePalette, activeSlot])
 
   return (
-    <div className="relative flex items-center gap-1 px-2 py-2.5 bg-slate-950/40 border-b border-slate-900/60 shadow-md backdrop-blur-md shrink-0 overflow-x-auto flex-wrap lg:flex-nowrap items-end" style={{ zIndex: 1000 }}>
+    <div className="relative flex items-start gap-1 px-2 py-2.5 bg-slate-950/40 border-b border-slate-900/60 shadow-md backdrop-blur-md shrink-0 overflow-x-auto flex-wrap lg:flex-nowrap" style={{ zIndex: 1000 }}>
       {/* 1. Ticker selector */}
       <div className="shrink-0">
         <span className="text-[10px] uppercase font-mono tracking-widest font-bold block mb-0.5 text-slate-400/80">Active Ticker</span>
@@ -208,18 +208,13 @@ export function ChartHeader({ fps = 0 }: ChartHeaderProps) {
 
       {/* 5. Palette dropdown */}
       <div className="shrink-0">
-        <span className="text-[10px] uppercase font-mono tracking-widest font-bold block mb-0.5 text-slate-400/80">Palette</span>
+        <span className="text-[10px] uppercase font-mono tracking-widest font-bold block mb-0.5 text-slate-400/80">{t('chart.palette')}</span>
         <div className="relative" ref={paletteRef}>
           <button
             onClick={() => paletteDropdownOpen ? setPaletteDropdownOpen(false) : openPaletteDropdown()}
-            className="flex items-center justify-between gap-1.5 px-2.5 py-1 rounded-lg text-xs cursor-pointer hover:scale-[1.01] active:scale-[0.99] transition-all min-w-[110px] sm:min-w-[135px] h-[30px] select-none border liquid-glass-button border-white/5 text-slate-200 font-black"
+            className="flex items-center justify-between gap-1.5 px-2 py-1 rounded-lg text-xs cursor-pointer hover:scale-[1.01] active:scale-[0.99] transition-all min-w-[40px] h-[30px] select-none border liquid-glass-button border-white/5 text-slate-200 font-black"
           >
-            <div className="flex items-center gap-1 leading-none">
-              <CandlePreviewIcon palette={palette} />
-              <span className="font-mono text-[10px] whitespace-nowrap text-white font-extrabold">
-                {t(palette === 'default' ? 'chart.classic' : 'chart.alternative')}
-              </span>
-            </div>
+            <CandlePreviewIcon palette={palette} />
             <ChevronDown className={`w-3 h-3 transition-transform duration-200 shrink-0 text-slate-400 ${paletteDropdownOpen ? 'rotate-180' : ''}`} />
           </button>
         </div>

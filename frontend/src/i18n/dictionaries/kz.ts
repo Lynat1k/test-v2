@@ -248,7 +248,7 @@ const kz = {
     bars: 'Барлар',
     footprint: 'Футпринт',
     clusters: 'Кластерлер',
-    palette: 'Палитра',
+    palette: 'ТҮС',
     classic: 'Классикалық',
     alternative: 'Баламалы',
     volumeData: 'Сандақ деректері',

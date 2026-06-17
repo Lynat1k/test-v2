@@ -267,6 +267,7 @@ export default function ClusterChartAdapter({
       {...(onToggleVisibility ? { onToggleVisibility } : {})}
       {...(onRemoveIndicator ? { onRemoveIndicator } : {})}
       {...(onShowIndicatorsSettings ? { onShowIndicatorsSettings } : {})}
+      marketType={market.toUpperCase() as "SPOT" | "FUTURES"}
       candleType={candleType === "auto" ? "japanese" : candleType}
       candleDataType={candleDataType}
       candlePalette={candlePalette}
