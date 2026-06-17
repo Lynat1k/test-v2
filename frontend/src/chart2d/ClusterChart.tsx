@@ -59,7 +59,7 @@ export default function ClusterChart({
   activeIndicators = {
     clusterSearch: true,
     delta: true,
-    volume: true,
+    volume: false,
     cvd: true,
     stackedImbalance: false,
     depthOfMarket: false

@@ -48,7 +48,7 @@ export function useIndicators() {
   }, [indicators])
 
   const activeIndicators = useMemo<Record<string, boolean>>(() => {
-    const record: Record<string, boolean> = { volume: true }
+    const record: Record<string, boolean> = { volume: false }
     for (const ind of indicators) {
       record[ind.id] = ind.isActive && ind.isVisible !== false
     }
