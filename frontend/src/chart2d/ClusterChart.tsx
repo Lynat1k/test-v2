@@ -129,6 +129,9 @@ export default function ClusterChart({
   const [textInputValue, setTextInputValue] = useState("");
   const [textInputFontSize, setTextInputFontSize] = useState<number>(11);
   const [textInputColor, setTextInputColor] = useState<string>("#3b82f6");
+  const [areDrawingsVisible, setAreDrawingsVisible] = useState<boolean>(() => {
+    try { return storage.get("procluster_drawings_visible") !== "false" } catch { return true }
+  });
 
   const [selectedTimezone, setSelectedTimezone] = useState<string>(() => {
     return storage.get("procluster_chart_timezone") || "local";
@@ -866,7 +869,7 @@ export default function ClusterChart({
     }
 
     // If not drawing, check if click hit a drawing or handle to drag/select it
-    if (!activeDrawingTool && canvasRef.current) {
+    if (!activeDrawingTool && areDrawingsVisible && canvasRef.current) {
       const rect = canvasRef.current.getBoundingClientRect();
       const clickX = e.clientX - rect.left;
       const clickY = e.clientY - rect.top;
@@ -2067,7 +2070,7 @@ export default function ClusterChart({
     // Always drawn under candles, wicks, and cluster cells per user request
     drawDrawingObjects(ctx, {
       ctx,
-      drawings,
+      drawings: areDrawingsVisible ? drawings : [],
       drawingInProgress,
       selectedDrawingId,
       visibleScrollLeft,
@@ -2963,7 +2966,7 @@ export default function ClusterChart({
     // -------------------------------------------------------------------------
     drawDrawingObjects(ctx, {
       ctx,
-      drawings,
+      drawings: areDrawingsVisible ? drawings : [],
       drawingInProgress,
       selectedDrawingId,
       visibleScrollLeft,
@@ -3209,6 +3212,7 @@ export default function ClusterChart({
     visibleScrollLeft,
     visibleClientWidth,
     selectedTimezone,
+    areDrawingsVisible,
     drawings,
     drawingInProgress,
     selectedDrawingId
@@ -3565,6 +3569,35 @@ export default function ClusterChart({
             })}
           </div>
 
+          {/* Separator */}
+          <div className={`w-6 h-px my-1 ${isLight ? "bg-slate-200" : "bg-white/10"}`} />
+
+          {/* Show/Hide drawings */}
+          <button
+            onClick={() => {
+              const next = !areDrawingsVisible;
+              setAreDrawingsVisible(next);
+              try { storage.set("procluster_drawings_visible", String(next)); } catch {}
+            }}
+            className={`p-2 rounded-lg transition-all duration-150 relative group cursor-pointer ${
+              !areDrawingsVisible
+                ? "bg-amber-500/10 text-amber-500 border border-amber-500/25"
+                : isLight
+                  ? "hover:bg-slate-100 text-slate-600 hover:text-slate-900 border border-transparent"
+                  : "hover:bg-white/5 text-slate-400 hover:text-white border border-transparent"
+            }`}
+            title={language === "RU" ? (areDrawingsVisible ? "Скрыть все рисунки" : "Показать все рисунки") : (areDrawingsVisible ? "Hide All Drawings" : "Show All Drawings")}
+          >
+            {areDrawingsVisible ? (
+              <Eye className="w-4 h-4" />
+            ) : (
+              <EyeOff className="w-4 h-4 text-rose-500" />
+            )}
+            <div className={`absolute left-full ml-2 top-1.2 font-sans font-semibold text-[10px] px-2 py-1 rounded bg-slate-950 text-slate-100 border border-white/10 hidden group-hover:block whitespace-nowrap z-50 pointer-events-none shadow-xl`}>
+              {language === "RU" ? (areDrawingsVisible ? "Скрыть все объекты" : "Показать все объекты") : (areDrawingsVisible ? "Hide All Objects" : "Show All Objects")}
+            </div>
+          </button>
+
           {/* Delete drawings option at the bottom */}
           {drawings.length > 0 && (
             <button
@@ -3768,7 +3801,7 @@ export default function ClusterChart({
               })()}
 
               {/* Horizontal Level Drawing Object price badges on the fixed scale */}
-              {[...drawings, ...(drawingInProgress ? [drawingInProgress] : [])]
+              {[...(areDrawingsVisible ? drawings : []), ...(drawingInProgress ? [drawingInProgress] : [])]
                 .filter((d) => d.type === "horizontal")
                 .map((d) => {
                   const y = priceToY(d.startPrice);
