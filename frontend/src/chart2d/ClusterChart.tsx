@@ -48,6 +48,7 @@ interface ClusterChartProps {
   onWorkspaceLayoutChange?: (layout: "1" | "2h" | "2v") => void;
   workspacesCount?: number;
   orderBook?: OrderBook;
+  clusterStep?: number;
   onNeedHistory?: (oldestTimestamp: number) => void;
   onVisibleTimestampsChange?: (timestamps: number[]) => void;
 }
@@ -80,11 +81,13 @@ export default function ClusterChart({
   onWorkspaceLayoutChange,
   workspacesCount = 1,
   orderBook,
+  clusterStep,
   onNeedHistory,
   onVisibleTimestampsChange
 }: ClusterChartProps) {
   
   const isLight = theme === "light";
+  const effectiveStep = (clusterStep && clusterStep > 0) ? clusterStep : activePair.priceStep;
 
   const [isMobile, setIsMobile] = useState<boolean>(typeof window !== "undefined" ? window.innerWidth < 768 : false);
 
@@ -1247,8 +1250,8 @@ export default function ClusterChart({
         const candleX = margin.left + colIdx * (candleWidth + candleSpacing);
         
         if (scrolledX >= candleX && scrolledX <= candleX + candleWidth) {
-          const step = activePair.priceStep;
-          const cell = (candle.cells || []).find(cl => Math.abs(cl.price - price) <= step / 2);
+          const step = effectiveStep;
+          const cell = (candle.cells || []).find(cl => price >= cl.price && price <= cl.price + step);
           if (cell) {
             setHoveredCell({ candleIndex: colIdx, cell });
           } else {
@@ -2338,8 +2341,8 @@ export default function ClusterChart({
           const isDiagonalBuyImbalance = !!(cellBelow && cell.ask > cellBelow.bid * 3.0 && cell.ask > 0);
           const isDiagonalSellImbalance = !!(cellAbove && cell.bid > cellAbove.ask * 3.0 && cell.bid > 0);
 
-          const yTop = priceToY(cell.price + activePair.priceStep / 2);
-          const yBottom = priceToY(cell.price - activePair.priceStep / 2);
+          const yTop = priceToY(cell.price + effectiveStep);
+          const yBottom = priceToY(cell.price);
           const cellHeight = Math.max(1.5, yBottom - yTop);
           const cellY = yTop;
           // Very neat horizontal brick gap for a crisp layout

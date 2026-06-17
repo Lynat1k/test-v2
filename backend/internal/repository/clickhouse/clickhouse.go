@@ -345,29 +345,22 @@ func (r *ClickhouseRepository) GetClustersBatch(ctx context.Context, symbol, tim
 
 	var query string
 	if priceStep > 0 {
-		// Aggregate clusters into larger buckets by priceStep
+		// Aggregate clusters into larger buckets by priceStep.
+		// Embed priceStep directly via Sprintf (%g) — it's a validated server-side float, no injection risk.
 		query = fmt.Sprintf(`
 			SELECT
 				symbol,
 				timeframe,
 				candle_open,
-				floor(price_level / ?) * ? AS price_level,
+				floor(price_level / %g) * %g AS price_bucket,
 				sum(bid_volume) AS bid_volume,
 				sum(ask_volume) AS ask_volume,
-				0 AS compression
+				toUInt16(0) AS compression
 			FROM clusters_futures
 			WHERE symbol = ? AND timeframe = ? AND (%s)
-			GROUP BY symbol, timeframe, candle_open, floor(price_level / ?) * ?
-			ORDER BY candle_open, price_level ASC
-		`, whereConditions)
-		// priceStep appears 4 times: floor div, floor mul, GROUP BY div, GROUP BY mul
-		aggArgs := []interface{}{priceStep, priceStep}
-		args = append(aggArgs[:1:1], aggArgs[1:]...)
-		// Rebuild args: [priceStep, priceStep, symbol, timeframe, ...candleOpens, priceStep, priceStep]
-		newArgs := []interface{}{priceStep, priceStep, symbol, timeframe}
-		newArgs = append(newArgs, args[2:]...) // candleOpens
-		newArgs = append(newArgs, priceStep, priceStep)
-		args = newArgs
+			GROUP BY symbol, timeframe, candle_open, floor(price_level / %g) * %g
+			ORDER BY candle_open, floor(price_level / %g) * %g ASC
+		`, priceStep, priceStep, whereConditions, priceStep, priceStep, priceStep, priceStep)
 	} else {
 		// No aggregation — return raw clusters
 		query = fmt.Sprintf(`

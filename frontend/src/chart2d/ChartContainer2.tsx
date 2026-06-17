@@ -46,7 +46,7 @@ const LAYOUT_MAP: Record<string, '1' | '2h' | '2v'> = {
 }
 
 export function ChartContainer2({
-  symbol, market, timeframe, mode, volumeMode, palette,
+  symbol, market, timeframe, mode, volumeMode, palette, compression,
   layoutMode, indicators, activeIndicators, onToggleIndicator, onToggleVisibility, onRemoveIndicator, onShowIndicatorsSettings,
   onLayoutChange,
 }: ChartContainer2Props) {
@@ -58,6 +58,7 @@ export function ChartContainer2({
         symbol={symbol}
         market={market}
         timeframe={timeframe}
+        compression={compression}
         candleType={MODE_MAP[mode] ?? 'auto'}
         candleDataType={VOLUME_MAP[volumeMode] ?? 'bid_ask'}
         candlePalette={palette}

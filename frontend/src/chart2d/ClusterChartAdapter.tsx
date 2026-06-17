@@ -273,6 +273,7 @@ export default function ClusterChartAdapter({
     <ClusterChart
       candles={candles}
       activePair={activePair}
+      clusterStep={priceStep}
       {...(indicators ? { indicators } : {})}
       {...(activeIndicators ? { activeIndicators } : {})}
       {...(onToggleIndicator ? { onToggleIndicator } : {})}
