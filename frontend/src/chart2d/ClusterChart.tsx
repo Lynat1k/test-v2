@@ -124,9 +124,9 @@ export default function ClusterChart({
   const [drawingDragState, setDrawingDragState] = useState<any | null>(null);
   const [textInputModal, setTextInputModal] = useState<{
     id: number;
-    startX: number;
+    startIdx: number;
     startPrice: number;
-    endX: number;
+    endIdx: number;
     endPrice: number;
   } | null>(null);
   const [textInputValue, setTextInputValue] = useState("");
@@ -213,6 +213,10 @@ export default function ClusterChart({
   const [candleWidth, setCandleWidth] = useState<number>(145);
   const candleSpacing = Math.max(1, candleWidth < 30 ? Math.floor(candleWidth * 0.35) : 12);
   const margin = { top: 30, right: 90, bottom: 40, left: 60 };
+
+  const candleWidthSpacing = candleWidth + candleSpacing;
+  const indexToX = (idx: number) => margin.left + idx * candleWidthSpacing;
+  const xToIndex = (x: number) => (x - margin.left) / candleWidthSpacing;
 
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -447,22 +451,16 @@ export default function ClusterChart({
       return frozenPriceBoundsRef.current;
     }
 
-    if (candles.length === 0) {
+    if (candlesToScale.length === 0) {
       const base = { maxPriceRaw: 100, minPriceRaw: 0, priceRange: 100, basePriceCenter: 50 };
       frozenPriceBoundsRef.current = base;
       return base;
     }
 
-    // Normal mode: compute from visible window
-    const firstIdx = Math.max(0, Math.floor((visibleScrollLeft - margin.left) / (candleWidth + candleSpacing)));
-    const visibleCount = Math.ceil((visibleClientWidth || 800) / (candleWidth + candleSpacing)) + 2;
-    const lastIdx = Math.min(firstIdx + visibleCount, candles.length);
-    const lo = firstIdx < candles.length ? firstIdx : 0;
-    const hi = lo < candles.length ? Math.max(lo + 1, lastIdx) : candles.length;
-    let maxPriceRaw = candles[lo]!.high;
-    let minPriceRaw = candles[lo]!.low;
-    for (let i = lo; i < hi; i++) {
-      const c = candles[i]!;
+    let maxPriceRaw = candlesToScale[0].high;
+    let minPriceRaw = candlesToScale[0].low;
+    for (let i = 0; i < candlesToScale.length; i++) {
+      const c = candlesToScale[i];
       if (c.high > maxPriceRaw) maxPriceRaw = c.high;
       if (c.low < minPriceRaw) minPriceRaw = c.low;
     }
@@ -471,7 +469,7 @@ export default function ClusterChart({
     const result = { maxPriceRaw, minPriceRaw, priceRange, basePriceCenter };
     frozenPriceBoundsRef.current = result;
     return result;
-  }, [candles, visibleScrollLeft, visibleClientWidth, candleWidth, candleSpacing]);
+  }, [candlesToScale]);
 
   const { maxPriceRaw, minPriceRaw, priceRange, basePriceCenter } = priceBounds;
 
@@ -825,8 +823,9 @@ export default function ClusterChart({
 
           if (drawingInProgress && drawingInProgress.type === "channel" && drawingInProgress.stage === 2) {
             // COMPLETE THE CHANNEL DRAWING!
+            const cursorIdx = xToIndex(scrollRelativeX);
             const baselinePriceAtX = drawingInProgress.startPrice + (drawingInProgress.endPrice - drawingInProgress.startPrice) * 
-              (drawingInProgress.endX === drawingInProgress.startX ? 0 : (scrollRelativeX - drawingInProgress.startX) / (drawingInProgress.endX - drawingInProgress.startX));
+              (drawingInProgress.endIdx === drawingInProgress.startIdx ? 0 : (cursorIdx - drawingInProgress.startIdx) / (drawingInProgress.endIdx - drawingInProgress.startIdx));
             const finalOffsetPrice = price - baselinePriceAtX;
             
             const finalDrawing = {
@@ -846,9 +845,9 @@ export default function ClusterChart({
             const newDrawing = {
               id: Date.now(),
               type: "horizontal",
-              startX: scrollRelativeX,
+              startIdx: xToIndex(scrollRelativeX),
               startPrice: price,
-              endX: scrollRelativeX,
+              endIdx: xToIndex(scrollRelativeX),
               endPrice: price,
               text: "",
             };
@@ -860,9 +859,9 @@ export default function ClusterChart({
             setDrawingInProgress({
               id: Date.now(),
               type: activeDrawingTool,
-              startX: scrollRelativeX,
+              startIdx: xToIndex(scrollRelativeX),
               startPrice: price,
-              endX: scrollRelativeX,
+              endIdx: xToIndex(scrollRelativeX),
               endPrice: price,
               stage: isChannel ? 1 : undefined,
               offsetPrice: isChannel ? 0 : undefined,
@@ -890,8 +889,8 @@ export default function ClusterChart({
           if (d) {
             const y1 = priceToY(d.startPrice);
             const y2 = priceToY(d.endPrice);
-            const x1 = d.startX - visibleScrollLeft;
-            const x2 = d.endX - visibleScrollLeft;
+            const x1 = indexToX(d.startIdx) - visibleScrollLeft;
+            const x2 = indexToX(d.endIdx) - visibleScrollLeft;
             
             let handles = [
               { x: x1, y: y1, idx: 1 },
@@ -931,8 +930,8 @@ export default function ClusterChart({
             const d = drawings[i];
             const y1 = priceToY(d.startPrice);
             const y2 = priceToY(d.endPrice);
-            const x1 = d.startX - visibleScrollLeft;
-            const x2 = d.endX - visibleScrollLeft;
+            const x1 = indexToX(d.startIdx) - visibleScrollLeft;
+            const x2 = indexToX(d.endIdx) - visibleScrollLeft;
             
             if (d.type === "volume" || d.type === "rect" || d.type === "ruler") {
               const minX = Math.min(x1, x2);
@@ -1015,9 +1014,9 @@ export default function ClusterChart({
               handleIndex: foundHandleIdx || undefined,
               initialX: clickX,
               initialY: clickY,
-              initialStartX: d.startX,
+              initialStartIdx: d.startIdx,
               initialStartPrice: d.startPrice,
-              initialEndX: d.endX,
+              initialEndIdx: d.endIdx,
               initialEndPrice: d.endPrice,
             });
             return; // Skip normal panning
@@ -1068,7 +1067,8 @@ export default function ClusterChart({
       setDrawingInProgress(prev => {
         if (!prev) return null;
         if (prev.type === "channel" && prev.stage === 2) {
-          const baselinePriceAtX = prev.startPrice + (prev.endPrice - prev.startPrice) * (prev.endX === prev.startX ? 0 : (scrollRelativeX - prev.startX) / (prev.endX - prev.startX));
+          const cursorIdx = xToIndex(scrollRelativeX);
+          const baselinePriceAtX = prev.startPrice + (prev.endPrice - prev.startPrice) * (prev.endIdx === prev.startIdx ? 0 : (cursorIdx - prev.startIdx) / (prev.endIdx - prev.startIdx));
           const offsetPrice = price - baselinePriceAtX;
           return {
             ...prev,
@@ -1077,7 +1077,7 @@ export default function ClusterChart({
         }
         return {
           ...prev,
-          endX: scrollRelativeX,
+          endIdx: xToIndex(scrollRelativeX),
           endPrice: price,
         };
       });
@@ -1094,32 +1094,32 @@ export default function ClusterChart({
       setDrawings(prev => prev.map(d => {
         if (d.id === drawingDragState.id) {
           if (drawingDragState.type === "move") {
-            const deltaX = mouseX - drawingDragState.initialX;
+            const deltaIdx = (mouseX - drawingDragState.initialX) / candleWidthSpacing;
             const initialPrice = yToPrice(drawingDragState.initialY);
             const currentPrice = yToPrice(mouseY);
             const deltaPrice = currentPrice - initialPrice;
             return {
               ...d,
-              startX: drawingDragState.initialStartX + deltaX,
-              endX: drawingDragState.initialEndX + deltaX,
+              startIdx: drawingDragState.initialStartIdx + deltaIdx,
+              endIdx: drawingDragState.initialEndIdx + deltaIdx,
               startPrice: drawingDragState.initialStartPrice + deltaPrice,
               endPrice: drawingDragState.initialEndPrice + deltaPrice,
             };
           } else {
-            const deltaX = mouseX - drawingDragState.initialX;
+            const deltaIdx = (mouseX - drawingDragState.initialX) / candleWidthSpacing;
             const currentPrice = yToPrice(mouseY);
-            let nextStartX = d.startX;
+            let nextStartIdx = d.startIdx;
             let nextStartPrice = d.startPrice;
-            let nextEndX = d.endX;
+            let nextEndIdx = d.endIdx;
             let nextEndPrice = d.endPrice;
             let nextOffsetPrice = d.offsetPrice;
             
             if (d.type === "channel") {
               if (drawingDragState.handleIndex === 1) {
-                nextStartX = drawingDragState.initialStartX + deltaX;
+                nextStartIdx = drawingDragState.initialStartIdx + deltaIdx;
                 nextStartPrice = currentPrice;
               } else if (drawingDragState.handleIndex === 2) {
-                nextEndX = drawingDragState.initialEndX + deltaX;
+                nextEndIdx = drawingDragState.initialEndIdx + deltaIdx;
                 nextEndPrice = currentPrice;
               } else if (drawingDragState.handleIndex === 3) {
                 nextOffsetPrice = currentPrice - d.endPrice;
@@ -1128,25 +1128,25 @@ export default function ClusterChart({
               }
             } else {
               if (drawingDragState.handleIndex === 1) {
-                nextStartX = drawingDragState.initialStartX + deltaX;
+                nextStartIdx = drawingDragState.initialStartIdx + deltaIdx;
                 nextStartPrice = currentPrice;
               } else if (drawingDragState.handleIndex === 2) {
-                nextEndX = drawingDragState.initialEndX + deltaX;
+                nextEndIdx = drawingDragState.initialEndIdx + deltaIdx;
                 nextEndPrice = currentPrice;
               } else if (drawingDragState.handleIndex === 3) {
-                nextEndX = drawingDragState.initialEndX + deltaX;
+                nextEndIdx = drawingDragState.initialEndIdx + deltaIdx;
                 nextStartPrice = currentPrice;
               } else if (drawingDragState.handleIndex === 4) {
-                nextStartX = drawingDragState.initialStartX + deltaX;
+                nextStartIdx = drawingDragState.initialStartIdx + deltaIdx;
                 nextEndPrice = currentPrice;
               }
             }
             
             return {
               ...d,
-              startX: nextStartX,
+              startIdx: nextStartIdx,
               startPrice: nextStartPrice,
-              endX: nextEndX,
+              endIdx: nextEndIdx,
               endPrice: nextEndPrice,
               offsetPrice: nextOffsetPrice
             };
@@ -1192,9 +1192,9 @@ export default function ClusterChart({
       if (drawingInProgress.type === "text") {
         setTextInputModal({
           id: drawingInProgress.id,
-          startX: drawingInProgress.startX,
+          startIdx: drawingInProgress.startIdx,
           startPrice: drawingInProgress.startPrice,
-          endX: drawingInProgress.endX,
+          endIdx: drawingInProgress.endIdx,
           endPrice: drawingInProgress.endPrice,
         });
         setTextInputValue("");
@@ -4451,9 +4451,9 @@ export default function ClusterChart({
                       {
                         id: textInputModal.id,
                         type: "text" as const,
-                        startX: textInputModal.startX,
+                        startIdx: textInputModal.startIdx,
                         startPrice: textInputModal.startPrice,
-                        endX: textInputModal.endX,
+                        endIdx: textInputModal.endIdx,
                         endPrice: textInputModal.endPrice,
                         text: textInputValue.trim(),
                         color: textInputColor,

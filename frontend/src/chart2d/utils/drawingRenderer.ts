@@ -12,9 +12,9 @@ export type DrawingType =
 export interface DrawingItem {
   id: number;
   type: DrawingType;
-  startX: number;
+  startIdx: number;
   startPrice: number;
-  endX: number;
+  endIdx: number;
   endPrice: number;
   text: string;
   stage?: number;
@@ -66,6 +66,9 @@ export function drawDrawingObjects(ctx: CanvasRenderingContext2D, renderParams: 
     layer = "foreground",
   } = renderParams;
 
+  const candleWidthSpacing = candleWidth + candleSpacing;
+  const indexToX = (idx: number) => margin.left + idx * candleWidthSpacing;
+
   const allDrawings = [...drawings, ...(drawingInProgress ? [drawingInProgress] : [])];
 
   allDrawings.forEach((d) => {
@@ -75,8 +78,8 @@ export function drawDrawingObjects(ctx: CanvasRenderingContext2D, renderParams: 
 
     const y1 = priceToY(d.startPrice);
     const y2 = priceToY(d.endPrice);
-    const x1 = d.startX;
-    const x2 = d.endX;
+    const x1 = indexToX(d.startIdx);
+    const x2 = indexToX(d.endIdx);
 
     if (d.type === "trend") {
       ctx.beginPath();
@@ -170,8 +173,7 @@ export function drawDrawingObjects(ctx: CanvasRenderingContext2D, renderParams: 
       const absDiff = pEnd - pStart;
       const pctDiff = pStart !== 0 ? (absDiff / pStart) * 100 : 0;
 
-      const candleWidthSpacing = candleWidth + candleSpacing;
-      const barCount = Math.max(1, Math.round(Math.abs(x2 - x1) / candleWidthSpacing));
+      const barCount = Math.max(1, Math.round(Math.abs(d.endIdx - d.startIdx)));
 
       const cardW = 142;
       const cardH = 54;
@@ -275,9 +277,8 @@ export function drawDrawingObjects(ctx: CanvasRenderingContext2D, renderParams: 
 
       const minX = Math.min(x1, x2);
       const maxX = Math.max(x1, x2);
-      const candleWidthSpacing = candleWidth + candleSpacing;
-      const startIndex = Math.max(0, Math.floor((minX - margin.left) / candleWidthSpacing));
-      const endIndex = Math.min(candles.length - 1, Math.floor((maxX - margin.left) / candleWidthSpacing));
+      const startIndex = Math.max(0, Math.floor(Math.min(d.startIdx, d.endIdx)));
+      const endIndex = Math.min(candles.length - 1, Math.floor(Math.max(d.startIdx, d.endIdx)));
 
       if (startIndex <= endIndex) {
         const minPrice = Math.min(d.startPrice, d.endPrice);
@@ -430,8 +431,8 @@ export function drawDrawingObjects(ctx: CanvasRenderingContext2D, renderParams: 
     if (d) {
       const y1 = priceToY(d.startPrice);
       const y2 = priceToY(d.endPrice);
-      const x1 = d.startX;
-      const x2 = d.endX;
+      const x1 = indexToX(d.startIdx);
+      const x2 = indexToX(d.endIdx);
 
       if (d.type !== "horizontal" && d.type !== "channel") {
         ctx.save();
