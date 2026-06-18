@@ -4,6 +4,7 @@ import { X, Search, Star, Trash2, Eye, EyeOff, Layers, Activity, ChevronDown, Ar
 import { motion, AnimatePresence } from "motion/react"
 import { MODULAR_INDICATORS } from "@/chart2d/indicators"
 import { INDICATOR_DESCRIPTIONS } from "@/chart2d/indicators/descriptions"
+import { useUserLimits } from "@/contexts/LimitsContext"
 
 interface IndicatorsModalProps {
   isOpen: boolean
@@ -14,8 +15,6 @@ interface IndicatorsModalProps {
   onApplyIndicators?: (indicators: Indicator[]) => void
   onToggleVisibility?: (id: string) => void
 }
-
-const TIER_STUB = { limits: { maxIndicators: 10, customIndicatorSettings: true }, group: "PRO" as const }
 
 function buildDefaultIndicators(): Indicator[] {
   return MODULAR_INDICATORS.map((mod) => ({
@@ -31,7 +30,8 @@ function buildDefaultIndicators(): Indicator[] {
 }
 
 export default function IndicatorsModal({ isOpen, onClose, symbol = "", indicators, focusIndicatorId, onApplyIndicators, onToggleVisibility }: IndicatorsModalProps) {
-  const { limits, group } = TIER_STUB
+  const { limits } = useUserLimits()
+  const maxIndicators = limits.maxIndicators >= 100 ? Infinity : limits.maxIndicators
 
   const [draft, setDraft] = useState<Indicator[]>([])
   const [searchQuery, setSearchQuery] = useState("")
@@ -188,7 +188,7 @@ export default function IndicatorsModal({ isOpen, onClose, symbol = "", indicato
     const target = draft.find((ind) => ind.id === id)
     if (target && !target.isActive) {
       const activeCount = draft.filter((ind) => ind.isActive).length
-      if (activeCount >= limits.maxIndicators) return
+      if (activeCount >= maxIndicators) return
     }
 
     setDraft((prev) =>
@@ -505,7 +505,7 @@ export default function IndicatorsModal({ isOpen, onClose, symbol = "", indicato
                     {!limits.customIndicatorSettings && (
                       <div className={`p-3.5 border rounded-xl text-center text-xs font-bold mb-1 flex flex-col md:flex-row items-center justify-center gap-2 leading-relaxed ${isLight ? "bg-rose-50 border-rose-200 text-rose-800 shadow-sm" : "bg-rose-500/10 border-rose-505/15 text-rose-450"}`}>
                         <X className="w-4 h-4 shrink-0 text-red-500 animate-pulse" />
-                        <span>Настройки индикаторов заблокированы для вашего тарифа ({group.toUpperCase()})! Настройте политики в Админке.</span>
+                        <span>Настройки индикаторов заблокированы для вашего тарифа ({limits.tier.toUpperCase()})! Настройте политики в Админке.</span>
                       </div>
                     )}
 

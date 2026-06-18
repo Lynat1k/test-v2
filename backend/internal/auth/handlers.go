@@ -17,16 +17,16 @@ import (
 var emailRegex = regexp.MustCompile(`^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$`)
 
 type Handler struct {
-	db                    *sql.DB
-	cfg                   AuthConfig
-	emailSender           EmailSender
-	oauth                 OAuthProvider
-	rl                    *AuthRateLimiter
-	tierCompressionLocked map[string]bool
+	db                *sql.DB
+	cfg               AuthConfig
+	emailSender       EmailSender
+	oauth             OAuthProvider
+	rl                *AuthRateLimiter
+	tierCompressionMax map[string]int
 }
 
-func (h *Handler) SetTierCompressionLocked(m map[string]bool) {
-	h.tierCompressionLocked = m
+func (h *Handler) SetTierCompressionMax(m map[string]int) {
+	h.tierCompressionMax = m
 }
 
 func NewHandler(cfg AuthConfig, db *sql.DB, rl *AuthRateLimiter) *Handler {
@@ -64,10 +64,10 @@ func (h *Handler) userResponseData(user *User) map[string]interface{} {
 		}
 	}
 
-	chartCompressionLocked := true
-	if h.tierCompressionLocked != nil {
-		if v, ok := h.tierCompressionLocked[strings.ToLower(user.Role)]; ok {
-			chartCompressionLocked = v
+	compressionMax := 1
+	if h.tierCompressionMax != nil {
+		if v, ok := h.tierCompressionMax[strings.ToLower(user.Role)]; ok {
+			compressionMax = v
 		}
 	}
 
@@ -77,18 +77,18 @@ func (h *Handler) userResponseData(user *User) map[string]interface{} {
 	}
 
 	return map[string]interface{}{
-		"id":                     user.ID,
-		"email":                  email,
-		"nickname":               user.Nickname,
-		"role":                   user.Role,
-		"emailVerified":          user.EmailVerified,
-		"avatar":                 user.Avatar,
-		"createdAt":              user.CreatedAt.Format(time.RFC3339),
-		"subscriptionStatus":     user.SubscriptionStatus,
-		"subscriptionPaidAt":     user.SubscriptionPaidAt,
-		"subscriptionExpiresAt":  user.SubscriptionExpiresAt,
-		"daysLeft":               daysLeft,
-		"chartCompressionLocked": chartCompressionLocked,
+		"id":                    user.ID,
+		"email":                 email,
+		"nickname":              user.Nickname,
+		"role":                  user.Role,
+		"emailVerified":         user.EmailVerified,
+		"avatar":                user.Avatar,
+		"createdAt":             user.CreatedAt.Format(time.RFC3339),
+		"subscriptionStatus":    user.SubscriptionStatus,
+		"subscriptionPaidAt":    user.SubscriptionPaidAt,
+		"subscriptionExpiresAt": user.SubscriptionExpiresAt,
+		"daysLeft":              daysLeft,
+		"compressionMax":        compressionMax,
 	}
 }
 
@@ -128,6 +128,7 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v1/user/settings", RequireAuth(h.cfg)(http.HandlerFunc(h.handleGetSettings)).ServeHTTP)
 	mux.HandleFunc("PUT /api/v1/user/settings", RequireAuth(h.cfg)(http.HandlerFunc(h.handlePutSettings)).ServeHTTP)
 	mux.HandleFunc("GET /api/v1/user/me", RequireAuth(h.cfg)(http.HandlerFunc(h.handleGetMe)).ServeHTTP)
+	mux.HandleFunc("GET /api/v1/user/limits", RequireAuth(h.cfg)(http.HandlerFunc(h.handleGetLimits)).ServeHTTP)
 	mux.HandleFunc("PUT /api/v1/user/profile", RequireAuth(h.cfg)(http.HandlerFunc(h.handleUpdateProfile)).ServeHTTP)
 	mux.HandleFunc("POST /api/v1/user/change-password", RequireAuth(h.cfg)(http.HandlerFunc(h.handleChangePassword)).ServeHTTP)
 	mux.HandleFunc("POST /api/v1/auth/google", h.handleGoogleAuth)
@@ -725,4 +726,66 @@ func (h *Handler) handleChangePassword(w http.ResponseWriter, r *http.Request) {
 	clearRefreshCookie(w, h.cfg)
 	writeJSON(w, http.StatusOK, authResponse{OK: true})
 	log.Printf("[auth] password changed for user %s, all sessions invalidated", userID)
+}
+
+// --- GET /api/v1/user/limits ---
+// Reads tier_policies from DB in real-time for the current user's role.
+// NOT from cache — always fresh.
+
+func (h *Handler) handleGetLimits(w http.ResponseWriter, r *http.Request) {
+	role, ok := r.Context().Value(RoleKey).(string)
+	if !ok || role == "" {
+		role = "guest"
+	}
+
+	var p struct {
+		Tier                    string         `json:"tier"`
+		SessionLimit            int            `json:"sessionLimit"`
+		HistoryMaxDays          int            `json:"historyMaxDays"`
+		CompressionMax          int            `json:"compressionMax"`
+		MaxIndicators           int            `json:"maxIndicators"`
+		CustomIndicatorSettings int            `json:"customIndicatorSettings"`
+		TelegramEnabled         int            `json:"telegramEnabled"`
+		WorkspacesCount         int            `json:"workspacesCount"`
+		AnomaliesEnabled        int            `json:"anomaliesEnabled"`
+		HistoryDaysPerTf        map[string]int `json:"historyDaysPerTf"`
+	}
+	var historyDaysPerTf string
+
+	err := h.db.QueryRow(`SELECT tier, session_limit, history_max_days, compression_max, max_indicators,
+		custom_indicator_settings, telegram_enabled, workspaces_count, anomalies_enabled, history_days_per_tf
+		FROM tier_policies WHERE tier = ?`, strings.ToLower(role)).Scan(
+		&p.Tier, &p.SessionLimit, &p.HistoryMaxDays, &p.CompressionMax, &p.MaxIndicators,
+		&p.CustomIndicatorSettings, &p.TelegramEnabled, &p.WorkspacesCount, &p.AnomaliesEnabled, &historyDaysPerTf)
+
+	if err == sql.ErrNoRows {
+		// Fallback: guest defaults
+		p = struct {
+			Tier                    string         `json:"tier"`
+			SessionLimit            int            `json:"sessionLimit"`
+			HistoryMaxDays          int            `json:"historyMaxDays"`
+			CompressionMax          int            `json:"compressionMax"`
+			MaxIndicators           int            `json:"maxIndicators"`
+			CustomIndicatorSettings int            `json:"customIndicatorSettings"`
+			TelegramEnabled         int            `json:"telegramEnabled"`
+			WorkspacesCount         int            `json:"workspacesCount"`
+			AnomaliesEnabled        int            `json:"anomaliesEnabled"`
+			HistoryDaysPerTf        map[string]int `json:"historyDaysPerTf"`
+		}{
+			Tier: role, SessionLimit: 1, HistoryMaxDays: 7, CompressionMax: 1,
+			MaxIndicators: 1, WorkspacesCount: 1,
+			HistoryDaysPerTf: map[string]int{"1m": 1, "5m": 1, "15m": 1, "30m": 1, "1h": 1, "4h": 1},
+		}
+	} else if err != nil {
+		log.Printf("[auth] get limits error: %v", err)
+		writeError(w, http.StatusInternalServerError, "DB_ERROR", "failed to get limits")
+		return
+	}
+
+	p.HistoryDaysPerTf = make(map[string]int)
+	if err := json.Unmarshal([]byte(historyDaysPerTf), &p.HistoryDaysPerTf); err != nil {
+		p.HistoryDaysPerTf = map[string]int{"1m": 1, "5m": 1, "15m": 1, "30m": 1, "1h": 1, "4h": 1}
+	}
+
+	writeJSON(w, http.StatusOK, authResponse{OK: true, Data: p})
 }

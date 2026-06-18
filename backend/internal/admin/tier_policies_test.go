@@ -26,7 +26,6 @@ func openTestDB(t *testing.T) *sql.DB {
 	}
 	t.Cleanup(func() { db.Close(); os.Remove(f.Name()) })
 
-	// Apply migrations to get the tier_policies table
 	if err := auth.Migrate(db); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}
@@ -48,20 +47,24 @@ func TestSeedTierPolicies_EmptyDB_Creates5Rows(t *testing.T) {
 		t.Fatalf("expected 5 rows, got %d", count)
 	}
 
-	rows := []struct {
+	type expectedRow struct {
 		tier             string
 		wantSessionLimit int
 		wantHistoryDays  int
-	}{
-		{"guest", 1, 7},
-		{"free", 1, 180},
-		{"pro", 2, -1},
-		{"vip", 2, -1},
-		{"admin", -1, -1},
+		wantCompMax      int
+		wantMaxInd       int
+		wantWorkspaces   int
+	}
+	rows := []expectedRow{
+		{"guest", 1, 7, 1, 1, 1},
+		{"free", 1, 180, 1, 1, 1},
+		{"pro", 2, -1, 3, 5, 2},
+		{"vip", 2, -1, 6, 15, 2},
+		{"admin", -1, -1, 10, 100, 2},
 	}
 	for _, r := range rows {
-		var sessionLimit, historyDays int
-		err := db.QueryRow("SELECT session_limit, history_max_days FROM tier_policies WHERE tier = ?", r.tier).Scan(&sessionLimit, &historyDays)
+		var sessionLimit, historyDays, compMax, maxInd, workspaces int
+		err := db.QueryRow("SELECT session_limit, history_max_days, compression_max, max_indicators, workspaces_count FROM tier_policies WHERE tier = ?", r.tier).Scan(&sessionLimit, &historyDays, &compMax, &maxInd, &workspaces)
 		if err != nil {
 			t.Fatalf("get %s: %v", r.tier, err)
 		}
@@ -70,6 +73,15 @@ func TestSeedTierPolicies_EmptyDB_Creates5Rows(t *testing.T) {
 		}
 		if historyDays != r.wantHistoryDays {
 			t.Errorf("tier=%s history_max_days: got %d, want %d", r.tier, historyDays, r.wantHistoryDays)
+		}
+		if compMax != r.wantCompMax {
+			t.Errorf("tier=%s compression_max: got %d, want %d", r.tier, compMax, r.wantCompMax)
+		}
+		if maxInd != r.wantMaxInd {
+			t.Errorf("tier=%s max_indicators: got %d, want %d", r.tier, maxInd, r.wantMaxInd)
+		}
+		if workspaces != r.wantWorkspaces {
+			t.Errorf("tier=%s workspaces_count: got %d, want %d", r.tier, workspaces, r.wantWorkspaces)
 		}
 	}
 }
@@ -108,7 +120,6 @@ func TestLoadTierPolicies_ReturnsCorrectMaps(t *testing.T) {
 		t.Fatal("expected non-nil maps")
 	}
 
-	// Verify session limits match current config values
 	expectedSessions := map[string]int{"guest": 1, "free": 1, "pro": 2, "vip": 2, "admin": -1}
 	for tier, want := range expectedSessions {
 		got, ok := sessionLimits[tier]
@@ -121,7 +132,6 @@ func TestLoadTierPolicies_ReturnsCorrectMaps(t *testing.T) {
 		}
 	}
 
-	// Verify history limits match current config values
 	expectedHistory := map[string]time.Duration{
 		"guest": 7 * 24 * time.Hour,
 		"free":  180 * 24 * time.Hour,
@@ -183,6 +193,64 @@ func TestGetPolicies(t *testing.T) {
 		if p.CreatedAt == "" || p.UpdatedAt == "" {
 			t.Errorf("timestamps missing for %s", tier)
 		}
+		if p.HistoryDaysPerTf == nil {
+			t.Errorf("historyDaysPerTf missing for %s", tier)
+		} else {
+			for _, tf := range []string{"1m", "5m", "15m", "30m", "1h", "4h"} {
+				if _, ok := p.HistoryDaysPerTf[tf]; !ok {
+					t.Errorf("historyDaysPerTf missing timeframe %s for tier %s", tf, tier)
+				}
+			}
+		}
+	}
+}
+
+func TestGetPolicies_SeedValues(t *testing.T) {
+	db := openTestDB(t)
+	if err := SeedTierPolicies(db); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	policies, err := GetPolicies(db)
+	if err != nil {
+		t.Fatalf("GetPolicies: %v", err)
+	}
+
+	checks := []struct {
+		tier      string
+		compMax   int
+		maxInd    int
+		tg        int
+		ws        int
+		anomalies int
+		custom    int
+	}{
+		{"guest", 1, 1, 0, 1, 0, 0},
+		{"free", 1, 1, 0, 1, 0, 0},
+		{"pro", 3, 5, 0, 2, 1, 1},
+		{"vip", 6, 15, 1, 2, 1, 1},
+		{"admin", 10, 100, 1, 2, 1, 1},
+	}
+	for _, c := range checks {
+		p := policies[c.tier]
+		if p.CompressionMax != c.compMax {
+			t.Errorf("%s compressionMax: got %d, want %d", c.tier, p.CompressionMax, c.compMax)
+		}
+		if p.MaxIndicators != c.maxInd {
+			t.Errorf("%s maxIndicators: got %d, want %d", c.tier, p.MaxIndicators, c.maxInd)
+		}
+		if p.TelegramEnabled != c.tg {
+			t.Errorf("%s telegramEnabled: got %d, want %d", c.tier, p.TelegramEnabled, c.tg)
+		}
+		if p.WorkspacesCount != c.ws {
+			t.Errorf("%s workspacesCount: got %d, want %d", c.tier, p.WorkspacesCount, c.ws)
+		}
+		if p.AnomaliesEnabled != c.anomalies {
+			t.Errorf("%s anomaliesEnabled: got %d, want %d", c.tier, p.AnomaliesEnabled, c.anomalies)
+		}
+		if p.CustomIndicatorSettings != c.custom {
+			t.Errorf("%s customIndicatorSettings: got %d, want %d", c.tier, p.CustomIndicatorSettings, c.custom)
+		}
 	}
 }
 
@@ -193,14 +261,16 @@ func TestUpsertPolicies(t *testing.T) {
 	}
 
 	updated := map[string]TierPolicy{
-		"pro": {Tier: "pro", SessionLimit: 5, HistoryMaxDays: 365},
+		"pro": {Tier: "pro", SessionLimit: 5, HistoryMaxDays: 365, CompressionMax: 5, MaxIndicators: 10,
+			CustomIndicatorSettings: 1, TelegramEnabled: 0, WorkspacesCount: 2, AnomaliesEnabled: 1,
+			HistoryDaysPerTf: map[string]int{"1m": 5, "5m": 10, "15m": 20, "30m": 30, "1h": 60, "4h": 180}},
 	}
 	if err := UpsertPolicies(db, updated); err != nil {
 		t.Fatalf("UpsertPolicies: %v", err)
 	}
 
-	var sessionLimit, historyDays int
-	err := db.QueryRow("SELECT session_limit, history_max_days FROM tier_policies WHERE tier = 'pro'").Scan(&sessionLimit, &historyDays)
+	var sessionLimit, historyDays, compMax int
+	err := db.QueryRow("SELECT session_limit, history_max_days, compression_max FROM tier_policies WHERE tier = 'pro'").Scan(&sessionLimit, &historyDays, &compMax)
 	if err != nil {
 		t.Fatalf("query pro: %v", err)
 	}
@@ -210,23 +280,26 @@ func TestUpsertPolicies(t *testing.T) {
 	if historyDays != 365 {
 		t.Errorf("pro history_max_days: got %d, want 365", historyDays)
 	}
+	if compMax != 5 {
+		t.Errorf("pro compression_max: got %d, want 5", compMax)
+	}
 
-	// guest should be unchanged
-	err = db.QueryRow("SELECT session_limit FROM tier_policies WHERE tier = 'guest'").Scan(&sessionLimit)
+	var sessionLimitGuest int
+	err = db.QueryRow("SELECT session_limit FROM tier_policies WHERE tier = 'guest'").Scan(&sessionLimitGuest)
 	if err != nil {
 		t.Fatalf("query guest: %v", err)
 	}
-	if sessionLimit != 1 {
-		t.Errorf("guest session_limit changed: got %d, want 1", sessionLimit)
+	if sessionLimitGuest != 1 {
+		t.Errorf("guest session_limit changed: got %d, want 1", sessionLimitGuest)
 	}
 }
 
 func TestUpsertPolicies_InsertsNewTier(t *testing.T) {
 	db := openTestDB(t)
 
-	// Upsert on empty table should insert
 	policies := map[string]TierPolicy{
-		"custom": {Tier: "custom", SessionLimit: 3, HistoryMaxDays: 30},
+		"custom": {Tier: "custom", SessionLimit: 3, HistoryMaxDays: 30, CompressionMax: 2,
+			HistoryDaysPerTf: map[string]int{"1m": 1, "5m": 2, "15m": 3, "30m": 5, "1h": 10, "4h": 30}},
 	}
 	if err := UpsertPolicies(db, policies); err != nil {
 		t.Fatalf("UpsertPolicies: %v", err)
@@ -248,12 +321,10 @@ func TestSeedTierPolicies_MaintainsExistingData(t *testing.T) {
 		t.Fatalf("first seed: %v", err)
 	}
 
-	// Manually update a value
 	if _, err := db.Exec("UPDATE tier_policies SET session_limit = 99 WHERE tier = 'pro'"); err != nil {
 		t.Fatalf("update: %v", err)
 	}
 
-	// Re-seed — should NOT revert the manual change
 	if err := SeedTierPolicies(db); err != nil {
 		t.Fatalf("second seed: %v", err)
 	}
@@ -278,7 +349,6 @@ func TestHistoryDepth_TierPolicyValuesMatchCurrentBehavior(t *testing.T) {
 		t.Fatalf("LoadTierPolicies: %v", err)
 	}
 
-	// These values MUST match the current hardcoded behavior in maxDepthForRole
 	expected := map[string]time.Duration{
 		"guest": 7 * 24 * time.Hour,
 		"free":  180 * 24 * time.Hour,
@@ -299,107 +369,6 @@ func TestHistoryDepth_TierPolicyValuesMatchCurrentBehavior(t *testing.T) {
 	}
 }
 
-func TestSeedTierPolicies_SetsCompressionLocked(t *testing.T) {
-	db := openTestDB(t)
-	if err := SeedTierPolicies(db); err != nil {
-		t.Fatalf("SeedTierPolicies: %v", err)
-	}
-
-	rows := []struct {
-		tier       string
-		wantLocked int
-	}{
-		{"guest", 1},
-		{"free", 1},
-		{"pro", 0},
-		{"vip", 0},
-		{"admin", 0},
-	}
-	for _, r := range rows {
-		var locked int
-		err := db.QueryRow("SELECT chart_compression_locked FROM tier_policies WHERE tier = ?", r.tier).Scan(&locked)
-		if err != nil {
-			t.Fatalf("get %s: %v", r.tier, err)
-		}
-		if locked != r.wantLocked {
-			t.Errorf("tier=%s chart_compression_locked: got %d, want %d", r.tier, locked, r.wantLocked)
-		}
-	}
-}
-
-func TestGetPolicies_IncludesCompressionLocked(t *testing.T) {
-	db := openTestDB(t)
-	if err := SeedTierPolicies(db); err != nil {
-		t.Fatalf("seed: %v", err)
-	}
-
-	policies, err := GetPolicies(db)
-	if err != nil {
-		t.Fatalf("GetPolicies: %v", err)
-	}
-
-	for _, tier := range []string{"guest", "free", "pro", "vip", "admin"} {
-		p, ok := policies[tier]
-		if !ok {
-			t.Errorf("missing policy for %s", tier)
-			continue
-		}
-		if tier == "guest" || tier == "free" {
-			if p.ChartCompressionLocked != 1 {
-				t.Errorf("tier=%s ChartCompressionLocked: got %d, want 1", tier, p.ChartCompressionLocked)
-			}
-		} else {
-			if p.ChartCompressionLocked != 0 {
-				t.Errorf("tier=%s ChartCompressionLocked: got %d, want 0", tier, p.ChartCompressionLocked)
-			}
-		}
-	}
-}
-
-func TestLoadCompressionLocked(t *testing.T) {
-	db := openTestDB(t)
-	if err := SeedTierPolicies(db); err != nil {
-		t.Fatalf("seed: %v", err)
-	}
-
-	m, err := LoadCompressionLocked(db)
-	if err != nil {
-		t.Fatalf("LoadCompressionLocked: %v", err)
-	}
-	if m == nil {
-		t.Fatal("expected non-nil map")
-	}
-
-	expected := map[string]bool{
-		"guest": true,
-		"free":  true,
-		"pro":   false,
-		"vip":   false,
-		"admin": false,
-	}
-	for tier, want := range expected {
-		got, ok := m[tier]
-		if !ok {
-			t.Errorf("missing entry for %s", tier)
-			continue
-		}
-		if got != want {
-			t.Errorf("compression locked %s: got %v, want %v", tier, got, want)
-		}
-	}
-}
-
-func TestLoadCompressionLocked_EmptyTable_ReturnsNil(t *testing.T) {
-	db := openTestDB(t)
-	m, err := LoadCompressionLocked(db)
-	if err != nil {
-		t.Fatalf("LoadCompressionLocked on empty: %v", err)
-	}
-	if m != nil {
-		t.Error("expected nil map on empty table")
-	}
-}
-
 func TestSessionLimit_TierPolicyValuesMatchCurrentConfig(t *testing.T) {
 	db := openTestDB(t)
 	if err := SeedTierPolicies(db); err != nil {
@@ -411,7 +380,6 @@ func TestSessionLimit_TierPolicyValuesMatchCurrentConfig(t *testing.T) {
 		t.Fatalf("LoadTierPolicies: %v", err)
 	}
 
-	// These values MUST match current auth.AuthConfig.SessionLimits defaults
 	expected := map[string]int{
 		"guest": 1,
 		"free":  1,
@@ -429,64 +397,5 @@ func TestSessionLimit_TierPolicyValuesMatchCurrentConfig(t *testing.T) {
 		if got != want {
 			t.Errorf("session limit %s: got %d, want %d", tier, got, want)
 		}
-	}
-}
-
-func TestEnsureCompressionLockedValues_FixesExistingRows(t *testing.T) {
-	db := openTestDB(t)
-
-	// Seed policies (this sets chart_compression_locked correctly for fresh rows)
-	if err := SeedTierPolicies(db); err != nil {
-		t.Fatalf("seed: %v", err)
-	}
-
-	// Simulate the bug: set all chart_compression_locked to 0 (as ALTER ADD COLUMN DEFAULT 0 would)
-	if _, err := db.Exec("UPDATE tier_policies SET chart_compression_locked = 0"); err != nil {
-		t.Fatalf("simulate corruption: %v", err)
-	}
-
-	// Verify corruption
-	var freeVal int
-	db.QueryRow("SELECT chart_compression_locked FROM tier_policies WHERE tier = 'free'").Scan(&freeVal)
-	if freeVal != 0 {
-		t.Fatalf("expected corrupted free=0, got %d", freeVal)
-	}
-
-	// Run repair
-	if err := EnsureCompressionLockedValues(db); err != nil {
-		t.Fatalf("ensure: %v", err)
-	}
-
-	expected := map[string]int{"guest": 1, "free": 1, "pro": 0, "vip": 0, "admin": 0}
-	for tier, want := range expected {
-		var got int
-		if err := db.QueryRow("SELECT chart_compression_locked FROM tier_policies WHERE tier = ?", tier).Scan(&got); err != nil {
-			t.Fatalf("query %s: %v", tier, err)
-		}
-		if got != want {
-			t.Errorf("tier %s: got %d, want %d", tier, got, want)
-		}
-	}
-}
-
-func TestEnsureCompressionLockedValues_Idempotent(t *testing.T) {
-	db := openTestDB(t)
-
-	if err := SeedTierPolicies(db); err != nil {
-		t.Fatalf("seed: %v", err)
-	}
-
-	// Run twice
-	if err := EnsureCompressionLockedValues(db); err != nil {
-		t.Fatalf("first ensure: %v", err)
-	}
-	if err := EnsureCompressionLockedValues(db); err != nil {
-		t.Fatalf("second ensure: %v", err)
-	}
-
-	var freeVal int
-	db.QueryRow("SELECT chart_compression_locked FROM tier_policies WHERE tier = 'free'").Scan(&freeVal)
-	if freeVal != 1 {
-		t.Errorf("free should be 1 after second ensure, got %d", freeVal)
 	}
 }

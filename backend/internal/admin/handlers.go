@@ -749,11 +749,94 @@ func (h *AdminHandler) handleDeleteUser(w http.ResponseWriter, r *http.Request) 
 }
 
 func (h *AdminHandler) handleGetPolicies(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, adminResponse{OK: true, Data: map[string]string{"status": "stub_policies_phase2"}})
+	policies, err := GetPolicies(h.db)
+	if err != nil {
+		log.Printf("[admin] get policies error: %v", err)
+		writeError(w, http.StatusInternalServerError, "DB_ERROR", "failed to get tier policies")
+		return
+	}
+	writeJSON(w, http.StatusOK, adminResponse{OK: true, Data: policies})
 }
 
 func (h *AdminHandler) handleUpdatePolicies(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, adminResponse{OK: true, Data: map[string]string{"status": "stub_update_policies_phase2"}})
+	var req struct {
+		Policies map[string]TierPolicy `json:"policies"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "INVALID_BODY", "invalid request body")
+		return
+	}
+
+	validTiers := map[string]bool{"guest": true, "free": true, "pro": true, "vip": true, "admin": true}
+	validTFs := map[string]bool{"1m": true, "5m": true, "15m": true, "30m": true, "1h": true, "4h": true}
+
+	for tier, p := range req.Policies {
+		if !validTiers[tier] {
+			writeError(w, http.StatusBadRequest, "INVALID_TIER", fmt.Sprintf("invalid tier: %s", tier))
+			return
+		}
+		if p.Tier != tier {
+			p.Tier = tier
+			req.Policies[tier] = p
+		}
+		if p.CompressionMax < 1 || p.CompressionMax > 10 {
+			writeError(w, http.StatusBadRequest, "INVALID_RANGE", fmt.Sprintf("compression_max must be 1..10 for tier %s", tier))
+			return
+		}
+		if p.SessionLimit < -1 {
+			writeError(w, http.StatusBadRequest, "INVALID_RANGE", fmt.Sprintf("session_limit must be >= -1 for tier %s", tier))
+			return
+		}
+		if p.MaxIndicators < 0 {
+			writeError(w, http.StatusBadRequest, "INVALID_RANGE", fmt.Sprintf("max_indicators must be >= 0 for tier %s", tier))
+			return
+		}
+		if p.CustomIndicatorSettings != 0 && p.CustomIndicatorSettings != 1 {
+			writeError(w, http.StatusBadRequest, "INVALID_RANGE", fmt.Sprintf("custom_indicator_settings must be 0 or 1 for tier %s", tier))
+			return
+		}
+		if p.TelegramEnabled != 0 && p.TelegramEnabled != 1 {
+			writeError(w, http.StatusBadRequest, "INVALID_RANGE", fmt.Sprintf("telegram_enabled must be 0 or 1 for tier %s", tier))
+			return
+		}
+		if p.WorkspacesCount < 1 || p.WorkspacesCount > 2 {
+			writeError(w, http.StatusBadRequest, "INVALID_RANGE", fmt.Sprintf("workspaces_count must be 1 or 2 for tier %s", tier))
+			return
+		}
+		if p.AnomaliesEnabled != 0 && p.AnomaliesEnabled != 1 {
+			writeError(w, http.StatusBadRequest, "INVALID_RANGE", fmt.Sprintf("anomalies_enabled must be 0 or 1 for tier %s", tier))
+			return
+		}
+		if p.HistoryDaysPerTf == nil {
+			p.HistoryDaysPerTf = map[string]int{"1m": 1, "5m": 1, "15m": 1, "30m": 1, "1h": 1, "4h": 1}
+			req.Policies[tier] = p
+		}
+		for tf, days := range p.HistoryDaysPerTf {
+			if !validTFs[tf] {
+				writeError(w, http.StatusBadRequest, "INVALID_TF", fmt.Sprintf("invalid timeframe %s for tier %s", tf, tier))
+				return
+			}
+			if days < 0 {
+				writeError(w, http.StatusBadRequest, "INVALID_RANGE", fmt.Sprintf("history_days_per_tf[%s] must be >= 0 for tier %s", tf, tier))
+				return
+			}
+		}
+		if p.HistoryMaxDays < -1 {
+			writeError(w, http.StatusBadRequest, "INVALID_RANGE", fmt.Sprintf("history_max_days must be >= -1 for tier %s", tier))
+			return
+		}
+	}
+
+	if err := UpsertPolicies(h.db, req.Policies); err != nil {
+		log.Printf("[admin] upsert policies error: %v", err)
+		writeError(w, http.StatusInternalServerError, "DB_ERROR", "failed to save tier policies")
+		return
+	}
+
+	userID, _ := r.Context().Value(auth.UserIDKey).(string)
+	LogAdminAction(r.Context(), h.db, userID, "update_policies", "", "", r.RemoteAddr)
+
+	writeJSON(w, http.StatusOK, adminResponse{OK: true, Data: map[string]string{"status": "saved"}})
 }
 
 func (h *AdminHandler) handleGetBilling(w http.ResponseWriter, r *http.Request) {

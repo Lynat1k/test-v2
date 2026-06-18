@@ -109,14 +109,6 @@ func main() {
 		log.Println("[main] seed tier_policies: ok")
 	}
 
-	// Repair chart_compression_locked values if they were set to DEFAULT 0 via ALTER ADD COLUMN
-	// after the initial seed. Must run after SeedTierPolicies.
-	if err := admin.EnsureCompressionLockedValues(sqliteDB); err != nil {
-		log.Printf("[main] ensure compression locked: %v", err)
-	} else {
-		log.Println("[main] ensure compression locked: ok")
-	}
-
 	sessionLimits, historyLimits, err := admin.LoadTierPolicies(sqliteDB)
 	if err != nil {
 		log.Printf("[main] load tier_policies: %v, using config defaults", err)
@@ -152,22 +144,19 @@ func main() {
 		log.Println("[main] history limits: using auth config defaults (fallback)")
 	}
 
-	compressionLocked, err := admin.LoadCompressionLocked(sqliteDB)
+	authHandler := auth.NewHandler(authCfg, sqliteDB, auth.NewAuthRateLimiter(rdb, authCfg))
+
+	compressionMaxMap, err := admin.LoadCompressionMax(sqliteDB)
 	if err != nil {
-		log.Printf("[main] load compression locked: %v, using fallback", err)
+		log.Printf("[main] load compression_max: %v, using defaults", err)
 	}
-	if compressionLocked != nil {
-		log.Printf("[main] compression-locked map: %v", compressionLocked)
-		srv.SetTierCompressionLocked(compressionLocked)
-		log.Println("[main] set compression locked from tier_policies")
+	if compressionMaxMap != nil {
+		authHandler.SetTierCompressionMax(compressionMaxMap)
+		log.Printf("[main] set compression_max from tier_policies: %v", compressionMaxMap)
 	} else {
-		log.Println("[main] compression locked: using defaults (guest/free locked, pro+ unlocked)")
+		log.Println("[main] compression_max: using defaults (all tiers=1)")
 	}
 
-	authHandler := auth.NewHandler(authCfg, sqliteDB, auth.NewAuthRateLimiter(rdb, authCfg))
-	if compressionLocked != nil {
-		authHandler.SetTierCompressionLocked(compressionLocked)
-	}
 	authHandler.RegisterRoutes(srv.Mux())
 
 	metricsHist := admin.NewMetricsHistory()

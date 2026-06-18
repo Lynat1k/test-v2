@@ -1,6 +1,7 @@
 import type { CandleMode, VolumeMode } from '@/chart-engine'
 import type { Indicator } from '@/chart2d/types'
 import { useAuthContext } from '@/features/auth/AuthContext'
+import { useUserLimits } from '@/contexts/LimitsContext'
 import ClusterChartAdapter from './ClusterChartAdapter'
 import type { ClusterChartAdapterProps } from './ClusterChartAdapter'
 
@@ -53,6 +54,7 @@ export function ChartContainer2({
   onLayoutChange, showAnomalies, onChangeShowAnomalies,
 }: ChartContainer2Props) {
   const { accessToken } = useAuthContext()
+  const { limits } = useUserLimits()
 
   return (
     <div className="relative w-full h-full flex flex-col">
@@ -80,7 +82,7 @@ export function ChartContainer2({
           }
           onLayoutChange?.(map[id] ?? 'single')
         }}
-        workspacesCount={2}
+        workspacesCount={limits.workspacesCount}
         showAnomalies={showAnomalies}
         onChangeShowAnomalies={onChangeShowAnomalies}
       />

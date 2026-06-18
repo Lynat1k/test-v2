@@ -75,29 +75,24 @@ export async function apiDeleteUser(id: string): Promise<void> {
 
 export interface TierPolicy {
   tier: string
-  maxHistoryDays1m: number
-  maxHistoryDays5m: number
-  maxHistoryDays15m: number
-  maxHistoryDays30m: number
-  maxHistoryDays1h: number
-  maxHistoryDays4h: number
-  compressionLevels: number
-  maxIndicators: number
-  customIndicatorSettings: boolean
-  telegramNotifications: boolean
-  workspacesCount: number
   sessionLimit: number
+  historyMaxDays: number
+  compressionMax: number
+  maxIndicators: number
+  customIndicatorSettings: number
+  telegramEnabled: number
+  workspacesCount: number
+  anomaliesEnabled: number
+  historyDaysPerTf: Record<string, number>
+  createdAt: string
+  updatedAt: string
 }
 
-export interface PoliciesResponse {
-  policies: Record<string, TierPolicy>
+export async function apiGetPolicies(): Promise<Record<string, TierPolicy>> {
+  return request<Record<string, TierPolicy>>('/admin/policies')
 }
 
-export async function apiGetPolicies(): Promise<PoliciesResponse> {
-  return request<PoliciesResponse>('/admin/policies')
-}
-
-export async function apiUpdatePolicies(policies: Record<string, Partial<TierPolicy>>): Promise<void> {
+export async function apiUpdatePolicies(policies: Record<string, TierPolicy>): Promise<void> {
   await request('/admin/policies', {
     method: 'PUT',
     body: JSON.stringify({ policies }),

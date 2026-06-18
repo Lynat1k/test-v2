@@ -19,7 +19,7 @@ import {
   Download,
   RefreshCw,
 } from 'lucide-react'
-import { apiGetMetrics, apiGetMetricsHistory, apiGetTickers, apiAddTicker, apiUpdateTicker, apiDeleteTicker, apiGetCompressions, apiUpsertCompressions, apiStartDownload, apiGetJobs, apiClearJobs, apiGetUserStats, apiListUsers, apiCreateUser, apiUpdateUserRole, apiDeleteUser, type ServerMetrics, type MetricsHistoryPoint, type Ticker, type DefaultCompression, type DownloadJob, type UserListItem, type UserStats } from '@/features/admin/api'
+import { apiGetMetrics, apiGetMetricsHistory, apiGetTickers, apiAddTicker, apiUpdateTicker, apiDeleteTicker, apiGetCompressions, apiUpsertCompressions, apiStartDownload, apiGetJobs, apiClearJobs, apiGetUserStats, apiListUsers, apiCreateUser, apiUpdateUserRole, apiDeleteUser, apiGetPolicies, apiUpdatePolicies, type ServerMetrics, type MetricsHistoryPoint, type Ticker, type DefaultCompression, type DownloadJob, type UserListItem, type UserStats, type TierPolicy } from '@/features/admin/api'
 
 type AdminTab = 'server' | 'database' | 'users' | 'stats'
 
@@ -1274,6 +1274,9 @@ function UsersTab({ isLight }: { isLight: boolean }) {
         ))}
       </div>
 
+      {/* Tier Policies Settings */}
+      <TierPoliciesBlock isLight={isLight} />
+
       {/* Add user form */}
       <div className={`p-4 rounded-2xl border ${card}`}>
         <div className="flex items-center gap-2 mb-3">
@@ -1468,6 +1471,400 @@ function formatDate(dateStr: string): string {
   } catch {
     return dateStr
   }
+}
+
+type TierGroup = 'guest' | 'free' | 'pro' | 'vip' | 'admin'
+
+const TIER_COLORS: Record<TierGroup, { active: string; badge: string }> = {
+  guest: { active: 'bg-purple-600 text-white shadow-md border-purple-700', badge: 'text-purple-400' },
+  free: { active: 'bg-slate-600 text-white shadow-md border-slate-700', badge: 'text-slate-400' },
+  pro: { active: 'bg-blue-600 text-white shadow-md border-blue-700', badge: 'text-blue-400' },
+  vip: { active: 'bg-amber-600 text-white shadow-md border-amber-700', badge: 'text-amber-400' },
+  admin: { active: 'bg-rose-600 text-white shadow-md border-rose-700', badge: 'text-rose-300' },
+}
+
+const TIER_LABELS: Record<TierGroup, string> = {
+  guest: 'GUEST ГОСТЬ',
+  free: 'FREE тариф',
+  pro: 'PRO тариф',
+  vip: 'VIP тариф',
+  admin: 'ADMIN права',
+}
+
+const TIMEFRAMES = ['1m', '5m', '15m', '30m', '1h', '4h'] as const
+
+function TierPoliciesBlock({ isLight }: { isLight: boolean }) {
+  const { t } = useTranslation()
+  const [selectedGroup, setSelectedGroup] = useState<TierGroup>('guest')
+  const [policies, setPolicies] = useState<Record<string, TierPolicy> | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const [saving, setSaving] = useState(false)
+  const [saveMsg, setSaveMsg] = useState<string | null>(null)
+
+  const fetchPolicies = useCallback(async () => {
+    try {
+      const data = await apiGetPolicies()
+      setPolicies(data)
+      setError(null)
+    } catch (e: any) {
+      setError(e?.message ?? 'Failed to load policies')
+    }
+    setLoading(false)
+  }, [])
+
+  useEffect(() => { fetchPolicies() }, [fetchPolicies])
+
+  const updateField = (tier: string, field: string, value: any) => {
+    setPolicies(prev => {
+      if (!prev) return prev
+      const tierP = prev[tier]
+      if (!tierP) return prev
+      return { ...prev, [tier]: { ...tierP, [field]: value } }
+    })
+    setSaveMsg(null)
+  }
+
+  const updateHistoryTf = (tier: string, tf: string, value: number) => {
+    setPolicies(prev => {
+      if (!prev) return prev
+      const tierP = prev[tier]
+      if (!tierP) return prev
+      return {
+        ...prev,
+        [tier]: {
+          ...tierP,
+          historyDaysPerTf: { ...tierP.historyDaysPerTf, [tf]: value },
+        },
+      }
+    })
+    setSaveMsg(null)
+  }
+
+  const handleSave = async () => {
+    if (!policies) return
+    setSaving(true)
+    setSaveMsg(null)
+    try {
+      await apiUpdatePolicies(policies)
+      setSaveMsg('Политики лимитов сохранены!')
+      setTimeout(() => setSaveMsg(null), 3000)
+      await fetchPolicies()
+    } catch (e: any) {
+      setError(e?.message ?? 'Failed to save')
+    }
+    setSaving(false)
+  }
+
+  const card = isLight ? 'bg-white border-slate-200' : 'liquid-glass-card'
+  const subcard = isLight ? 'bg-slate-50 border-slate-200' : 'bg-white/[0.02] border-white/5'
+  const input = isLight
+    ? 'bg-white border-slate-300 text-slate-900'
+    : 'bg-slate-950 border-white/10 text-white'
+
+  const current = policies?.[selectedGroup]
+
+  if (loading) {
+    return (
+      <div className={`p-5 rounded-2xl border ${card}`}>
+        <div className="flex items-center gap-2 text-xs font-mono text-slate-400">{t('common.loading')}</div>
+      </div>
+    )
+  }
+
+  return (
+    <div className="flex flex-col gap-4">
+      {error && (
+        <div className="flex items-center justify-between px-4 py-2 rounded-lg bg-red-500/10 border border-red-500/20 text-xs text-red-400">
+          <span>{error}</span>
+          <button onClick={() => setError(null)} className="cursor-pointer"><X className="w-3 h-3" /></button>
+        </div>
+      )}
+
+      <div className={`p-5 rounded-2xl border flex flex-col gap-4 ${card}`}>
+        <div className="flex flex-wrap justify-between items-center gap-4">
+          <div className="flex items-center gap-2">
+            <Settings className="w-5 h-5 text-indigo-500 animate-spin" />
+            <div>
+              <h3 className={`text-sm font-black uppercase tracking-wider ${isLight ? 'text-slate-800' : 'text-white'}`}>
+                {t('admin.policies.title') || 'Настройки Лимитов & Политик Групп'}
+              </h3>
+              <p className="text-[11px] text-slate-400 mt-0.5">
+                {t('admin.policies.subtitle') || 'Управление правами доступа, лимитами истории, рендером и оповещениями'}
+              </p>
+            </div>
+          </div>
+
+          {saveMsg && (
+            <motion.div
+              initial={{ opacity: 0, scale: 0.9 }}
+              animate={{ opacity: 1, scale: 1 }}
+              className="text-[10px] font-mono font-black uppercase bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 px-3 py-1 rounded-full flex items-center gap-1.5"
+            >
+              <span>{saveMsg}</span>
+            </motion.div>
+          )}
+        </div>
+
+        {/* Tier tabs */}
+        <div className={`flex flex-wrap gap-1.5 p-1 rounded-xl ${isLight ? 'bg-slate-100 border border-slate-200/80 shadow-inner' : 'bg-slate-950/20 border border-white/5'}`}>
+          {(Object.keys(TIER_LABELS) as TierGroup[]).map(g => (
+            <button
+              key={g}
+              onClick={() => setSelectedGroup(g)}
+              className={`flex-1 py-2 px-3 rounded-lg text-xs font-black uppercase tracking-wider cursor-pointer transition border ${
+                selectedGroup === g
+                  ? `${TIER_COLORS[g].active} border`
+                  : isLight
+                    ? 'bg-white border-slate-300/80 text-slate-700 hover:text-slate-900 hover:bg-slate-50 shadow-sm'
+                    : 'bg-transparent border-transparent text-slate-400 hover:bg-white/[0.02]'
+              }`}
+            >
+              {TIER_LABELS[g]}
+            </button>
+          ))}
+        </div>
+
+        {current && (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5 mt-2">
+            {/* Card 1: History per TF */}
+            <div className={`p-4 rounded-xl border flex flex-col justify-between gap-3 md:col-span-2 lg:col-span-3 ${subcard}`}>
+              <div>
+                <span className={`text-[10px] font-mono font-black uppercase block tracking-wider ${isLight ? 'text-slate-600' : 'text-slate-300'}`}>
+                  1. {t('admin.policies.maxHistoryPerTf') || 'Макс. история по таймфреймам (дни)'}
+                </span>
+                <p className="text-[10.5px] text-slate-400 mt-1 leading-snug">
+                  {t('admin.policies.maxHistoryPerTfDesc') || 'Лимит истории свечей для каждого таймфрейма. ≥100 = безлимит.'}
+                </p>
+              </div>
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-3.5 mt-2">
+                {TIMEFRAMES.map(tf => (
+                  <div key={tf} className="flex flex-col gap-1">
+                    <span className={`text-[10px] font-mono font-bold uppercase ${isLight ? 'text-amber-800' : 'text-amber-500'}`}>{tf}</span>
+                    <div className="flex items-center gap-1.5">
+                      <input
+                        type="number"
+                        min="1"
+                        max="10000"
+                        value={current.historyDaysPerTf?.[tf] ?? 1}
+                        onChange={e => updateHistoryTf(current.tier, tf, parseInt(e.target.value) || 1)}
+                        className={`w-full rounded-lg px-2.5 py-1.5 font-mono font-black text-xs border ${input}`}
+                      />
+                      <span className="text-[9px] font-mono text-slate-400">дн.</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Card 2: Compression max */}
+            <div className={`p-4 rounded-xl border flex flex-col justify-between gap-3 ${subcard}`}>
+              <div>
+                <span className={`text-[10px] font-mono font-black uppercase block tracking-wider ${isLight ? 'text-slate-600' : 'text-slate-300'}`}>
+                  2. {t('admin.policies.compressionMax') || 'Уровни сжатия графика'}
+                </span>
+                <p className="text-[10.5px] text-slate-400 mt-1 leading-snug">
+                  {t('admin.policies.compressionMaxDesc') || 'Макс. количество шагов кластеризации. 1..10.'}
+                </p>
+              </div>
+              <div className="flex flex-col gap-2 mt-2">
+                <div className="flex items-center gap-3">
+                  <input
+                    type="range"
+                    min="1"
+                    max="10"
+                    value={current.compressionMax}
+                    onChange={e => updateField(current.tier, 'compressionMax', parseInt(e.target.value) || 1)}
+                    className={`w-full h-1.5 rounded-full appearance-none cursor-pointer ${isLight ? 'bg-slate-300 accent-blue-600' : 'bg-slate-800 accent-blue-500'}`}
+                  />
+                  <span className={`text-xs font-mono font-black shrink-0 select-none min-w-[32px] text-center ${isLight ? 'text-amber-800' : 'text-amber-500'}`}>
+                    {current.compressionMax}x
+                  </span>
+                </div>
+                <div className="flex gap-1 flex-wrap">
+                  {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map(val => (
+                    <button
+                      key={val}
+                      onClick={() => updateField(current.tier, 'compressionMax', val)}
+                      className={`px-1.5 py-0.5 rounded text-[9px] font-mono font-bold border transition ${
+                        current.compressionMax === val
+                          ? 'bg-blue-500/15 border-blue-500 text-blue-400'
+                          : isLight ? 'bg-white hover:bg-slate-100 border-slate-200 text-slate-600 shadow-sm' : 'bg-slate-900 hover:bg-slate-800 border-white/5 text-slate-400'
+                      }`}
+                    >
+                      {val}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            {/* Card 3: Max indicators */}
+            <div className={`p-4 rounded-xl border flex flex-col justify-between gap-3 ${subcard}`}>
+              <div>
+                <span className={`text-[10px] font-mono font-black uppercase block tracking-wider ${isLight ? 'text-slate-600' : 'text-slate-300'}`}>
+                  3. {t('admin.policies.maxIndicators') || 'Индикаторов на графике'}
+                </span>
+                <p className="text-[10.5px] text-slate-400 mt-1 leading-snug">
+                  {t('admin.policies.maxIndicatorsDesc') || 'Макс. количество активных индикаторов. ≥100 = безлимит.'}
+                </p>
+              </div>
+              <div className="flex flex-col gap-2 mt-2">
+                <div className="flex items-center gap-3">
+                  <input
+                    type="number"
+                    min="1"
+                    max="10000"
+                    value={current.maxIndicators}
+                    onChange={e => updateField(current.tier, 'maxIndicators', parseInt(e.target.value) || 1)}
+                    className={`w-full max-w-[90px] rounded-lg px-3 py-1.5 font-mono font-black text-xs border ${input}`}
+                  />
+                  <span className={`text-[11px] font-mono font-bold ${isLight ? 'text-teal-700 font-extrabold' : 'text-teal-400'}`}>активных</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Card 4: Custom indicator settings */}
+            <div className={`p-4 rounded-xl border flex flex-col justify-between gap-3 ${subcard}`}>
+              <div>
+                <span className={`text-[10px] font-mono font-black uppercase block tracking-wider ${isLight ? 'text-slate-600' : 'text-slate-300'}`}>
+                  4. {t('admin.policies.customIndicatorSettings') || 'Кастомные настройки индикаторов'}
+                </span>
+                <p className="text-[10.5px] text-slate-400 mt-1 leading-snug">
+                  {t('admin.policies.customIndicatorSettingsDesc') || 'Разрешить пользователю менять настройки индикаторов.'}
+                </p>
+              </div>
+              <label className="flex items-center gap-2.5 cursor-pointer mt-2 select-none">
+                <input
+                  type="checkbox"
+                  checked={current.customIndicatorSettings === 1}
+                  onChange={e => updateField(current.tier, 'customIndicatorSettings', e.target.checked ? 1 : 0)}
+                  className={`w-4 h-4 rounded focus:ring-blue-500 focus:ring-2 cursor-pointer ${isLight ? 'bg-white border-slate-300 text-blue-600' : 'bg-slate-900 border-white/10 text-blue-500'}`}
+                />
+                <span className="text-[10px] font-bold uppercase tracking-wider text-indigo-400">
+                  {current.customIndicatorSettings === 1 ? 'РАЗРЕШЕНО (ACTIVE)' : 'ЗАБЛОКИРОВАНО'}
+                </span>
+              </label>
+            </div>
+
+            {/* Card 5: Telegram */}
+            <div className={`p-4 rounded-xl border flex flex-col justify-between gap-3 ${subcard}`}>
+              <div>
+                <span className={`text-[10px] font-mono font-black uppercase block tracking-wider ${isLight ? 'text-slate-600' : 'text-slate-300'}`}>
+                  5. {t('admin.policies.telegramEnabled') || 'Telegram-уведомления'}
+                </span>
+                <p className="text-[10.5px] text-slate-400 mt-1 leading-snug">
+                  {t('admin.policies.telegramEnabledDesc') || 'Уведомления в Telegram о фильтрациях Cluster Search.'}
+                </p>
+              </div>
+              <label className="flex items-center gap-2.5 cursor-pointer mt-2 select-none">
+                <input
+                  type="checkbox"
+                  checked={current.telegramEnabled === 1}
+                  onChange={e => updateField(current.tier, 'telegramEnabled', e.target.checked ? 1 : 0)}
+                  className={`w-4 h-4 rounded focus:ring-blue-500 focus:ring-2 cursor-pointer ${isLight ? 'bg-white border-slate-300 text-blue-600' : 'bg-slate-900 border-white/10 text-blue-500'}`}
+                />
+                <span className="text-[10px] font-bold uppercase tracking-wider text-indigo-400">
+                  {current.telegramEnabled === 1 ? 'ВКЛЮЧЕНО (TELEGRAM)' : 'ОТКЛЮЧЕНО'}
+                </span>
+              </label>
+            </div>
+
+            {/* Card 6: Workspaces */}
+            <div className={`p-4 rounded-xl border flex flex-col justify-between gap-3 ${subcard}`}>
+              <div>
+                <span className={`text-[10px] font-mono font-black uppercase block tracking-wider ${isLight ? 'text-slate-600' : 'text-slate-300'}`}>
+                  6. {t('admin.policies.workspacesCount') || 'Рабочие пространства'}
+                </span>
+                <p className="text-[10.5px] text-slate-400 mt-1 leading-snug">
+                  {t('admin.policies.workspacesCountDesc') || 'Количество одновременных рабочих пространств. 1 или 2.'}
+                </p>
+              </div>
+              <div className="flex gap-2.5 mt-2">
+                {[1, 2].map(val => (
+                  <button
+                    key={val}
+                    onClick={() => updateField(current.tier, 'workspacesCount', val)}
+                    className={`flex-1 py-1.5 rounded-lg text-xs font-bold border transition ${
+                      current.workspacesCount === val
+                        ? 'bg-blue-500/15 border-blue-500 text-blue-400'
+                        : isLight ? 'bg-white hover:bg-slate-100 border-slate-200 text-slate-600 shadow-sm' : 'bg-slate-900 hover:bg-slate-800 border-white/5 text-slate-400'
+                    }`}
+                  >
+                    {val} {val === 1 ? 'пространство' : 'пространства'}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Card 7: Anomalies */}
+            <div className={`p-4 rounded-xl border flex flex-col justify-between gap-3 ${subcard}`}>
+              <div>
+                <span className={`text-[10px] font-mono font-black uppercase block tracking-wider ${isLight ? 'text-slate-600' : 'text-slate-300'}`}>
+                  7. {t('admin.policies.anomaliesEnabled') || 'Отображение Аномалий (Cluster Search)'}
+                </span>
+                <p className="text-[10.5px] text-slate-400 mt-1 leading-snug">
+                  {t('admin.policies.anomaliesEnabledDesc') || 'Разрешить пользователям включать опцию аномалий на графике.'}
+                </p>
+              </div>
+              <label className="flex items-center gap-2.5 cursor-pointer mt-2 select-none">
+                <input
+                  type="checkbox"
+                  checked={current.anomaliesEnabled === 1}
+                  onChange={e => updateField(current.tier, 'anomaliesEnabled', e.target.checked ? 1 : 0)}
+                  className={`w-4 h-4 rounded focus:ring-blue-500 focus:ring-2 cursor-pointer ${isLight ? 'bg-white border-slate-300 text-blue-600' : 'bg-slate-900 border-white/10 text-blue-500'}`}
+                />
+                <span className="text-[10px] font-bold uppercase tracking-wider text-indigo-400">
+                  {current.anomaliesEnabled === 1 ? 'РАЗРЕШЕНО (ACTIVE)' : 'ЗАБЛОКИРОВАНО'}
+                </span>
+              </label>
+            </div>
+
+            {/* Card 8: Session limit */}
+            <div className={`p-4 rounded-xl border flex flex-col justify-between gap-3 ${subcard}`}>
+              <div>
+                <span className={`text-[10px] font-mono font-black uppercase block tracking-wider ${isLight ? 'text-slate-600' : 'text-slate-300'}`}>
+                  8. {t('admin.policies.sessionLimit') || 'Лимит сессий'}
+                </span>
+                <p className="text-[10.5px] text-slate-400 mt-1 leading-snug">
+                  {t('admin.policies.sessionLimitDesc') || 'Макс. одновременных WS-сессий. -1 = безлимит, ≥100 = безлимит.'}
+                </p>
+              </div>
+              <div className="flex flex-col gap-2 mt-2">
+                <input
+                  type="number"
+                  min="-1"
+                  max="10000"
+                  value={current.sessionLimit}
+                  onChange={e => updateField(current.tier, 'sessionLimit', parseInt(e.target.value) || 0)}
+                  className={`w-full max-w-[120px] rounded-lg px-3 py-1.5 font-mono font-black text-xs border ${input}`}
+                />
+                <span className={`text-[10px] font-mono ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
+                  {current.sessionLimit === -1 ? 'Безлимит' : current.sessionLimit >= 100 ? 'Безлимит' : `${current.sessionLimit} сессий`}
+                </span>
+              </div>
+            </div>
+
+            {/* Save button */}
+            <div className="flex items-end justify-start">
+              <button
+                onClick={handleSave}
+                disabled={saving}
+                className={`w-full py-3 px-4 rounded-xl font-black uppercase tracking-wider text-xs flex items-center justify-center gap-2 cursor-pointer border transition-transform duration-200 hover:scale-[1.01] active:scale-[0.99] disabled:opacity-50 ${
+                  isLight
+                    ? 'bg-indigo-600 hover:bg-indigo-700 text-white border-indigo-700 shadow-md shadow-indigo-600/10'
+                    : 'bg-indigo-500/10 hover:bg-indigo-500/20 border-indigo-500/30 text-indigo-400'
+                }`}
+              >
+                <Save className="w-4 h-4" />
+                {saving ? t('common.loading') : t('admin.policies.saveAll') || 'Сохранить все лимиты'}
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  )
 }
 
 function StatsTabPlaceholder({ isLight }: { isLight: boolean }) {

@@ -9,7 +9,7 @@ export interface AuthUser {
   subscriptionStatus: string
   subscriptionPaidAt: string
   subscriptionExpiresAt: string
-  chartCompressionLocked?: boolean
+  compressionMax?: number
 }
 
 interface AuthResponse {
@@ -36,7 +36,7 @@ interface ProfileData {
   subscriptionPaidAt: string
   subscriptionExpiresAt: string
   daysLeft: number
-  chartCompressionLocked?: boolean
+  compressionMax?: number
 }
 
 const BASE = '/api/v1'
@@ -91,6 +91,36 @@ export async function apiResendVerification() {
 
 export async function apiGetSettings() {
   return request<{ settingsJson: string }>('/user/settings')
+}
+
+export interface UserLimits {
+  tier: string
+  sessionLimit: number
+  historyMaxDays: number
+  compressionMax: number
+  maxIndicators: number
+  customIndicatorSettings: number
+  telegramEnabled: number
+  workspacesCount: number
+  anomaliesEnabled: number
+  historyDaysPerTf: Record<string, number>
+}
+
+export async function apiGetLimits(): Promise<UserLimits> {
+  return request<UserLimits>('/user/limits')
+}
+
+export async function apiGetLimitsWithToken(token: string): Promise<UserLimits> {
+  const res = await fetch(`${BASE}/user/limits`, {
+    credentials: 'include',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+    },
+  })
+  const json = await res.json() as { ok: boolean; data?: UserLimits; error?: { code: string; message: string } }
+  if (!json.ok) throw json.error!
+  return json.data as UserLimits
 }
 
 export async function apiPutSettings(settingsJson: string) {

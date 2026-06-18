@@ -2,31 +2,46 @@ package admin
 
 import (
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"log"
 	"time"
 )
 
 type TierPolicy struct {
-	Tier                   string `json:"tier"`
-	SessionLimit           int    `json:"sessionLimit"`
-	HistoryMaxDays         int    `json:"historyMaxDays"`
-	ChartCompressionLocked int    `json:"chartCompressionLocked"`
-	CreatedAt              string `json:"createdAt"`
-	UpdatedAt              string `json:"updatedAt"`
+	Tier                    string         `json:"tier"`
+	SessionLimit            int            `json:"sessionLimit"`
+	HistoryMaxDays          int            `json:"historyMaxDays"`
+	CompressionMax          int            `json:"compressionMax"`
+	MaxIndicators           int            `json:"maxIndicators"`
+	CustomIndicatorSettings int            `json:"customIndicatorSettings"`
+	TelegramEnabled         int            `json:"telegramEnabled"`
+	WorkspacesCount         int            `json:"workspacesCount"`
+	AnomaliesEnabled        int            `json:"anomaliesEnabled"`
+	HistoryDaysPerTf        map[string]int `json:"historyDaysPerTf"`
+	CreatedAt               string         `json:"createdAt"`
+	UpdatedAt               string         `json:"updatedAt"`
 }
 
+const defaultHistoryDaysPerTf = `{"1m":1,"5m":1,"15m":1,"30m":1,"1h":1,"4h":1}`
+
 var defaultTierPolicies = []struct {
-	Tier                   string
-	SessionLimit           int
-	HistoryMaxDays         int
-	ChartCompressionLocked int
+	Tier                    string
+	SessionLimit            int
+	HistoryMaxDays          int
+	CompressionMax          int
+	MaxIndicators           int
+	CustomIndicatorSettings int
+	TelegramEnabled         int
+	WorkspacesCount         int
+	AnomaliesEnabled        int
+	HistoryDaysPerTf        string
 }{
-	{"guest", 1, 7, 1},
-	{"free", 1, 180, 1},
-	{"pro", 2, -1, 0},
-	{"vip", 2, -1, 0},
-	{"admin", -1, -1, 0},
+	{"guest", 1, 7, 1, 1, 0, 0, 1, 0, `{"1m":1,"5m":1,"15m":1,"30m":1,"1h":1,"4h":1}`},
+	{"free", 1, 180, 1, 1, 0, 0, 1, 0, `{"1m":1,"5m":1,"15m":1,"30m":1,"1h":1,"4h":1}`},
+	{"pro", 2, -1, 3, 5, 1, 0, 2, 1, `{"1m":3,"5m":7,"15m":14,"30m":30,"1h":60,"4h":180}`},
+	{"vip", 2, -1, 6, 15, 1, 1, 2, 1, `{"1m":7,"5m":14,"15m":30,"30m":60,"1h":120,"4h":360}`},
+	{"admin", -1, -1, 10, 100, 1, 1, 2, 1, `{"1m":14,"5m":30,"15m":60,"30m":120,"1h":240,"4h":720}`},
 }
 
 func SeedTierPolicies(db *sql.DB) error {
@@ -42,9 +57,13 @@ func SeedTierPolicies(db *sql.DB) error {
 	now := time.Now().UTC().Format(time.RFC3339)
 	for _, p := range defaultTierPolicies {
 		_, err := db.Exec(
-			`INSERT INTO tier_policies (tier, session_limit, history_max_days, chart_compression_locked, created_at, updated_at)
-			 VALUES (?, ?, ?, ?, ?, ?)`,
-			p.Tier, p.SessionLimit, p.HistoryMaxDays, p.ChartCompressionLocked, now, now,
+			`INSERT INTO tier_policies (tier, session_limit, history_max_days, compression_max, max_indicators,
+			 custom_indicator_settings, telegram_enabled, workspaces_count, anomalies_enabled, history_days_per_tf,
+			 created_at, updated_at)
+			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			p.Tier, p.SessionLimit, p.HistoryMaxDays, p.CompressionMax, p.MaxIndicators,
+			p.CustomIndicatorSettings, p.TelegramEnabled, p.WorkspacesCount, p.AnomaliesEnabled, p.HistoryDaysPerTf,
+			now, now,
 		)
 		if err != nil {
 			return fmt.Errorf("seed tier_policy %s: %w", p.Tier, err)
@@ -93,8 +112,54 @@ func LoadTierPolicies(db *sql.DB) (sessionLimits map[string]int, historyLimits m
 	return sessionLimits, historyLimits, nil
 }
 
+func LoadCompressionMax(db *sql.DB) (map[string]int, error) {
+	rows, err := db.Query("SELECT tier, compression_max FROM tier_policies")
+	if err != nil {
+		return nil, fmt.Errorf("query compression_max: %w", err)
+	}
+	defer rows.Close()
+
+	m := make(map[string]int)
+	for rows.Next() {
+		var tier string
+		var compMax int
+		if err := rows.Scan(&tier, &compMax); err != nil {
+			return nil, fmt.Errorf("scan compression_max: %w", err)
+		}
+		m[tier] = compMax
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("rows err: %w", err)
+	}
+	if len(m) == 0 {
+		return nil, nil
+	}
+	return m, nil
+}
+
+func GetLimitsForTier(db *sql.DB, tier string) (TierPolicy, error) {
+	var p TierPolicy
+	var historyDaysPerTf string
+	err := db.QueryRow(`SELECT tier, session_limit, history_max_days, compression_max, max_indicators,
+		custom_indicator_settings, telegram_enabled, workspaces_count, anomalies_enabled, history_days_per_tf,
+		created_at, updated_at FROM tier_policies WHERE tier = ?`, tier).Scan(
+		&p.Tier, &p.SessionLimit, &p.HistoryMaxDays, &p.CompressionMax, &p.MaxIndicators,
+		&p.CustomIndicatorSettings, &p.TelegramEnabled, &p.WorkspacesCount, &p.AnomaliesEnabled, &historyDaysPerTf,
+		&p.CreatedAt, &p.UpdatedAt)
+	if err != nil {
+		return TierPolicy{}, err
+	}
+	p.HistoryDaysPerTf = make(map[string]int)
+	if err := json.Unmarshal([]byte(historyDaysPerTf), &p.HistoryDaysPerTf); err != nil {
+		p.HistoryDaysPerTf = map[string]int{"1m": 1, "5m": 1, "15m": 1, "30m": 1, "1h": 1, "4h": 1}
+	}
+	return p, nil
+}
+
 func GetPolicies(db *sql.DB) (map[string]TierPolicy, error) {
-	rows, err := db.Query("SELECT tier, session_limit, history_max_days, chart_compression_locked, created_at, updated_at FROM tier_policies")
+	rows, err := db.Query(`SELECT tier, session_limit, history_max_days, compression_max, max_indicators,
+		custom_indicator_settings, telegram_enabled, workspaces_count, anomalies_enabled, history_days_per_tf,
+		created_at, updated_at FROM tier_policies`)
 	if err != nil {
 		return nil, fmt.Errorf("query tier_policies: %w", err)
 	}
@@ -103,8 +168,15 @@ func GetPolicies(db *sql.DB) (map[string]TierPolicy, error) {
 	policies := make(map[string]TierPolicy)
 	for rows.Next() {
 		var p TierPolicy
-		if err := rows.Scan(&p.Tier, &p.SessionLimit, &p.HistoryMaxDays, &p.ChartCompressionLocked, &p.CreatedAt, &p.UpdatedAt); err != nil {
+		var historyDaysPerTf string
+		if err := rows.Scan(&p.Tier, &p.SessionLimit, &p.HistoryMaxDays, &p.CompressionMax, &p.MaxIndicators,
+			&p.CustomIndicatorSettings, &p.TelegramEnabled, &p.WorkspacesCount, &p.AnomaliesEnabled, &historyDaysPerTf,
+			&p.CreatedAt, &p.UpdatedAt); err != nil {
 			return nil, fmt.Errorf("scan tier_policy: %w", err)
+		}
+		p.HistoryDaysPerTf = make(map[string]int)
+		if err := json.Unmarshal([]byte(historyDaysPerTf), &p.HistoryDaysPerTf); err != nil {
+			p.HistoryDaysPerTf = map[string]int{"1m": 1, "5m": 1, "15m": 1, "30m": 1, "1h": 1, "4h": 1}
 		}
 		policies[p.Tier] = p
 	}
@@ -114,57 +186,27 @@ func GetPolicies(db *sql.DB) (map[string]TierPolicy, error) {
 	return policies, nil
 }
 
-func LoadCompressionLocked(db *sql.DB) (map[string]bool, error) {
-	rows, err := db.Query("SELECT tier, chart_compression_locked FROM tier_policies")
-	if err != nil {
-		return nil, fmt.Errorf("query compression_locked: %w", err)
-	}
-	defer rows.Close()
-
-	m := make(map[string]bool)
-	for rows.Next() {
-		var tier string
-		var locked int
-		if err := rows.Scan(&tier, &locked); err != nil {
-			return nil, fmt.Errorf("scan: %w", err)
-		}
-		m[tier] = locked == 1
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("rows err: %w", err)
-	}
-
-	if len(m) == 0 {
-		return nil, nil
-	}
-	return m, nil
-}
-
-// EnsureCompressionLockedValues idempotently sets correct chart_compression_locked values
-// for existing tier_policies rows. This repairs data when the column was added via ALTER TABLE
-// AFTER the initial seed, leaving existing rows with DEFAULT 0 instead of the correct values.
-func EnsureCompressionLockedValues(db *sql.DB) error {
-	for _, p := range defaultTierPolicies {
-		_, err := db.Exec(
-			`UPDATE tier_policies SET chart_compression_locked = ?, updated_at = ? WHERE tier = ?`,
-			p.ChartCompressionLocked, time.Now().UTC().Format(time.RFC3339), p.Tier,
-		)
-		if err != nil {
-			return fmt.Errorf("update compression_locked for %s: %w", p.Tier, err)
-		}
-	}
-	log.Println("[admin] ensured chart_compression_locked values for tier_policies")
-	return nil
-}
-
 func UpsertPolicies(db *sql.DB, policies map[string]TierPolicy) error {
 	now := time.Now().UTC().Format(time.RFC3339)
 	for _, p := range policies {
-		_, err := db.Exec(
-			`INSERT INTO tier_policies (tier, session_limit, history_max_days, chart_compression_locked, created_at, updated_at)
-			 VALUES (?, ?, ?, ?, ?, ?)
-			 ON CONFLICT(tier) DO UPDATE SET session_limit=excluded.session_limit, history_max_days=excluded.history_max_days, chart_compression_locked=excluded.chart_compression_locked, updated_at=excluded.updated_at`,
-			p.Tier, p.SessionLimit, p.HistoryMaxDays, p.ChartCompressionLocked, now, now,
+		historyDaysPerTfJSON, err := json.Marshal(p.HistoryDaysPerTf)
+		if err != nil {
+			return fmt.Errorf("marshal history_days_per_tf for %s: %w", p.Tier, err)
+		}
+		_, err = db.Exec(
+			`INSERT INTO tier_policies (tier, session_limit, history_max_days, compression_max, max_indicators,
+			 custom_indicator_settings, telegram_enabled, workspaces_count, anomalies_enabled, history_days_per_tf,
+			 created_at, updated_at)
+			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			 ON CONFLICT(tier) DO UPDATE SET
+			 session_limit=excluded.session_limit, history_max_days=excluded.history_max_days,
+			 compression_max=excluded.compression_max, max_indicators=excluded.max_indicators,
+			 custom_indicator_settings=excluded.custom_indicator_settings, telegram_enabled=excluded.telegram_enabled,
+			 workspaces_count=excluded.workspaces_count, anomalies_enabled=excluded.anomalies_enabled,
+			 history_days_per_tf=excluded.history_days_per_tf, updated_at=excluded.updated_at`,
+			p.Tier, p.SessionLimit, p.HistoryMaxDays, p.CompressionMax, p.MaxIndicators,
+			p.CustomIndicatorSettings, p.TelegramEnabled, p.WorkspacesCount, p.AnomaliesEnabled,
+			string(historyDaysPerTfJSON), now, now,
 		)
 		if err != nil {
 			return fmt.Errorf("upsert tier_policy %s: %w", p.Tier, err)

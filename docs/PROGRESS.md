@@ -3,6 +3,113 @@
 > Claude обновляет этот файл в КОНЦЕ каждой задачи. Новые записи — сверху.
 > Формат записи строго по шаблону. Это память между чатами.
 
+### [2026-06-18] Фаза 12 Этап 5 Fix: диагностика /user/limits — бэкенд корректен, проблема на фронте
+- Go-тест напрямую: admin token → compressionMax=10, workspaces=2, indicators=100, anomalies=1. Free → 1/1. Guest → 4/2. **Эндпоинт работает правильно.**
+- Добавлен `console.log` в LimitsContext catch/refresh для видимости в DevTools Console.
+- Пользователь должен проверить: строку `[LimitsContext] fetched:` (данные) или `[LimitsContext] fetch error:` (ошибка → DEFAULT_LIMITS → guest-minimum).
+- Вероятная причина: `apiGetLimits()` бросает ошибку → catch → DEFAULT_LIMITS.
+
+### [2026-06-18] Фаза 12 Этап 5: Единый источник лимитов (GET /user/limits + useUserLimits)
+- Проблема: compressionMax кэшировался при старте сервера, остальные лимиты (workspaces, indicators, anomalies) клиент не получал вообще.
+- Решение: новый эндпоинт + hook для реалтайм-чтения лимитов из БД.
+- **Бэкенд — GET /api/v1/user/limits** (auth/handlers.go:729-786):
+  - RequireAuth. Читает role из JWT (r.Context().Value(RoleKey)).
+  - SELECT из tier_policies WHERE tier = role — **в реальном времени**, без кэша.
+  - Fallback на guest-дефолты если строки нет.
+  - Возвращает все поля: compressionMax, maxIndicators, customIndicatorSettings, telegramEnabled, workspacesCount, anomaliesEnabled, sessionLimit, historyDaysPerTf.
+  - camelCase JSON (через struct tags).
+  - Маршрут зарегистрирован: `mux.HandleFunc("GET /api/v1/user/limits", RequireAuth(h.cfg)(...))` — auth/handlers.go:131.
+- **Бэкенд — GetLimitsForTier** (admin/tier_policies.go:140-158): хелпер для прямого SELECT по tier (для использования из auth пакета — написан SQL напрямую в handler из-за циклического импорта admin↔auth).
+- **Фронтенд — LimitsContext** (contexts/LimitsContext.tsx):
+  - `LimitsProvider`: оборачивает приложение (после AuthProvider).
+  - `useUserLimits()` hook: возвращает `{ limits, loading, refresh }`.
+  - `refresh()` → `apiGetLimits()` → `GET /user/limits`.
+  - **Перезапрашивает при смене user** (user?.id в deps) — при релогине новый юзер получает свои лимиты.
+  - DEFAULT_LIMITS = guest-дефолты (fallback при ошибке/нет юзера).
+- **Фронтенд — apiGetLimits** (auth/api.ts:99-101): `request<UserLimits>('/user/limits')`.
+- **Применение 4 лимитов:**
+  - **Сжатие** (ChartHeader.tsx:73): `compressionMax = limits.compressionMax ?? 1`. Замочки: `compressionMax < 10 && (idx+1) > compressionMax`.
+  - **Workspaces** (ChartContainer2.tsx:87): `workspacesCount={limits.workspacesCount}` → ClusterChart блокирует выбор 2-го workspace если < 2.
+  - **Indicators** (IndicatorsModal.tsx:21): `maxIndicators = limits.maxIndicators >= 100 ? Infinity : limits.maxIndicators`. Toggle блокируется при `activeCount >= maxIndicators`.
+  - **Anomalies** (ChartHeader.tsx:220-238): кнопка заблокирована (`disabled, opacity-40, cursor-not-allowed`) если `limits.anomaliesEnabled === 0`.
+- Затронутые файлы:
+  - `backend/internal/auth/handlers.go` (+handleGetLimits, +route)
+  - `backend/internal/admin/tier_policies.go` (+GetLimitsForTier)
+  - `frontend/src/contexts/LimitsContext.tsx` (NEW)
+  - `frontend/src/features/auth/api.ts` (+UserLimits, +apiGetLimits)
+  - `frontend/src/App.tsx` (+LimitsProvider)
+  - `frontend/src/components/ChartHeader.tsx` (limits.compressionMax, anomaliesEnabled)
+  - `frontend/src/components/IndicatorsModal.tsx` (limits.maxIndicators, limits.tier)
+  - `frontend/src/chart2d/ChartContainer2.tsx` (limits.workspacesCount)
+- Тесты/проверки:
+  - `go test ./...`: ALL PASS
+  - `npx tsc --noEmit`: PASS (0 errors)
+  - `npx vite build`: PASS
+
+### [2026-06-18] Фаза 12 Этап 4 Fix v2: диагностика пустых карточек tier-policies
+- Причина: **старый бинарник**. Хендлер `handleGetPolicies` (handlers.go:751-758) — РЕАЛЬНЫЙ (вызывает `GetPolicies(h.db)`), routes registered correctly (line 99-100). Но запущенный сервер был собран до добавления реальных хендлеров → отдавал stub-ответ `{ok:true, data:{status:"stub_..."}}`.
+- Доказательство: Go-тест напрямую через `RegisterAdminRoutes` → `GetPolicies(db)` возвращает 5 tiers, handler возвращает 401 без токена (admin-only). Код корректен.
+- Фикс: `go build ./cmd/procluster/` → перезапуск. Debug-плашка из TierPoliciesBlock удалена.
+- Факты: БД содержит 5 строк tier_policies (guest/free/pro/vip/admin) со всеми полями. Миграция и seed отработали.
+- Тесты/проверки:
+  - `go test ./...`: ALL PASS
+  - `npx tsc --noEmit`: PASS
+  - `npx vite build`: PASS
+- **Действие для пользователя:** пересобрать бэкенд (`go build ./cmd/procluster/`) и перезапустить сервер. После этого GET /api/v1/admin/policies вернёт 5 групп со всеми полями.
+
+### [2026-06-18] Фаза 12 Этап 4 Fix: перенос политик в "Пользователи", i18n, замена chartCompressionLocked
+- Что сделано:
+  - **П.1 — Перенос вкладки**: Отдельная вкладка `AdminTab='policies'` УДАЛЕНА. Блок "Настройки лимитов и политик" (`TierPoliciesBlock`) перемещён ВНУТРЬ вкладки "Пользователи" — между верхними счётчиками (хосты/зарегистрировано/онлайн) и блоком "Добавить пользователя". Структура как в design-src.
+  - **П.2 — Карточки**: Все 8 карточек рендерятся и грузят/сохраняют данные из GET/PUT `/api/v1/admin/tier-policies`. Компонент `TierPoliciesTab` переименован в `TierPoliciesBlock`.
+  - **П.3 — i18n**: Добавлены ВСЕ ключи `admin.policies.*` в словари ru.ts, en.ts, kz.ts (28 ключей: title, subtitle, maxHistoryPerTf, maxHistoryPerTfDesc, compressionMax, compressionMaxDesc, maxIndicators, maxIndicatorsDesc, customIndicatorSettings, customIndicatorSettingsDesc, telegramEnabled, telegramEnabledDesc, workspacesCount, workspacesCountDesc, anomaliesEnabled, anomaliesEnabledDesc, sessionLimit, sessionLimitDesc, saveAll, active, inactive, telegramOn, telegramOff, days, activeIndicators, space1, space2, unlimited, sessions). Сырых ключей на экране нет.
+  - **П.4 — Хвост сжатия**: `chartCompressionLocked` УДАЛЁН из login response. Заменён на `compressionMax` (int, 1..10). Источник — `tier_policies.compression_max` через `LoadCompressionMax()` в admin/tier_policies.go. `SetTierCompressionMax(map[string]int)` в auth handler. ChartHeader.tsx переключен: `user?.compressionMax ?? 1`. Логика замочков: `compressionMax < 10 && (idx+1) > compressionMax` — блокирует уровни выше лимита.
+  - **Бэкенд**: `LoadCompressionMax()` добавлен в admin/tier_policies.go. `main.go` загружает compressionMax из tier_policies и передаёт в authHandler. `chartCompressionLocked` удалён из userResponseData. `tierCompressionLocked map[string]bool` заменён на `tierCompressionMax map[string]int` в auth Handler.
+  - **Тесты**: 5 тестов compression-locked обновлены на compressionMax. Все PASS.
+- Затронутые файлы:
+  - `backend/internal/auth/handlers.go` (tierCompressionMax, compressionMax в userResponseData)
+  - `backend/internal/auth/handlers_test.go` (5 тестов обновлены)
+  - `backend/internal/admin/tier_policies.go` (+LoadCompressionMax)
+  - `backend/cmd/procluster/main.go` (+LoadCompressionMax wiring)
+  - `frontend/src/features/auth/api.ts` (chartCompressionLocked → compressionMax)
+  - `frontend/src/components/ChartHeader.tsx` (compressionMax logic)
+  - `frontend/src/components/AdminPanel.tsx` (policies → Users tab, TierPoliciesBlock)
+  - `frontend/src/i18n/dictionaries/ru.ts` (+admin.policies)
+  - `frontend/src/i18n/dictionaries/en.ts` (+admin.policies)
+  - `frontend/src/i18n/dictionaries/kz.ts` (+admin.policies)
+- Тесты/проверки:
+  - `go test ./...`: ALL PASS
+  - `go vet ./...`: PASS
+  - `npx tsc --noEmit`: PASS (0 errors)
+  - `npx vite build`: PASS (489ms)
+
+### [2026-06-18] Фаза 12 Этап 4: Вкладка "Настройки лимитов и политик групп" — полная реализация
+- Что сделано:
+  - **Миграция (auth/sqlite.go)**: Идемпотентно через PRAGMA table_info добавлены новые колонки к tier_policies: `compression_max INTEGER DEFAULT 1`, `max_indicators INTEGER DEFAULT 1`, `custom_indicator_settings INTEGER DEFAULT 0`, `telegram_enabled INTEGER DEFAULT 0`, `workspaces_count INTEGER DEFAULT 1`, `anomalies_enabled INTEGER DEFAULT 0`, `history_days_per_tf TEXT DEFAULT '{"1m":1,"5m":1,"15m":1,"30m":1,"1h":1,"4h":1}'`. Старая колонка `chart_compression_locked` оставлена неиспользуемой (SQLite не поддерживает DROP COLUMN идемпотентно).
+  - **TierPolicy struct (admin/tier_policies.go)**: Полностью переписан — новые поля `CompressionMax`, `MaxIndicators`, `CustomIndicatorSettings`, `TelegramEnabled`, `WorkspacesCount`, `AnomaliesEnabled`, `HistoryDaysPerTf map[string]int`. Удалены `LoadCompressionLocked`, `EnsureCompressionLockedValues`, `ChartCompressionLocked`.
+  - **Seed defaults**: guest(1/7/1/1/0/0/1/0), free(1/180/1/1/0/0/1/0), pro(2/-1/3/5/0/1/2/1), vip(2/-1/6/15/1/1/2/1), admin(-1/-1/10/100/1/1/2/1). history_days_per_tf: guest/free=all 1, pro=3/7/14/30/60/180, vip=7/14/30/60/120/360, admin=14/30/60/120/240/720.
+  - **GetPolicies**: Читает все поля + JSON unmarshal history_days_per_tf.
+  - **UpsertPolicies**: INSERT ON CONFLICT DO UPDATE со всеми новыми полями + JSON marshal history_days_per_tf.
+  - **GET /api/v1/admin/tier-policies**: Реализован (ранее был stub). Admin-only. Возвращает 5 групп со всеми полями.
+  - **PUT /api/v1/admin/tier-policies**: Реализован (ранее был stub). Валидация: compression_max 1..10, session_limit >= -1, max_indicators >= 0, custom_indicator_settings/telegram_enabled/anomalies_enabled 0/1, workspaces_count 1..2, history_days_per_tf 6 валидных ключей ТФ с days >= 0. Admin-only, audit log.
+  - **main.go**: Удалены `EnsureCompressionLockedValues`, `LoadCompressionLocked`, `srv.SetTierCompressionLocked`, `authHandler.SetTierCompressionLocked`.
+  - **Frontend AdminPanel.tsx**: Новая вкладка "Настройки лимитов и политик" (AdminTab='policies'). 5 под-табов (GUEST/FREE/PRO/VIP/ADMIN) с цветовыми бейджами. 8 карточек: (1) история по 6 ТФ, (2) compression_max с range 1..10, (3) max_indicators числовое поле, (4) custom_indicator_settings toggle, (5) telegram_enabled toggle, (6) workspaces_count 1/2, (7) anomalies_enabled toggle, (8) session_limit числовое поле. Кнопка "Сохранить все лимиты". Верстка 1:1 по design-src.
+  - **Frontend admin/api.ts**: TierPolicy интерфейс обновлен под новую схему. apiGetPolicies/apiUpdatePolicies обновлены.
+  - **Tests**: tier_policies_test.go переписан под новую схему (9 тестов). Тесты compression-locked удалены.
+- Затронутые файлы:
+  - `backend/internal/auth/sqlite.go` (+7 колонок к tier_policies)
+  - `backend/internal/admin/tier_policies.go` (полная перезапись)
+  - `backend/internal/admin/tier_policies_test.go` (полная перезапись)
+  - `backend/internal/admin/handlers.go` (реализация GET/PUT policies)
+  - `backend/cmd/procluster/main.go` (удалены compression-locked вызовы)
+  - `frontend/src/features/admin/api.ts` (обновлен TierPolicy)
+  - `frontend/src/components/AdminPanel.tsx` (новая вкладка policies)
+- Тесты/проверки:
+  - `go test ./...`: ALL PASS
+  - `go vet ./...`: PASS
+  - `gofmt -l` на изменённых файлах: PASS
+  - `npx tsc --noEmit`: PASS (0 errors)
+  - `npx vite build`: PASS (529ms)
+
 ### [2026-06-15] Фаза 12 Этап 2 Подшаг 2.1: tier_policies в БД + рефактор лимитов с fallback
 - Модель: Opus
 - Что сделано:

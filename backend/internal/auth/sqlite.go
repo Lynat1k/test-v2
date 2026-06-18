@@ -217,12 +217,19 @@ func Migrate(db *sql.DB) error {
 		return fmt.Errorf("migration nickname unique: %w", err)
 	}
 
-	// Phase 12 Step 2.3: idempotent ALTER for tier_policies.chart_compression_locked
+	// Phase 12 Step 2.3+: idempotent ALTER for tier_policies expanded columns
 	tierCols := []struct {
 		name string
 		def  string
 	}{
 		{"chart_compression_locked", "INTEGER NOT NULL DEFAULT 0"},
+		{"compression_max", "INTEGER NOT NULL DEFAULT 1"},
+		{"max_indicators", "INTEGER NOT NULL DEFAULT 1"},
+		{"custom_indicator_settings", "INTEGER NOT NULL DEFAULT 0"},
+		{"telegram_enabled", "INTEGER NOT NULL DEFAULT 0"},
+		{"workspaces_count", "INTEGER NOT NULL DEFAULT 1"},
+		{"anomalies_enabled", "INTEGER NOT NULL DEFAULT 0"},
+		{"history_days_per_tf", "TEXT NOT NULL DEFAULT '{\"1m\":1,\"5m\":1,\"15m\":1,\"30m\":1,\"1h\":1,\"4h\":1}'"},
 	}
 	tierExisting := make(map[string]bool)
 	tierRows, err := db.Query("PRAGMA table_info(tier_policies)")

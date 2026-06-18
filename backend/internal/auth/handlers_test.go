@@ -183,11 +183,11 @@ func TestLogin(t *testing.T) {
 	}
 }
 
-func TestLogin_ReturnsChartCompressionLocked(t *testing.T) {
+func TestLogin_ReturnsCompressionMax(t *testing.T) {
 	handler, db := setupTestHandler(t)
 	defer db.Close()
 	ctx := context.Background()
-	handler.SetTierCompressionLocked(map[string]bool{"guest": true, "free": true, "pro": false, "vip": false, "admin": false})
+	handler.SetTierCompressionMax(map[string]int{"guest": 1, "free": 1, "pro": 3, "vip": 6, "admin": 10})
 
 	hash, _ := HashPassword("adminpass")
 	user := &User{
@@ -218,13 +218,13 @@ func TestLogin_ReturnsChartCompressionLocked(t *testing.T) {
 		t.Fatal("expected user object in login response")
 	}
 
-	// chartCompressionLocked must be present and false for admin
-	locked, ok := userResp["chartCompressionLocked"]
+	// compressionMax must be present and 10 for admin
+	compMax, ok := userResp["compressionMax"]
 	if !ok {
-		t.Fatal("chartCompressionLocked field missing from login user response")
+		t.Fatal("compressionMax field missing from login user response")
 	}
-	if locked != false {
-		t.Errorf("admin chartCompressionLocked: got %v, want false", locked)
+	if compMax != float64(10) {
+		t.Errorf("admin compressionMax: got %v, want 10", compMax)
 	}
 
 	// daysLeft should also be present
@@ -780,10 +780,10 @@ func TestGetMeSuccess(t *testing.T) {
 	}
 }
 
-func TestGetMe_CompressionLocked_FreeUser_LockedTrue(t *testing.T) {
+func TestGetMe_CompressionMax_FreeUser(t *testing.T) {
 	handler, db := setupTestHandler(t)
 	defer db.Close()
-	handler.SetTierCompressionLocked(map[string]bool{"guest": true, "free": true, "pro": false, "vip": false, "admin": false})
+	handler.SetTierCompressionMax(map[string]int{"guest": 1, "free": 1, "pro": 3, "vip": 6, "admin": 10})
 	user := createVerifiedUser(t, db, "freeuser@example.com", "password123", "FreeUser")
 
 	w, req := authRequest(handler, "GET", "/api/v1/user/me", "", user)
@@ -795,17 +795,16 @@ func TestGetMe_CompressionLocked_FreeUser_LockedTrue(t *testing.T) {
 	var resp authResponse
 	json.Unmarshal(w.Body.Bytes(), &resp)
 	data := resp.Data.(map[string]interface{})
-	if data["chartCompressionLocked"] != true {
-		t.Errorf("free user chartCompressionLocked: got %v, want true", data["chartCompressionLocked"])
+	if data["compressionMax"] != float64(1) {
+		t.Errorf("free user compressionMax: got %v, want 1", data["compressionMax"])
 	}
 }
 
-func TestGetMe_CompressionLocked_ProUser_LockedFalse(t *testing.T) {
+func TestGetMe_CompressionMax_ProUser(t *testing.T) {
 	handler, db := setupTestHandler(t)
 	defer db.Close()
-	handler.SetTierCompressionLocked(map[string]bool{"guest": true, "free": true, "pro": false, "vip": false, "admin": false})
+	handler.SetTierCompressionMax(map[string]int{"guest": 1, "free": 1, "pro": 3, "vip": 6, "admin": 10})
 	user := createVerifiedUser(t, db, "prouser@example.com", "password123", "ProUser")
-	// Override role to pro
 	if _, err := db.Exec("UPDATE users SET role = 'pro' WHERE id = ?", user.ID); err != nil {
 		t.Fatalf("update role: %v", err)
 	}
@@ -820,15 +819,15 @@ func TestGetMe_CompressionLocked_ProUser_LockedFalse(t *testing.T) {
 	var resp authResponse
 	json.Unmarshal(w.Body.Bytes(), &resp)
 	data := resp.Data.(map[string]interface{})
-	if data["chartCompressionLocked"] != false {
-		t.Errorf("pro user chartCompressionLocked: got %v, want false", data["chartCompressionLocked"])
+	if data["compressionMax"] != float64(3) {
+		t.Errorf("pro user compressionMax: got %v, want 3", data["compressionMax"])
 	}
 }
 
-func TestGetMe_CompressionLocked_NoMap_FallbackTrue(t *testing.T) {
+func TestGetMe_CompressionMax_NoMap_FallbackOne(t *testing.T) {
 	handler, db := setupTestHandler(t)
 	defer db.Close()
-	// deliberately NOT calling SetTierCompressionLocked — nil map
+	// deliberately NOT calling SetTierCompressionMax — nil map
 	user := createVerifiedUser(t, db, "fallback@example.com", "password123", "FallbackUser")
 
 	w, req := authRequest(handler, "GET", "/api/v1/user/me", "", user)
@@ -840,8 +839,8 @@ func TestGetMe_CompressionLocked_NoMap_FallbackTrue(t *testing.T) {
 	var resp authResponse
 	json.Unmarshal(w.Body.Bytes(), &resp)
 	data := resp.Data.(map[string]interface{})
-	if data["chartCompressionLocked"] != true {
-		t.Errorf("with nil map chartCompressionLocked: got %v, want true (fallback)", data["chartCompressionLocked"])
+	if data["compressionMax"] != float64(1) {
+		t.Errorf("with nil map compressionMax: got %v, want 1 (fallback)", data["compressionMax"])
 	}
 }
 
@@ -1041,10 +1040,10 @@ func TestUpdateProfileAvatarURL(t *testing.T) {
 	}
 }
 
-func TestGetMe_CompressionLocked_CaseInsensitiveRole(t *testing.T) {
+func TestGetMe_CompressionMax_CaseInsensitiveRole(t *testing.T) {
 	handler, db := setupTestHandler(t)
 	defer db.Close()
-	handler.SetTierCompressionLocked(map[string]bool{"free": true, "pro": false})
+	handler.SetTierCompressionMax(map[string]int{"free": 1, "pro": 3})
 	user := createVerifiedUser(t, db, "casefree@example.com", "password123", "CaseFree")
 	// Override role to "Free" (capital F) — should still resolve via strings.ToLower
 	if _, err := db.Exec("UPDATE users SET role = 'Free' WHERE id = ?", user.ID); err != nil {
@@ -1061,16 +1060,16 @@ func TestGetMe_CompressionLocked_CaseInsensitiveRole(t *testing.T) {
 	var resp authResponse
 	json.Unmarshal(w.Body.Bytes(), &resp)
 	data := resp.Data.(map[string]interface{})
-	if data["chartCompressionLocked"] != true {
-		t.Errorf("'Free' (capital) user chartCompressionLocked: got %v, want true", data["chartCompressionLocked"])
+	if data["compressionMax"] != float64(1) {
+		t.Errorf("'Free' (capital) user compressionMax: got %v, want 1", data["compressionMax"])
 	}
 }
 
-func TestGetMe_CompressionLocked_UnknownRole_SafeDefaultTrue(t *testing.T) {
+func TestGetMe_CompressionMax_UnknownRole_FallbackOne(t *testing.T) {
 	handler, db := setupTestHandler(t)
 	defer db.Close()
 	// Map has only known tiers; "unknown" role is NOT in the map
-	handler.SetTierCompressionLocked(map[string]bool{"free": false, "pro": false, "vip": false, "admin": false})
+	handler.SetTierCompressionMax(map[string]int{"free": 1, "pro": 3, "vip": 6, "admin": 10})
 	user := createVerifiedUser(t, db, "unknown@example.com", "password123", "UnknownRole")
 	if _, err := db.Exec("UPDATE users SET role = 'unknown' WHERE id = ?", user.ID); err != nil {
 		t.Fatalf("update role: %v", err)
@@ -1086,8 +1085,8 @@ func TestGetMe_CompressionLocked_UnknownRole_SafeDefaultTrue(t *testing.T) {
 	var resp authResponse
 	json.Unmarshal(w.Body.Bytes(), &resp)
 	data := resp.Data.(map[string]interface{})
-	if data["chartCompressionLocked"] != true {
-		t.Errorf("unknown role chartCompressionLocked: got %v, want true (safe default)", data["chartCompressionLocked"])
+	if data["compressionMax"] != float64(1) {
+		t.Errorf("unknown role compressionMax: got %v, want 1 (safe default)", data["compressionMax"])
 	}
 }
 

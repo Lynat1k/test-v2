@@ -7,6 +7,7 @@ import type { MarketType } from '@/contexts/ChartControlsContext'
 import { LayoutProvider, useLayout } from '@/contexts/LayoutContext'
 import { UserSettingsProvider } from '@/contexts/UserSettingsContext'
 import { AuthProvider } from '@/features/auth/AuthContext'
+import { LimitsProvider } from '@/contexts/LimitsContext'
 import { LoginModal } from '@/features/auth/LoginModal'
 import { RegisterModal } from '@/features/auth/RegisterModal'
 import { VerifyEmailBanner } from '@/features/auth/VerifyEmailBanner'
@@ -670,7 +671,8 @@ export default function App() {
     <ThemeProvider>
       <I18nProvider>
         <AuthProvider>
-          <UserSettingsProvider>
+          <LimitsProvider>
+            <UserSettingsProvider>
             <CandlePaletteProvider>
               <ChartControlsProvider>
                 <LayoutProvider>
@@ -678,7 +680,8 @@ export default function App() {
                 </LayoutProvider>
               </ChartControlsProvider>
             </CandlePaletteProvider>
-          </UserSettingsProvider>
+            </UserSettingsProvider>
+          </LimitsProvider>
         </AuthProvider>
       </I18nProvider>
     </ThemeProvider>

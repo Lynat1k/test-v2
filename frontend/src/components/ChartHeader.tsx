@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 import { useTranslation } from '@/i18n'
-import { useAuthContext } from '@/features/auth/AuthContext'
+import { useUserLimits } from '@/contexts/LimitsContext'
 import {
   useChartControls,
   AVAILABLE_TICKERS,
@@ -43,7 +43,7 @@ interface ChartHeaderProps {
 
 export function ChartHeader({ fps = 0, showAnomalies = true, onToggleAnomalies }: ChartHeaderProps) {
   const { t } = useTranslation()
-  const { user } = useAuthContext()
+  const { limits } = useUserLimits()
   const {
     activeSlot, getSlot,
     setSymbol, setMarket, setTimeframe, setCandleMode, setPalette: setControlsPalette,
@@ -70,7 +70,8 @@ export function ChartHeader({ fps = 0, showAnomalies = true, onToggleAnomalies }
 
   const tickerConfig = getTickerConfig()
   const compressionLevels = getCompressionLevels()
-  const chartCompressionLocked = user?.chartCompressionLocked ?? true
+  const compressionMax = limits.compressionMax ?? 1
+  const chartCompressionLocked = compressionMax < 10
   const baseCompression = market === 'futures' ? tickerConfig.baseFutures : tickerConfig.baseSpot
 
   const resolvedMode = candleMode === 'auto' ? 'japanese' : candleMode
@@ -214,11 +215,15 @@ export function ChartHeader({ fps = 0, showAnomalies = true, onToggleAnomalies }
       <div className="shrink-0">
         <span className="text-[10px] uppercase font-mono tracking-widest font-bold block mb-0.5 text-slate-400/80">Anomalies</span>
         <button
-          onClick={onToggleAnomalies}
-          className={`flex items-center gap-1.5 px-2 py-1 rounded-lg text-[10px] font-bold cursor-pointer transition-all h-[30px] select-none border ${
-            showAnomalies
-              ? 'bg-emerald-500/10 border-emerald-500/25 text-emerald-400'
-              : 'text-slate-400 hover:text-slate-200 border-white/5'
+          onClick={limits.anomaliesEnabled ? onToggleAnomalies : undefined}
+          disabled={!limits.anomaliesEnabled}
+          title={!limits.anomaliesEnabled ? t('chart.compressionLocked') : undefined}
+          className={`flex items-center gap-1.5 px-2 py-1 rounded-lg text-[10px] font-bold transition-all h-[30px] select-none border ${
+            !limits.anomaliesEnabled
+              ? 'opacity-40 cursor-not-allowed text-slate-600 border-white/5'
+              : showAnomalies
+                ? 'bg-emerald-500/10 border-emerald-500/25 text-emerald-400 cursor-pointer'
+                : 'text-slate-400 hover:text-slate-200 border-white/5 cursor-pointer'
           }`}
         >
           <span className={`w-1.5 h-1.5 rounded-full ${showAnomalies ? 'bg-emerald-400' : 'bg-slate-500'}`} />
@@ -401,7 +406,7 @@ export function ChartHeader({ fps = 0, showAnomalies = true, onToggleAnomalies }
             >
               {compressionLevels.map((level, idx) => {
                 const isBase = level === baseCompression
-                const isDisabled = chartCompressionLocked && !isBase
+                const isDisabled = compressionMax < 10 && (idx + 1) > compressionMax
                 return (
                   <button
                     key={level}
