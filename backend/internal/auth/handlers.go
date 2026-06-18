@@ -128,7 +128,7 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v1/user/settings", RequireAuth(h.cfg)(http.HandlerFunc(h.handleGetSettings)).ServeHTTP)
 	mux.HandleFunc("PUT /api/v1/user/settings", RequireAuth(h.cfg)(http.HandlerFunc(h.handlePutSettings)).ServeHTTP)
 	mux.HandleFunc("GET /api/v1/user/me", RequireAuth(h.cfg)(http.HandlerFunc(h.handleGetMe)).ServeHTTP)
-	mux.HandleFunc("GET /api/v1/user/limits", RequireAuth(h.cfg)(http.HandlerFunc(h.handleGetLimits)).ServeHTTP)
+	mux.HandleFunc("GET /api/v1/user/limits", h.handleGetLimits)
 	mux.HandleFunc("PUT /api/v1/user/profile", RequireAuth(h.cfg)(http.HandlerFunc(h.handleUpdateProfile)).ServeHTTP)
 	mux.HandleFunc("POST /api/v1/user/change-password", RequireAuth(h.cfg)(http.HandlerFunc(h.handleChangePassword)).ServeHTTP)
 	mux.HandleFunc("POST /api/v1/auth/google", h.handleGoogleAuth)
@@ -733,9 +733,10 @@ func (h *Handler) handleChangePassword(w http.ResponseWriter, r *http.Request) {
 // NOT from cache — always fresh.
 
 func (h *Handler) handleGetLimits(w http.ResponseWriter, r *http.Request) {
-	role, ok := r.Context().Value(RoleKey).(string)
-	if !ok || role == "" {
-		role = "guest"
+	role := "guest"
+	if userID, rRole, err := ExtractUserFromRequest(h.cfg, r); err == nil {
+		role = rRole
+		_ = userID
 	}
 
 	var p struct {

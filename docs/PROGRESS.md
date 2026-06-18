@@ -3,6 +3,38 @@
 > Claude обновляет этот файл в КОНЦЕ каждой задачи. Новые записи — сверху.
 > Формат записи строго по шаблону. Это память между чатами.
 
+### [2026-06-18] Фаза 12: БЛОК ТАРИФНЫХ ЛИМИТОВ ЗАВЕРШЁН — коммит feat(admin): tier policies admin tab + per-tier limits enforcement
+- Этапы 0-6 выполнены: миграция БД, seed, админ-эндпоинты GET/PUT /api/v1/admin/policies, вкладка в админке, GET /api/v1/user/limits (реалтайм из БД), публичный доступ для гостя, LimitsContext на фронте, применение 4 лимитов (compression, workspaces, indicators, anomalies).
+- Осталось (отдельные подшаги):
+  - лимит истории по ТФ (historyDaysPerTf) — на клиенте пока не подключён
+  - telegramEnabled — поле эндпоинт отдаёт, UI не применяет
+  - history-loader (отдельная фаза)
+
+### [2026-06-18] Фаза 12 Этап 6: Лимиты гостя — /user/limits публичный, гость читается из БД
+- **Проблема**: GET /user/limits под RequireAuth → гость без токена получал 401 → фронт падал в catch → DEFAULT_LIMITS (хардкод). Настройки guest из админки игнорировались.
+- **Решение (бэкенд — auth/handlers.go:131,735-739)**:
+  - Маршрут: снят `RequireAuth` → `mux.HandleFunc("GET /api/v1/user/limits", h.handleGetLimits)`.
+  - `handleGetLimits`: вместо чтения `r.Context().Value(RoleKey)` (недоступен без RequireAuth) — вызов `ExtractUserFromRequest(h.cfg, r)`:
+    - Есть валидный JWT → роль из токена (как раньше) → читает tier_policies по этой роли.
+    - Нет/невалиден токен → роль `"guest"` → читает tier_policies WHERE tier='guest' из БД.
+    - **Никогда не возвращает 401**.
+    - SQL параметризован; fallback на дефолты только если строки guest нет в БД.
+- **Решение (фронтенд — contexts/LimitsContext.tsx, auth/api.ts)**:
+  - `apiGetLimitsPublic()` — новая функция (fetch без Authorization header).
+  - `LimitsContext.refresh()`: если `accessToken` есть → `apiGetLimitsWithToken`, иначе → `apiGetLimitsPublic()`.
+  - **Всегда** вызывает API (гость ↔ логин). DEFAULT_LIMITS только при сетевой ошибке.
+  - `useEffect` теперь безусловно вызывает `refresh()` при смене `user?.id || accessToken`.
+- **Проверка**: админ выставляет guest (workspacesCount=2, anomaliesEnabled=1, compressionMax=4, maxIndicators=3) → гость без логина получает эти значения (200, не 401). Авторизованные тарифы продолжают работать.
+- **Затронутые файлы**:
+  - `backend/internal/auth/handlers.go:131,735-739`
+  - `frontend/src/features/auth/api.ts` (+apiGetLimitsPublic)
+  - `frontend/src/contexts/LimitsContext.tsx` (всегда fetch, DEFAULT_LIMITS только при ошибке)
+- Не в этой задаче (потом): применение на клиенте лимита истории по ТФ и telegram.
+- **Тесты/проверки**:
+  - `go test ./...`: ALL PASS
+  - `npx tsc --noEmit`: PASS (0 errors)
+  - `npx vite build`: PASS (705ms)
+
 ### [2026-06-18] Фаза 12 Этап 5 Fix: диагностика /user/limits — бэкенд корректен, проблема на фронте
 - Go-тест напрямую: admin token → compressionMax=10, workspaces=2, indicators=100, anomalies=1. Free → 1/1. Guest → 4/2. **Эндпоинт работает правильно.**
 - Добавлен `console.log` в LimitsContext catch/refresh для видимости в DevTools Console.

@@ -1,5 +1,5 @@
 import { createContext, useContext, useState, useEffect, useCallback, type ReactNode } from 'react'
-import { apiGetLimitsWithToken, type UserLimits } from '@/features/auth/api'
+import { apiGetLimitsWithToken, apiGetLimitsPublic, type UserLimits } from '@/features/auth/api'
 import { useAuthContext } from '@/features/auth/AuthContext'
 
 const DEFAULT_LIMITS: UserLimits = {
@@ -29,13 +29,10 @@ export function LimitsProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true)
 
   const refresh = useCallback(async () => {
-    if (!accessToken) {
-      setLimits(DEFAULT_LIMITS)
-      setLoading(false)
-      return
-    }
     try {
-      const data = await apiGetLimitsWithToken(accessToken)
+      const data = accessToken
+        ? await apiGetLimitsWithToken(accessToken)
+        : await apiGetLimitsPublic()
       console.log('[LimitsContext] fetched:', data)
       setLimits(data)
     } catch (e) {
@@ -45,15 +42,10 @@ export function LimitsProvider({ children }: { children: ReactNode }) {
     setLoading(false)
   }, [accessToken])
 
-  // Fetch on mount and whenever user changes (re-login)
+  // Fetch on mount and whenever auth state changes (guest ↔ login)
   useEffect(() => {
-    if (user && accessToken) {
-      setLoading(true)
-      refresh()
-    } else {
-      setLimits(DEFAULT_LIMITS)
-      setLoading(false)
-    }
+    setLoading(true)
+    refresh()
   }, [user?.id, accessToken, refresh])
 
   return (

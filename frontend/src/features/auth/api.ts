@@ -123,6 +123,16 @@ export async function apiGetLimitsWithToken(token: string): Promise<UserLimits> 
   return json.data as UserLimits
 }
 
+export async function apiGetLimitsPublic(): Promise<UserLimits> {
+  const res = await fetch(`${BASE}/user/limits`, {
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+  })
+  const json = await res.json() as { ok: boolean; data?: UserLimits; error?: { code: string; message: string } }
+  if (!json.ok) throw json.error!
+  return json.data as UserLimits
+}
+
 export async function apiPutSettings(settingsJson: string) {
   await fetch(`${BASE}/user/settings`, {
     method: 'PUT',
