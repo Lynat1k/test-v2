@@ -50,7 +50,7 @@ export function AdminPanel({ onClose }: AdminPanelProps) {
   ]
 
   return (
-    <div className={`flex-1 flex flex-col min-h-0 relative z-40 overflow-y-auto p-6 gap-6 font-sans select-none ${
+    <div className={`flex-1 flex flex-col min-h-0 relative z-40 ${activeTab === 'server' ? 'overflow-hidden' : 'overflow-y-auto'} p-6 gap-6 font-sans select-none ${
       isLight ? 'bg-slate-50 text-slate-900' : 'bg-[#060813] text-slate-100'
     }`}>
       {/* Header */}
@@ -177,9 +177,9 @@ function ServerTab({ isLight }: { isLight: boolean }) {
   }
 
   return (
-    <div className="flex-1 grid grid-cols-1 lg:grid-cols-2 gap-6 min-h-0 items-stretch">
-      {/* LEFT: Metrics + DB Size + Users */}
-      <div className={`h-full p-5 rounded-2xl border flex flex-col gap-3 ${
+    <div className="flex-1 flex flex-col gap-4 min-h-0">
+      {/* TOP: Resource Monitoring Cards */}
+      <div className={`flex-[7] min-h-0 p-5 rounded-2xl border flex flex-col gap-3 ${
         isLight ? 'bg-white border-slate-200' : 'liquid-glass-card'
       }`}>
         <div className="flex items-center gap-2 text-xs font-bold font-mono text-slate-400 uppercase shrink-0">
@@ -187,7 +187,7 @@ function ServerTab({ isLight }: { isLight: boolean }) {
           {t('admin.server.resourceMonitoring')}
         </div>
 
-        <div className="flex-1 flex flex-col gap-3 min-h-0">
+        <div className="flex-1 grid grid-cols-1 md:grid-cols-3 gap-3 min-h-0">
           <MetricCard
             isLight={isLight}
             label={t('admin.server.cpu')}
@@ -196,6 +196,7 @@ function ServerTab({ isLight }: { isLight: boolean }) {
             percent={metrics?.cpu.usagePercent ?? 0}
             color="amber"
             historyData={history.map(h => h.cpuPercent)}
+            historyTimestamps={history.map(h => h.timestamp)}
           />
           <MetricCard
             isLight={isLight}
@@ -205,6 +206,7 @@ function ServerTab({ isLight }: { isLight: boolean }) {
             percent={metrics?.ram.percent ?? 0}
             color="emerald"
             historyData={history.map(h => h.ramPercent)}
+            historyTimestamps={history.map(h => h.timestamp)}
           />
           <MetricCard
             isLight={isLight}
@@ -214,6 +216,7 @@ function ServerTab({ isLight }: { isLight: boolean }) {
             percent={metrics?.disk.usagePercent ?? 0}
             color="blue"
             historyData={history.map(h => h.diskPercent)}
+            historyTimestamps={history.map(h => h.timestamp)}
           />
         </div>
 
@@ -238,8 +241,8 @@ function ServerTab({ isLight }: { isLight: boolean }) {
         </div>
       </div>
 
-      {/* RIGHT: Log Console (full height) */}
-      <div className={`flex-1 flex flex-col min-h-[400px] lg:min-h-0 rounded-2xl p-5 border gap-3 ${
+      {/* BOTTOM: Log Console */}
+      <div className={`flex-[3] min-h-0 flex flex-col rounded-2xl p-5 border gap-3 ${
         isLight ? 'bg-white border-slate-200' : 'liquid-glass-card'
       }`}>
         <div className="flex justify-between items-center text-xs shrink-0">
@@ -252,7 +255,7 @@ function ServerTab({ isLight }: { isLight: boolean }) {
           </span>
         </div>
 
-        <div className={`flex-1 min-h-[220px] rounded-xl p-4 font-mono text-[10.5px] overflow-y-auto leading-relaxed border select-text shadow-inner ${
+        <div className={`flex-1 min-h-0 rounded-xl p-4 font-mono text-[10.5px] overflow-y-auto leading-relaxed border select-text shadow-inner ${
           isLight
             ? 'bg-slate-900 text-slate-200 border-slate-300'
             : 'bg-[#02050e] text-[#00ff66] border-white/5'
@@ -281,7 +284,7 @@ function ServerTab({ isLight }: { isLight: boolean }) {
   )
 }
 
-function MetricCard({ isLight, label, value, sub, percent, color, historyData }: {
+function MetricCard({ isLight, label, value, sub, percent, color, historyData, historyTimestamps }: {
   isLight: boolean
   label: string
   value: string
@@ -289,94 +292,239 @@ function MetricCard({ isLight, label, value, sub, percent, color, historyData }:
   percent: number
   color: string
   historyData: number[]
+  historyTimestamps?: string[]
 }) {
+  const [hoveredIdx, setHoveredIdx] = useState<number | null>(null)
+
   const barColor = {
     amber: 'bg-amber-500',
     emerald: 'bg-emerald-500',
     blue: 'bg-blue-500',
   }[color] || 'bg-slate-500'
 
+  const formatTime = (ts: string) => {
+    try {
+      const d = new Date(ts)
+      return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
+    } catch { return '' }
+  }
+
+  const hoverTime = hoveredIdx !== null && historyTimestamps?.[hoveredIdx] ? formatTime(historyTimestamps[hoveredIdx]!) : null
+  const hoverValue = hoveredIdx !== null && historyData[hoveredIdx] !== undefined ? historyData[hoveredIdx] : null
+
   return (
     <div className={`flex-1 min-h-0 p-3 rounded-xl border flex flex-col justify-between gap-2 transition-all ${
       isLight ? 'bg-slate-50/70 border-slate-200' : 'bg-white/[0.01] border-white/5'
     }`}>
-      <div className="flex justify-between items-center text-xs">
-        <span className={`font-bold flex items-center gap-1.5 ${isLight ? 'text-slate-800' : 'text-white'}`}>
-          <span className={`w-1.5 h-1.5 rounded-full ${color === 'amber' ? 'bg-amber-500 animate-ping' : color === 'emerald' ? 'bg-emerald-500' : 'bg-blue-500 animate-pulse'}`} />
-          <span>{label}</span>
-        </span>
-        <span className={`font-mono font-bold ${
-          color === 'amber' ? (isLight ? 'text-amber-600' : 'text-amber-500') :
-          color === 'emerald' ? (isLight ? 'text-emerald-600' : 'text-emerald-500') :
-          (isLight ? 'text-blue-600' : 'text-blue-400')
-        }`}>{value}</span>
-      </div>
+      <div className="flex flex-col gap-1">
+        <div className="flex justify-between items-center text-xs">
+          <span className={`font-bold flex items-center gap-1.5 ${isLight ? 'text-slate-800' : 'text-white'}`}>
+            <span className={`w-1.5 h-1.5 rounded-full ${color === 'amber' ? 'bg-amber-500 animate-ping' : color === 'emerald' ? 'bg-emerald-500' : 'bg-blue-500 animate-pulse'}`} />
+            <span>{label}</span>
+          </span>
+          {hoverValue !== null && hoverTime !== null ? (
+            <span className={`text-[9px] font-mono font-bold border px-1.5 py-0.5 rounded animate-pulse ${
+              color === 'amber' ? 'bg-amber-500/10 text-amber-500 border-amber-500/20' :
+              color === 'emerald' ? 'bg-emerald-500/10 text-emerald-500 border-emerald-500/20' :
+              'bg-blue-500/10 text-blue-500 border-blue-500/20'
+            }`}>
+              {hoverTime}: {hoverValue.toFixed(1)}%
+            </span>
+          ) : (
+            <span className={`font-mono font-bold text-[11px] ${
+              color === 'amber' ? (isLight ? 'text-amber-600' : 'text-amber-500') :
+              color === 'emerald' ? (isLight ? 'text-emerald-600' : 'text-emerald-500') :
+              (isLight ? 'text-blue-600' : 'text-blue-400')
+            }`}>{value}</span>
+          )}
+        </div>
 
-      <div className={`h-2 w-full ${isLight ? 'bg-slate-200' : 'bg-slate-900'} rounded-full overflow-hidden`}>
-        <div className={`h-full ${barColor} transition-all duration-300`} style={{ width: `${Math.min(percent, 100)}%` }} />
-      </div>
+        <div className={`h-2 w-full ${isLight ? 'bg-slate-200' : 'bg-slate-900'} rounded-full overflow-hidden`}>
+          <div className={`h-full ${barColor} transition-all duration-300`} style={{ width: `${Math.min(percent, 100)}%` }} />
+        </div>
 
-      <div className={`text-[10px] ${isLight ? 'text-slate-600' : 'text-slate-400'} font-mono`}>{sub}</div>
+        <div className={`text-[10px] ${isLight ? 'text-slate-600' : 'text-slate-400'} font-mono`}>{sub}</div>
+      </div>
 
       {/* 24h Daily Chart */}
       <div className="flex flex-col gap-1 min-h-0 flex-1">
         <span className={`text-[9px] ${isLight ? 'text-slate-500' : 'text-slate-400'} font-mono uppercase tracking-wider`}>
           {historyData.length > 0 ? `${historyData.length} ${label} (24h)` : `${label} (24h)`}
         </span>
-        <div className={`flex-1 w-full min-h-[40px] ${isLight ? 'bg-slate-100/80' : 'bg-black/30'} rounded-lg p-1.5 border ${isLight ? 'border-slate-300/40' : 'border-white/[0.02]'}`}>
-          <DailyChart data={historyData} color={color} maxVal={100} />
-        </div>
+        <DailyChart
+          data={historyData}
+          {...(historyTimestamps ? { timestamps: historyTimestamps } : {})}
+          color={color}
+          maxVal={100}
+          isLight={isLight}
+          hoveredIdx={hoveredIdx}
+          onHoverChange={setHoveredIdx}
+        />
       </div>
     </div>
   )
 }
 
-function DailyChart({ data, color, maxVal }: { data: number[]; color: string; maxVal: number }) {
-  if (data.length === 0) {
-    return <div className="w-full h-full flex items-center justify-center text-[10px] text-slate-500 font-mono">Collecting data...</div>
-  }
+function DailyChart({ data, timestamps, color, maxVal, isLight, hoveredIdx, onHoverChange }: {
+  data: number[]
+  timestamps?: string[]
+  color: string
+  maxVal: number
+  isLight: boolean
+  hoveredIdx: number | null
+  onHoverChange: (idx: number | null) => void
+}) {
+  const width = 500
+  const height = 110
+  const paddingL = 10
+  const paddingR = 40
+  const paddingT = 8
+  const paddingB = 18
+  const graphW = width - paddingL - paddingR
+  const graphH = height - paddingT - paddingB
 
-  const w = 300
-  const h = 48
+  const getX = (i: number) => paddingL + (i / Math.max(data.length - 1, 1)) * graphW
+  const getY = (num: number) => height - paddingB - (num / maxVal) * graphH
+
   const strokeColor = { amber: '#f59e0b', emerald: '#10b981', blue: '#3b82f6' }[color] || '#94a3b8'
 
-  if (data.length === 1) {
-    const y = h - (data[0]! / maxVal) * (h - 8) - 4
+  const formatTime = (ts: string) => {
+    try {
+      const d = new Date(ts)
+      return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
+    } catch { return '' }
+  }
+
+  if (data.length === 0) {
     return (
-      <svg className="w-full h-full" viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="none">
-        <defs>
-          <linearGradient id={`grad-${color}`} x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor={strokeColor} stopOpacity="0.25" />
-            <stop offset="100%" stopColor={strokeColor} stopOpacity="0.0" />
-          </linearGradient>
-        </defs>
-        <line x1="0" y1={h * 0.5} x2={w} y2={h * 0.5} stroke="currentColor" className="text-slate-400/20" strokeDasharray="3 3" />
-        <circle cx={w / 2} cy={y} r="3" fill={strokeColor} />
-      </svg>
+      <div className={`flex-1 w-full min-h-[95px] flex items-center justify-center text-[10px] text-slate-500 font-mono rounded-lg border border-slate-500/10 ${
+        isLight ? 'bg-slate-100/90' : 'bg-black/35'
+      }`}>
+        Collecting data...
+      </div>
     )
   }
 
-  const points = data.map((v, i) => {
-    const x = (i / (data.length - 1)) * w
-    const y = h - (v / maxVal) * (h - 8) - 4
-    return { x, y }
-  })
+  if (data.length === 1) {
+    const y = getY(data[0]!)
+    return (
+      <div className={`flex-1 min-h-[95px] w-full relative rounded-lg p-1 border border-slate-500/10 ${
+        isLight ? 'bg-slate-100/90' : 'bg-black/35'
+      }`}>
+        <svg className="w-full h-full overflow-visible" viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="none">
+          <defs>
+            <linearGradient id={`grad-${color}`} x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor={strokeColor} stopOpacity="0.28" />
+              <stop offset="100%" stopColor={strokeColor} stopOpacity="0.0" />
+            </linearGradient>
+          </defs>
+          <circle cx={width / 2} cy={y} r="3" fill={strokeColor} stroke={isLight ? '#ffffff' : '#0f172a'} strokeWidth="1.5" />
+        </svg>
+      </div>
+    )
+  }
+
+  const points = data.map((v, i) => ({ x: getX(i), y: getY(v) }))
   const pathD = points.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x.toFixed(1)} ${p.y.toFixed(1)}`).join(' ')
-  const areaD = `${pathD} L ${w} ${h} L 0 ${h} Z`
+  const areaD = `${pathD} L ${points[points.length - 1]!.x.toFixed(1)} ${height - paddingB} L ${points[0]!.x.toFixed(1)} ${height - paddingB} Z`
+
+  const yTicks = [0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100]
+
+  const xTickCount = Math.min(6, data.length)
+  const xTicks = Array.from({ length: xTickCount }, (_, i) => Math.round((i / (xTickCount - 1)) * (data.length - 1)))
+
+  const handleMouseMove = (e: React.MouseEvent<SVGSVGElement>) => {
+    const rect = e.currentTarget.getBoundingClientRect()
+    const pct = (e.clientX - rect.left) / rect.width
+    const idx = Math.max(0, Math.min(data.length - 1, Math.round(pct * (data.length - 1))))
+    onHoverChange(idx)
+  }
 
   return (
-    <svg className="w-full h-full" viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="none">
-      <defs>
-        <linearGradient id={`grad-${color}`} x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor={strokeColor} stopOpacity="0.25" />
-          <stop offset="100%" stopColor={strokeColor} stopOpacity="0.0" />
-        </linearGradient>
-      </defs>
-      <line x1="0" y1={h * 0.5} x2={w} y2={h * 0.5} stroke="currentColor" className="text-slate-400/20" strokeDasharray="3 3" />
-      <path d={areaD} fill={`url(#grad-${color})`} />
-      <path d={pathD} fill="none" stroke={strokeColor} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-      {points.length > 0 && <circle cx={points[points.length - 1]!.x} cy={points[points.length - 1]!.y} r="2" fill={strokeColor} />}
-    </svg>
+    <div className={`flex-1 min-h-[95px] w-full relative rounded-lg p-1 border border-slate-500/10 ${
+      isLight ? 'bg-slate-100/90' : 'bg-black/35'
+    }`}>
+      {yTicks.map((tick) => (
+        <div
+          key={`y-${tick}`}
+          style={{
+            position: 'absolute',
+            left: `${((width - paddingR + 5) / width) * 100}%`,
+            top: `${(getY(tick) / height) * 100}%`,
+            transform: 'translateY(-50%)',
+          }}
+          className={`text-[10px] font-mono font-bold leading-none select-none pointer-events-none ${
+            isLight ? 'text-slate-500' : 'text-slate-400'
+          }`}
+        >
+          {tick}%
+        </div>
+      ))}
+
+      {xTicks.map((idx) => {
+        const xPercent = (getX(idx) / width) * 100
+        const alignTransform = idx === 0 ? 'none' : 'translateX(-50%)'
+        return (
+          <div
+            key={`x-${idx}`}
+            style={{
+              position: 'absolute',
+              left: `${xPercent}%`,
+              bottom: '3px',
+              transform: alignTransform,
+            }}
+            className={`text-[10px] font-mono font-bold leading-none select-none pointer-events-none ${
+              isLight ? 'text-slate-500' : 'text-slate-400'
+            }`}
+          >
+            {timestamps?.[idx] ? formatTime(timestamps[idx]!) : ''}
+          </div>
+        )
+      })}
+
+      <svg
+        className="w-full h-full overflow-visible"
+        viewBox={`0 0 ${width} ${height}`}
+        preserveAspectRatio="none"
+        onMouseMove={handleMouseMove}
+        onMouseLeave={() => onHoverChange(null)}
+      >
+        <defs>
+          <linearGradient id={`grad-${color}`} x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor={strokeColor} stopOpacity="0.28" />
+            <stop offset="100%" stopColor={strokeColor} stopOpacity="0.0" />
+          </linearGradient>
+        </defs>
+
+        <line
+          x1={paddingL} y1={height - paddingB}
+          x2={width - paddingR} y2={height - paddingB}
+          stroke="currentColor"
+          className={isLight ? 'text-slate-300' : 'text-white/[0.12]'}
+        />
+
+        <path d={areaD} fill={`url(#grad-${color})`} />
+        <path d={pathD} fill="none" stroke={strokeColor} strokeWidth="1" strokeLinecap="round" strokeLinejoin="round" />
+
+        {hoveredIdx !== null && (
+          <g>
+            <line
+              x1={getX(hoveredIdx)} y1={paddingT}
+              x2={getX(hoveredIdx)} y2={height - paddingB}
+              stroke="#ec4899" strokeWidth="1" strokeDasharray="2 2"
+            />
+            <circle
+              cx={getX(hoveredIdx)}
+              cy={getY(data[hoveredIdx]!)}
+              r="3"
+              fill={strokeColor}
+              stroke={isLight ? '#ffffff' : '#0f172a'}
+              strokeWidth="1.5"
+            />
+          </g>
+        )}
+      </svg>
+    </div>
   )
 }
 
