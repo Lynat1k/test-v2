@@ -212,6 +212,15 @@ func (s *Server) handleClustersBatch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	market := strings.TrimSpace(r.URL.Query().Get("market"))
+	if market == "" {
+		market = "futures"
+	}
+	if !validMarkets[market] {
+		writeError(w, http.StatusBadRequest, "INVALID_PARAMS", "market must be futures or spot")
+		return
+	}
+
 	timeframe := strings.TrimSpace(r.URL.Query().Get("timeframe"))
 	if timeframe == "" {
 		timeframe = "1m"
@@ -253,7 +262,7 @@ func (s *Server) handleClustersBatch(w http.ResponseWriter, r *http.Request) {
 
 	ctx := r.Context()
 
-	clustersMap, err := s.repo.GetClustersBatch(ctx, symbol, timeframe, candleOpens, priceStep)
+	clustersMap, err := s.repo.GetClustersBatch(ctx, symbol, timeframe, market, candleOpens, priceStep)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "DB_ERROR", "failed to fetch clusters batch")
 		return

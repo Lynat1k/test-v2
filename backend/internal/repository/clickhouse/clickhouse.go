@@ -327,9 +327,14 @@ func (r *ClickhouseRepository) GetClusters(ctx context.Context, symbol, timefram
 	return result, rows.Err()
 }
 
-func (r *ClickhouseRepository) GetClustersBatch(ctx context.Context, symbol, timeframe string, candleOpens []int64, priceStep float64) (map[int64][]model.ClusterRow, error) {
+func (r *ClickhouseRepository) GetClustersBatch(ctx context.Context, symbol, timeframe, market string, candleOpens []int64, priceStep float64) (map[int64][]model.ClusterRow, error) {
 	if len(candleOpens) == 0 {
 		return nil, nil
+	}
+
+	table := "clusters_futures"
+	if market == "spot" {
+		table = "clusters_spot"
 	}
 
 	// Build WHERE clause with explicit OR for DateTime64 compatibility
@@ -356,11 +361,11 @@ func (r *ClickhouseRepository) GetClustersBatch(ctx context.Context, symbol, tim
 				sum(bid_volume) AS bid_volume,
 				sum(ask_volume) AS ask_volume,
 				toUInt16(0) AS compression
-			FROM clusters_futures
+			FROM %s
 			WHERE symbol = ? AND timeframe = ? AND (%s)
 			GROUP BY symbol, timeframe, candle_open, floor(price_level / %g) * %g
 			ORDER BY candle_open, floor(price_level / %g) * %g ASC
-		`, priceStep, priceStep, whereConditions, priceStep, priceStep, priceStep, priceStep)
+		`, priceStep, priceStep, table, whereConditions, priceStep, priceStep, priceStep, priceStep)
 	} else {
 		// No aggregation — return raw clusters
 		query = fmt.Sprintf(`
@@ -372,10 +377,10 @@ func (r *ClickhouseRepository) GetClustersBatch(ctx context.Context, symbol, tim
 				bid_volume,
 				ask_volume,
 				compression
-			FROM clusters_futures
+			FROM %s
 			WHERE symbol = ? AND timeframe = ? AND (%s)
 			ORDER BY candle_open, price_level ASC
-		`, whereConditions)
+		`, table, whereConditions)
 	}
 
 	log.Printf("[clickhouse] GetClustersBatch: symbol=%s tf=%s n=%d priceStep=%.2f", symbol, timeframe, len(candleOpens), priceStep)

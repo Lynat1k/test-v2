@@ -28,6 +28,7 @@ type TradeMessage struct {
 	LastTradeID      int64  `json:"l"`
 	TradeTime        int64  `json:"T"`
 	IsBuyerMaker     bool   `json:"m"`
+	BestMatchFlag    bool   `json:"M"`
 }
 
 func ParseMessage(data []byte, market MarketType) (*model.Trade, error) {

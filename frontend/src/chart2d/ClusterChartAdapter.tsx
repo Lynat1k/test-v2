@@ -131,7 +131,7 @@ export default function ClusterChartAdapter({
         const candleOpens = chunk.join(',');
         try {
           const resp = await fetch(
-            `/api/v1/candles/${symbol}/clusters-batch?timeframe=${timeframe}&candleOpens=${candleOpens}&priceStep=${priceStep}`,
+            `/api/v1/candles/${symbol}/clusters-batch?timeframe=${timeframe}&market=${market}&candleOpens=${candleOpens}&priceStep=${priceStep}`,
             { headers: authHeaders(accessTokenRef.current) }
           );
           if (!resp.ok) return;
