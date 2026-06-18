@@ -61,6 +61,17 @@ function AppShell() {
       return next
     })
   }, [])
+
+  const [showAnomalies0, setShowAnomalies0] = useState<boolean>(() => {
+    try { return (localStorage.getItem('procluster_show_anomalies_0') ?? localStorage.getItem('chart_settings_show_anomalies')) !== 'false' } catch { return true }
+  })
+  const [showAnomalies1, setShowAnomalies1] = useState<boolean>(() => {
+    try { return (localStorage.getItem('procluster_show_anomalies_1') ?? localStorage.getItem('chart_settings_show_anomalies')) !== 'false' } catch { return true }
+  })
+  useEffect(() => { try { localStorage.setItem('procluster_show_anomalies_0', String(showAnomalies0)) } catch {} }, [showAnomalies0])
+  useEffect(() => { try { localStorage.setItem('procluster_show_anomalies_1', String(showAnomalies1)) } catch {} }, [showAnomalies1])
+  const showAnomalies = activeSlot === 0 ? showAnomalies0 : showAnomalies1
+  const setShowAnomalies = activeSlot === 0 ? setShowAnomalies0 : setShowAnomalies1
   const { language, t } = useTranslation()
 
   const chartAreaRef = useRef<HTMLDivElement>(null)
@@ -355,7 +366,7 @@ function AppShell() {
           <div className="flex-1 flex flex-col h-full gap-1 sm:gap-2">
             {/* Chart header controls */}
             <div className="hidden lg:block">
-              <ChartHeader fps={fps} />
+              <ChartHeader fps={fps} showAnomalies={showAnomalies} onToggleAnomalies={() => setShowAnomalies(!showAnomalies)} />
             </div>
 
             {/* Chart area */}
@@ -381,6 +392,8 @@ function AppShell() {
                             onRemoveIndicator={onRemoveIndicator}
                           onShowIndicatorsSettings={onShowIndicatorsSettings}
                           onLayoutChange={setLayoutMode}
+                          showAnomalies={showAnomalies0}
+                          onChangeShowAnomalies={setShowAnomalies0}
                         />
                       ) : (
                         <ChartContainer
@@ -428,6 +441,8 @@ function AppShell() {
                             onRemoveIndicator={onRemoveIndicator}
                             onShowIndicatorsSettings={onShowIndicatorsSettings}
                             onLayoutChange={setLayoutMode}
+                            showAnomalies={showAnomalies0}
+                            onChangeShowAnomalies={setShowAnomalies0}
                           />
                         ) : (
                           <ChartPanel
@@ -477,6 +492,8 @@ function AppShell() {
                             onRemoveIndicator={onRemoveIndicator}
                             onShowIndicatorsSettings={onShowIndicatorsSettings}
                             onLayoutChange={setLayoutMode}
+                            showAnomalies={showAnomalies1}
+                            onChangeShowAnomalies={setShowAnomalies1}
                           />
                         ) : (
                           <ChartPanel
@@ -530,6 +547,8 @@ function AppShell() {
                             onRemoveIndicator={onRemoveIndicator}
                             onShowIndicatorsSettings={onShowIndicatorsSettings}
                             onLayoutChange={setLayoutMode}
+                            showAnomalies={showAnomalies0}
+                            onChangeShowAnomalies={setShowAnomalies0}
                           />
                         ) : (
                           <ChartPanel
@@ -579,6 +598,8 @@ function AppShell() {
                             onRemoveIndicator={onRemoveIndicator}
                             onShowIndicatorsSettings={onShowIndicatorsSettings}
                             onLayoutChange={setLayoutMode}
+                            showAnomalies={showAnomalies1}
+                            onChangeShowAnomalies={setShowAnomalies1}
                           />
                         ) : (
                           <ChartPanel

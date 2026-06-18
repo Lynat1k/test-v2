@@ -13,6 +13,7 @@ import { motion, AnimatePresence } from 'motion/react'
 import { ChevronDown, SlidersHorizontal, Zap, Lock, Check, Star } from 'lucide-react'
 import { AutoIcon } from '@/components/icons/AutoIcon'
 import { JapaneseIcon } from '@/components/icons/JapaneseIcon'
+import { BarsIcon } from '@/components/icons/BarsIcon'
 import { FootprintIcon } from '@/components/icons/FootprintIcon'
 import { ClustersIcon } from '@/components/icons/ClustersIcon'
 import { Portal } from '@/components/Portal'
@@ -23,6 +24,7 @@ import { useFavoritePairs } from '@/hooks/useFavoritePairs'
 const CANDLE_MODES: { mode: CandleMode; icon: typeof AutoIcon; labelKey: string }[] = [
   { mode: 'auto', icon: AutoIcon, labelKey: 'chart.auto' },
   { mode: 'japanese', icon: JapaneseIcon, labelKey: 'chart.japanese' },
+  { mode: 'bars', icon: BarsIcon, labelKey: 'chart.bars' },
   { mode: 'footprint', icon: FootprintIcon, labelKey: 'chart.footprint' },
   { mode: 'clusters', icon: ClustersIcon, labelKey: 'chart.clusters' },
 ]
@@ -35,9 +37,11 @@ const VOLUME_MODES: { mode: VolumeMode; labelKey: string }[] = [
 
 interface ChartHeaderProps {
   fps?: number
+  showAnomalies?: boolean
+  onToggleAnomalies?: () => void
 }
 
-export function ChartHeader({ fps = 0 }: ChartHeaderProps) {
+export function ChartHeader({ fps = 0, showAnomalies = true, onToggleAnomalies }: ChartHeaderProps) {
   const { t } = useTranslation()
   const { user } = useAuthContext()
   const {
@@ -202,6 +206,24 @@ export function ChartHeader({ fps = 0 }: ChartHeaderProps) {
             </button>
           ))}
         </div>
+      </div>
+
+      <div className="w-px h-5 bg-white/10 mx-0.5" />
+
+      {/* 4b. Anomalies toggle */}
+      <div className="shrink-0">
+        <span className="text-[10px] uppercase font-mono tracking-widest font-bold block mb-0.5 text-slate-400/80">Anomalies</span>
+        <button
+          onClick={onToggleAnomalies}
+          className={`flex items-center gap-1.5 px-2 py-1 rounded-lg text-[10px] font-bold cursor-pointer transition-all h-[30px] select-none border ${
+            showAnomalies
+              ? 'bg-emerald-500/10 border-emerald-500/25 text-emerald-400'
+              : 'text-slate-400 hover:text-slate-200 border-white/5'
+          }`}
+        >
+          <span className={`w-1.5 h-1.5 rounded-full ${showAnomalies ? 'bg-emerald-400' : 'bg-slate-500'}`} />
+          <span>{showAnomalies ? 'On' : 'Off'}</span>
+        </button>
       </div>
 
       <div className="w-px h-5 bg-white/10 mx-0.5" />

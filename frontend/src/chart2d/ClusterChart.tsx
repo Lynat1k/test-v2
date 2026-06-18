@@ -35,7 +35,7 @@ interface ClusterChartProps {
   marketType?: "SPOT" | "FUTURES";
   onToggleMarketType?: () => void;
   theme?: "dark" | "light";
-  candleType?: "auto" | "japanese" | "footprint" | "clusters";
+  candleType?: "auto" | "japanese" | "footprint" | "clusters" | "bars";
   candleDataType?: "bid_ask" | "delta" | "volume";
   candlePalette?: "default" | "alternative";
   timeframe?: string;
@@ -51,6 +51,9 @@ interface ClusterChartProps {
   clusterStep?: number;
   onNeedHistory?: (oldestTimestamp: number) => void;
   onVisibleTimestampsChange?: (timestamps: number[]) => void;
+  showAnomalies?: boolean | undefined;
+  onChangeShowAnomalies?: ((show: boolean) => void) | undefined;
+  userRole?: string;
 }
 
 export default function ClusterChart({
@@ -83,7 +86,10 @@ export default function ClusterChart({
   orderBook,
   clusterStep,
   onNeedHistory,
-  onVisibleTimestampsChange
+  onVisibleTimestampsChange,
+  showAnomalies = true,
+  onChangeShowAnomalies,
+  userRole,
 }: ClusterChartProps) {
   
   const isLight = theme === "light";
@@ -141,6 +147,13 @@ export default function ClusterChart({
   const [isOverlayLegendCollapsed, setIsOverlayLegendCollapsed] = useState<boolean>(() => {
     return storage.get("chart_overlay_legend_collapsed") === "true";
   });
+
+  const [showCandleOutline, setShowCandleOutline] = useState(() => storage.get("chart_settings_show_candle_outline") !== "false");
+  const [showChartSettings, setShowChartSettings] = useState(false);
+
+  useEffect(() => {
+    storage.set("chart_settings_show_candle_outline", String(showCandleOutline));
+  }, [showCandleOutline]);
 
   const [selectedTimezone, setSelectedTimezone] = useState<string>(() => {
     return storage.get("procluster_chart_timezone") || "local";
@@ -553,8 +566,8 @@ export default function ClusterChart({
         // Ctrl + Wheel -> zoom horizontally centered on mouse position!
         const multiplier = direction < 0 ? 1.08 : 0.92;
         const nextWidth = curCandleWidth * multiplier;
-        const minW = (candleType === "japanese" || candleType === "auto") ? 2 : 8;
-        const nextWidthClamped = Math.min(450, Math.max(minW, nextWidth));
+        const minW = (candleType === "japanese" || candleType === "auto" || candleType === "bars") ? 2 : 8;
+        const nextWidthClamped = Math.min(100, Math.max(minW, nextWidth));
 
         if (nextWidthClamped !== curCandleWidth) {
           const mouseRelativeX = e.clientX - rect.left;
@@ -591,8 +604,8 @@ export default function ClusterChart({
         // 1. Horizontal zoom
         const hMultiplier = direction < 0 ? 1.08 : 0.92;
         const nextWidth = curCandleWidth * hMultiplier;
-        const minW = (candleType === "japanese" || candleType === "auto") ? 2 : 8;
-        const nextWidthClamped = Math.min(450, Math.max(minW, nextWidth));
+        const minW = (candleType === "japanese" || candleType === "auto" || candleType === "bars") ? 2 : 8;
+        const nextWidthClamped = Math.min(100, Math.max(minW, nextWidth));
 
         let updatedScaleCandleWidth = curCandleWidth;
         if (nextWidthClamped !== curCandleWidth) {
@@ -732,8 +745,8 @@ export default function ClusterChart({
   const handleZoom = (factor: number) => {
     setCandleWidth(prev => {
       const next = prev + factor;
-      const minW = (candleType === "japanese" || candleType === "auto") ? 2 : 8;
-      return Math.min(450, Math.max(minW, next));
+      const minW = (candleType === "japanese" || candleType === "auto" || candleType === "bars") ? 2 : 8;
+      return Math.min(100, Math.max(minW, next));
     });
   };
 
@@ -800,11 +813,13 @@ export default function ClusterChart({
 
   // Zoom threshold: Detailed cluster footprint mode vs default Candlestick view
   const isDetailedModeCalculated = candleWidth >= 15;
-  const isDetailedMode = candleType === "japanese"
+  const isDetailedMode = (candleType === "japanese" || candleType === "bars")
     ? false
     : (candleType === "footprint" || candleType === "clusters"
         ? true
         : isDetailedModeCalculated);
+
+  const finalShowAnomalies = showAnomalies;
 
   // Panning drag-to-scroll handlers (supports 2D movement)
   const handleMouseDown = (e: React.MouseEvent) => {
@@ -1905,8 +1920,8 @@ export default function ClusterChart({
       // If we move mouse to the right, we stretch (increase candleWidth).
       // If we move mouse to the left, we squeeze (decrease candleWidth).
       const nextW = startCandleWidthRef.current + deltaX * 1.0;
-      const minW = (candleType === "japanese" || candleType === "auto") ? 2 : 8;
-      const clampedW = Math.min(450, Math.max(minW, nextW));
+      const minW = (candleType === "japanese" || candleType === "auto" || candleType === "bars") ? 2 : 8;
+      const clampedW = Math.min(100, Math.max(minW, nextW));
 
       setCandleWidth(clampedW);
 
@@ -2261,40 +2276,68 @@ export default function ClusterChart({
       // Draw vertical wick lines
       ctx.strokeStyle = candleWickColor;
       ctx.lineWidth = 1.5;
-      ctx.globalAlpha = isDetailedMode ? 0.45 : 0.85;
-      if (isDetailedMode) {
-        // In detailed/clusters/footprint mode: draw only upper/lower tails, skip body
-        const bodyTopY = priceToY(Math.max(candle.open, candle.close));
-        const bodyBotY = priceToY(Math.min(candle.open, candle.close));
-        // Upper tail: high → top of body
-        ctx.beginPath();
-        ctx.moveTo(x + candleWidth / 2, priceToY(candle.high));
-        ctx.lineTo(x + candleWidth / 2, bodyTopY);
-        ctx.stroke();
-        // Lower tail: bottom of body → low
-        ctx.beginPath();
-        ctx.moveTo(x + candleWidth / 2, bodyBotY);
-        ctx.lineTo(x + candleWidth / 2, priceToY(candle.low));
-        ctx.stroke();
-      } else {
-        ctx.beginPath();
-        ctx.moveTo(x + candleWidth / 2, priceToY(candle.high));
-        ctx.lineTo(x + candleWidth / 2, priceToY(candle.low));
-        ctx.stroke();
+      ctx.globalAlpha = isDetailedMode ? (showCandleOutline ? 0.45 : 0.0) : 0.85;
+      if (candleType !== "bars") {
+        if (isDetailedMode) {
+          // In detailed/clusters/footprint mode: draw only upper/lower tails, skip body
+          const bodyTopY = priceToY(Math.max(candle.open, candle.close));
+          const bodyBotY = priceToY(Math.min(candle.open, candle.close));
+          // Upper tail: high → top of body
+          ctx.beginPath();
+          ctx.moveTo(x + candleWidth / 2, priceToY(candle.high));
+          ctx.lineTo(x + candleWidth / 2, bodyTopY);
+          ctx.stroke();
+          // Lower tail: bottom of body → low
+          ctx.beginPath();
+          ctx.moveTo(x + candleWidth / 2, bodyBotY);
+          ctx.lineTo(x + candleWidth / 2, priceToY(candle.low));
+          ctx.stroke();
+        } else {
+          ctx.beginPath();
+          ctx.moveTo(x + candleWidth / 2, priceToY(candle.high));
+          ctx.lineTo(x + candleWidth / 2, priceToY(candle.low));
+          ctx.stroke();
+        }
       }
       ctx.globalAlpha = 1.0; // Reset
 
-      // A. Zoomed out simple candlestick
+      // A. Zoomed out simple candlestick or OHLC bar
       if (!isDetailedMode) {
-        ctx.fillStyle = candleFillColor;
-        ctx.strokeStyle = candleBorderColor;
-        ctx.lineWidth = 1.5;
-        
-        const rectY = Math.min(bodyY1, bodyY2);
-        const rectH = Math.max(3, Math.abs(bodyY1 - bodyY2));
-        
-        ctx.fillRect(x, rectY, candleWidth, rectH);
-        ctx.strokeRect(x, rectY, candleWidth, rectH);
+        if (candleType === "bars") {
+          const centerX = x + candleWidth / 2;
+          const openY = priceToY(candle.open);
+          const closeY = priceToY(candle.close);
+          const highY = priceToY(candle.high);
+          const lowY = priceToY(candle.low);
+          ctx.strokeStyle = candleBorderColor;
+          ctx.lineWidth = Math.max(1.5, Math.min(3.5, candleWidth * 0.15));
+          // Vertical high-low line
+          ctx.beginPath();
+          ctx.moveTo(centerX, highY);
+          ctx.lineTo(centerX, lowY);
+          ctx.stroke();
+          // Left tick (open)
+          const tickLen = Math.max(2, candleWidth / 2);
+          ctx.beginPath();
+          ctx.moveTo(centerX - tickLen, openY);
+          ctx.lineTo(centerX, openY);
+          ctx.stroke();
+          // Right tick (close)
+          ctx.beginPath();
+          ctx.moveTo(centerX, closeY);
+          ctx.lineTo(centerX + tickLen, closeY);
+          ctx.stroke();
+        } else {
+          ctx.fillStyle = candleFillColor;
+          ctx.strokeStyle = candleBorderColor;
+          ctx.lineWidth = 1.5;
+          
+          const rectY = Math.min(bodyY1, bodyY2);
+          const rectH = Math.max(3, Math.abs(bodyY1 - bodyY2));
+          
+          ctx.fillRect(x, rectY, candleWidth, rectH);
+          ctx.strokeRect(x, rectY, candleWidth, rectH);
+        }
       }
 
       // B. Zoomed in Footprint detailed view
@@ -2332,7 +2375,9 @@ export default function ClusterChart({
               ? (isLight ? "rgba(58, 58, 58, 0.45)" : "rgba(174, 167, 167, 0.55)")
               : (isLight ? "rgba(239, 68, 68, 0.45)" : "rgba(239, 68, 68, 0.55)"));
         ctx.lineWidth = 1.0;
-        ctx.strokeRect(x + 0.5, bodyTopY + 0.5, candleWidth - 1, bodyH - 1);
+        if (showCandleOutline) {
+          ctx.strokeRect(x + 0.5, bodyTopY + 0.5, candleWidth - 1, bodyH - 1);
+        }
 
         candleCells.forEach((cell, cellIdx) => {
           const cellBelow = candleCells[cellIdx + 1];
@@ -3193,6 +3238,7 @@ export default function ClusterChart({
     indicatorSettings,
     theme,
     candleType,
+    candlePalette,
     candleDataType,
     crosshair,
     hoveredCell,
@@ -3523,6 +3569,18 @@ export default function ClusterChart({
             </div>
           )}
           
+          <button
+            onClick={() => setShowChartSettings(!showChartSettings)}
+            className={`flex items-center justify-center px-1.5 sm:px-2 py-1 rounded-lg sm:rounded-xl text-[9px] sm:text-[10px] font-bold cursor-pointer transition-all duration-150 select-none border ${
+              isLight
+                ? "bg-slate-100 hover:bg-slate-200 border-slate-200 text-slate-600 hover:text-slate-900"
+                : "bg-slate-950/60 hover:bg-white/5 border-white/5 text-slate-400 hover:text-yellow-450"
+            } ${showChartSettings ? (isLight ? "bg-slate-200 text-slate-900" : "bg-white/10 text-yellow-450") : ""}`}
+            title={language === "RU" ? "Настройки графика" : "Chart Settings"}
+          >
+            <Settings className="w-3 sm:w-3.5 h-3 sm:h-3.5" />
+          </button>
+
           <div className={`border px-2.5 py-1.5 rounded-xl text-[10px] font-mono font-bold flex items-center gap-1.5 hidden xl:flex shadow-inner transition-all duration-300 ${
             isLight ? "bg-slate-100 border-slate-200/60 text-slate-600" : "bg-slate-950/60 border-white/5 text-slate-400"
           }`}>
@@ -4281,35 +4339,91 @@ export default function ClusterChart({
         </div>
       )}
 
+      {/* Chart Settings Modal */}
+      {showChartSettings && (
+        <div
+          className="absolute inset-0 z-[100] flex items-center justify-center bg-black/40 backdrop-blur-xs select-none"
+          onClick={() => setShowChartSettings(false)}
+        >
+          <div
+            className={`p-5 rounded-2xl border w-80 max-w-full shadow-2xl flex flex-col gap-4 ${
+              isLight ? "bg-white border-slate-200 text-slate-900" : "bg-[#0c0e17] border-white/10 text-slate-100"
+            }`}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between">
+              <h3 className="text-sm font-bold tracking-tight flex items-center gap-2">
+                <Settings className="w-4 h-4 text-amber-500" />
+                {language === "RU" ? "Настройки графика" : "Chart Settings"}
+              </h3>
+              <button
+                onClick={() => setShowChartSettings(false)}
+                className={`p-1 rounded-lg transition-all cursor-pointer ${isLight ? "hover:bg-slate-200 text-slate-500" : "hover:bg-white/10 text-slate-400"}`}
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className={`p-4 rounded-xl border ${
+              isLight ? "bg-slate-50 border-slate-200" : "bg-white/[0.03] border-white/5"
+            }`}>
+              <div className="flex items-center justify-between gap-3">
+                <div className="flex flex-col gap-0.5">
+                  <span className="text-xs font-bold">{language === "RU" ? "Обводка свечей" : "Candle Outlines"}</span>
+                  <span className={`text-[10px] ${isLight ? "text-slate-500" : "text-slate-400"}`}>
+                    {language === "RU" ? "Показывать каркас в режиме футпринт/кластера" : "Show frame in footprint/clusters mode"}
+                  </span>
+                </div>
+                <button
+                  onClick={() => setShowCandleOutline(!showCandleOutline)}
+                  className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors cursor-pointer ${
+                    showCandleOutline ? "bg-amber-500" : (isLight ? "bg-slate-300" : "bg-slate-700")
+                  }`}
+                >
+                  <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform shadow-sm ${
+                    showCandleOutline ? "translate-x-4.5" : "translate-x-0.5"
+                  }`} />
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
     </div>
 
 
 
       {/* Floating Cluster Search Tooltip */}
-      {hoveredClusterSearch && (() => {
-        const isLeftIdx = hoveredClusterSearch.x > (visibleClientWidth || 800) - 275;
-        const isTopIdx = hoveredClusterSearch.y > (totalSvgHeight || 550) - 180;
-        const leftPos = isLeftIdx ? hoveredClusterSearch.x - 200 : hoveredClusterSearch.x + 55;
-        const topPos = isTopIdx ? hoveredClusterSearch.y - 155 : hoveredClusterSearch.y + 15;
+      {hoveredClusterSearch && finalShowAnomalies && (() => {
+        const offsetHorizontal = 90;
+        const isLeftIdx = hoveredClusterSearch.x > (visibleClientWidth || 800) - 390;
+        const isTopIdx = hoveredClusterSearch.y > (totalSvgHeight || 550) - 220;
+        const leftPos = isLeftIdx ? hoveredClusterSearch.x - 265 - offsetHorizontal : hoveredClusterSearch.x + offsetHorizontal;
+        const topPos = isTopIdx ? hoveredClusterSearch.y - 180 : hoveredClusterSearch.y + 15;
 
-        const maxPercent = Math.max(hoveredClusterSearch.bidPercent, hoveredClusterSearch.askPercent);
         const isBidGreater = hoveredClusterSearch.bidPercent > hoveredClusterSearch.askPercent;
         const imbalanceValueStr = isBidGreater 
           ? `-${hoveredClusterSearch.bidPercent.toFixed(1)}%` 
           : `+${hoveredClusterSearch.askPercent.toFixed(1)}%`;
 
-        let anomalyIntensity = "Низкая";
-        if (maxPercent > 70) {
-          anomalyIntensity = "Высокая";
-        } else if (maxPercent >= 60) {
-          anomalyIntensity = "Средняя";
-        } else {
-          anomalyIntensity = "Низкая";
+        const anomalyIntensity = hoveredClusterSearch.filterType === "large"
+          ? (language === "RU" ? "Высокая" : "HIGH")
+          : (language === "RU" ? "Средняя" : "MEDIUM");
+
+        let titleText = language === "RU" ? "ПОИСК АНОМАЛИЙ" : "ANOMALY SEARCH";
+        let titleColor = hoveredClusterSearch.color;
+        if (isBidGreater && hoveredClusterSearch.bidPercent >= 60) {
+          titleText = language === "RU" ? "АГРЕССИВНЫЙ ПРОДАВЕЦ" : "AGGRESSIVE SELLER";
+          titleColor = "#ef4444";
+        } else if (!isBidGreater && hoveredClusterSearch.askPercent >= 60) {
+          titleText = language === "RU" ? "АГРЕССИВНЫЙ ПОКУПАТЕЛЬ" : "AGGRESSIVE BUYER";
+          titleColor = "#10b981";
         }
 
         return (
           <div
-            className={`absolute border rounded-[14px] p-3.5 text-xs shadow-2xl z-50 flex flex-col gap-2.5 backdrop-blur-md pointer-events-none transition-all duration-100 ${
+            className={`absolute border rounded-[16px] p-4 text-sm shadow-2xl z-50 flex flex-col gap-3 backdrop-blur-md pointer-events-none transition-all duration-100 ${
               isLight
                 ? "bg-white/95 border-slate-200 text-slate-800 shadow-xl shadow-slate-250/50"
                 : "liquid-glass-card border-none text-slate-100 shadow-black/80 shadow-2xl"
@@ -4317,15 +4431,15 @@ export default function ClusterChart({
             style={{
               left: `${leftPos}px`,
               top: `${topPos}px`,
-              width: "230px"
+              width: "265px"
             }}
           >
-            <span className="font-bold flex items-center justify-between uppercase tracking-wider border-b pb-1.5 border-dashed border-slate-200/20 font-mono text-[10px]">
-              <span className="flex items-center gap-1.5 font-bold" style={{ color: hoveredClusterSearch.color }}>
-                <Activity className="w-3.5 h-3.5" />
-                ПОИСК АНОМАЛИЙ
+            <span className="font-bold flex items-center justify-between uppercase tracking-wider border-b pb-2 border-dashed border-slate-200/20 font-mono text-[11.5px]">
+              <span className="flex items-center gap-1.5 font-extrabold" style={{ color: titleColor }}>
+                <Activity className="w-4 h-4" />
+                {titleText}
               </span>
-              <span className={`px-1.5 py-0.5 rounded text-[8px] font-black uppercase ${
+              <span className={`px-2 py-0.5 rounded text-[9.5px] font-black uppercase ${
                 anomalyIntensity === "Высокая"
                   ? "bg-rose-500/25 text-rose-400 border border-rose-500/20"
                   : anomalyIntensity === "Средняя"
@@ -4336,7 +4450,7 @@ export default function ClusterChart({
               </span>
             </span>
 
-            <div className={`grid grid-cols-[1.2fr_1fr] gap-x-2 gap-y-1.5 font-mono text-[11px] ${
+            <div className={`grid grid-cols-[1.2fr_1fr] gap-x-2.5 gap-y-2 font-mono text-[12.5px] ${
               isLight ? "text-slate-600" : "text-slate-400"
             }`}>
               <span>Объем (монеты):</span>
@@ -4354,7 +4468,7 @@ export default function ClusterChart({
               }`} />
 
               <span>Дисбаланс:</span>
-              <span style={{ color: hoveredClusterSearch.color }} className="font-extrabold text-right">
+              <span style={{ color: titleColor }} className="font-black text-right">
                 {imbalanceValueStr}
               </span>
             </div>

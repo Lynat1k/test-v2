@@ -23,6 +23,8 @@ interface ChartContainer2Props {
   onLayoutChange?: (mode: 'single' | 'horizontal' | 'vertical') => void
   onFpsChange?: (fps: number) => void
   onResolvedModeChange?: (mode: Exclude<CandleMode, 'auto'>) => void
+  showAnomalies?: boolean | undefined
+  onChangeShowAnomalies?: (show: boolean) => void
 }
 
 const VOLUME_MAP: Record<VolumeMode, ClusterChartAdapterProps['candleDataType']> = {
@@ -36,7 +38,7 @@ const MODE_MAP: Record<string, ClusterChartAdapterProps['candleType']> = {
   japanese: 'japanese',
   footprint: 'footprint',
   clusters: 'clusters',
-  bars: 'japanese',
+  bars: 'bars',
 }
 
 const LAYOUT_MAP: Record<string, '1' | '2h' | '2v'> = {
@@ -48,7 +50,7 @@ const LAYOUT_MAP: Record<string, '1' | '2h' | '2v'> = {
 export function ChartContainer2({
   symbol, market, timeframe, mode, volumeMode, palette, compression,
   layoutMode, indicators, activeIndicators, onToggleIndicator, onToggleVisibility, onRemoveIndicator, onShowIndicatorsSettings,
-  onLayoutChange,
+  onLayoutChange, showAnomalies, onChangeShowAnomalies,
 }: ChartContainer2Props) {
   const { accessToken } = useAuthContext()
 
@@ -79,6 +81,8 @@ export function ChartContainer2({
           onLayoutChange?.(map[id] ?? 'single')
         }}
         workspacesCount={2}
+        showAnomalies={showAnomalies}
+        onChangeShowAnomalies={onChangeShowAnomalies}
       />
     </div>
   )

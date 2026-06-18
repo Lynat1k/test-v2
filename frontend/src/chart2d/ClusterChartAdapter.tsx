@@ -22,7 +22,7 @@ export interface ClusterChartAdapterProps {
   market: string;
   timeframe: string;
   compression?: number;
-  candleType?: "auto" | "japanese" | "footprint" | "clusters";
+  candleType?: "auto" | "japanese" | "footprint" | "clusters" | "bars";
   candleDataType?: "bid_ask" | "delta" | "volume";
   candlePalette?: "default" | "alternative";
   indicators?: import("@/chart2d/types").Indicator[] | undefined;
@@ -36,6 +36,8 @@ export interface ClusterChartAdapterProps {
   workspaceLayout?: "1" | "2h" | "2v";
   onWorkspaceLayoutChange?: (layout: "1" | "2h" | "2v") => void;
   workspacesCount?: number;
+  showAnomalies?: boolean | undefined;
+  onChangeShowAnomalies?: ((show: boolean) => void) | undefined;
 }
 
 function estimatePriceStep(symbol: string): number {
@@ -94,6 +96,8 @@ export default function ClusterChartAdapter({
   workspaceLayout,
   onWorkspaceLayoutChange,
   workspacesCount,
+  showAnomalies,
+  onChangeShowAnomalies,
 }: ClusterChartAdapterProps) {
   const priceStep = computePriceStep(symbol, market, compression);
   const [candles, setCandles] = useState<ClusterCandle[]>([]);
@@ -291,6 +295,8 @@ export default function ClusterChartAdapter({
       workspacesCount={workspacesCount ?? 1}
       onNeedHistory={handleNeedHistory}
       onVisibleTimestampsChange={handleVisibleTimestampsChange}
+      showAnomalies={showAnomalies}
+      onChangeShowAnomalies={onChangeShowAnomalies}
     />
   );
 
