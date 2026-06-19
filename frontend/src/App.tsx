@@ -8,6 +8,7 @@ import { LayoutProvider, useLayout } from '@/contexts/LayoutContext'
 import { UserSettingsProvider } from '@/contexts/UserSettingsContext'
 import { AuthProvider } from '@/features/auth/AuthContext'
 import { LimitsProvider } from '@/contexts/LimitsContext'
+import { DrawingDefaultsProvider } from '@/contexts/DrawingDefaultsContext'
 import { LoginModal } from '@/features/auth/LoginModal'
 import { RegisterModal } from '@/features/auth/RegisterModal'
 import { VerifyEmailBanner } from '@/features/auth/VerifyEmailBanner'
@@ -672,6 +673,7 @@ export default function App() {
       <I18nProvider>
         <AuthProvider>
           <LimitsProvider>
+            <DrawingDefaultsProvider>
             <UserSettingsProvider>
             <CandlePaletteProvider>
               <ChartControlsProvider>
@@ -681,6 +683,7 @@ export default function App() {
               </ChartControlsProvider>
             </CandlePaletteProvider>
             </UserSettingsProvider>
+            </DrawingDefaultsProvider>
           </LimitsProvider>
         </AuthProvider>
       </I18nProvider>

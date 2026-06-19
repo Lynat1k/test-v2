@@ -3,6 +3,32 @@
 > Claude обновляет этот файл в КОНЦЕ каждой задачи. Новые записи — сверху.
 > Формат записи строго по шаблону. Это память между чатами.
 
+### [2026-06-19] Фаза 14 Шаг 1: Per-user per-type drawing defaults (backend storage)
+- **Бэкенд — миграция (auth/sqlite.go:267-277)**: `CREATE TABLE IF NOT EXISTS drawing_defaults (user_id, drawing_type, settings TEXT, updated_at, PRIMARY KEY (user_id, drawing_type))` — идемпотентно.
+- **Бэкенд — SQL функции (auth/sqlite.go:512-538)**: `GetDrawingDefaults(ctx, db, userID)` → `map[string]string`; `UpsertDrawingDefault(ctx, db, userID, drawingType, settings)` → INSERT ... ON CONFLICT DO UPDATE.
+- **Бэкенд — эндпоинты (auth/handlers.go:508-575)**:
+  - `GET /api/v1/user/drawing-defaults` — публичный (как /user/limits): гость → `{}`, авторизованный → все его настройки с парсингом JSON.
+  - `PUT /api/v1/user/drawing-defaults` — RequireAuth, whitelist из 10 типов (`volume`, `position`, `trend`, `arrow`, `channel`, `horizontal`, `rect`, `fibonacci`, `ruler`, `text`), валидация settings как JSON-объекта, UPSERT.
+  - `user_id` извлекается из JWT через `ExtractUserFromRequest` (GET, как в handleGetLimits) и `r.Context().Value(UserIDKey)` (PUT, через RequireAuth).
+- **Бэкенд — тесты (auth/handlers_test.go:1102-1310)**: 8 тестов (гость пустой, auth чтение, PUT успех, перезапись, невалидный тип, невалидный JSON, null settings, изоляция пользователей). ALL PASS.
+- **Фронтенд — API (features/drawings/api.ts)**: `apiGetDrawingDefaults()`, `apiGetDrawingDefaultsWithToken()`, `apiPutDrawingDefault()`.
+- **Фронтенд — DrawingDefaultsContext (contexts/DrawingDefaultsContext.tsx)**: загружает defaults после авторизации, кэширует в памяти, предоставляет `drawingDefaults`, `updateDrawingDefault(type, settings)` (PUT + локальный кэш), `getClientDefaults()` для fallback. Provider добавлен в App.tsx.
+- **Фронтенд — ClusterChart.tsx**: импортирован `useDrawingDefaults`. Добавлен `useEffect`, синхронизирующий `drawingDefaults` из бэкенда в локальный стейт (`positionGlobalSettings`, `volProfileGlobalSettings`). `updatePositionSettings` и `updateVolProfileSettings` теперь вызывают `updateDrawingDefault("position"/"volume", updated)` — настройки сохраняются на бэкенде per-user. localStorage оставлен как fallback для гостей.
+- **Затронутые файлы**:
+  - `backend/internal/auth/sqlite.go` (+drawing_defaults CREATE, +GetDrawingDefaults, +UpsertDrawingDefault)
+  - `backend/internal/auth/handlers.go` (+handleGetDrawingDefaults, +handlePutDrawingDefaults, +validDrawingTypes, +routes)
+  - `backend/internal/auth/handlers_test.go` (+8 тестов)
+  - `frontend/src/features/drawings/api.ts` (NEW)
+  - `frontend/src/contexts/DrawingDefaultsContext.tsx` (NEW)
+  - `frontend/src/App.tsx` (+DrawingDefaultsProvider)
+  - `frontend/src/chart2d/ClusterChart.tsx` (+import useDrawingDefaults, +useEffect sync from backend, +updateDrawingDefault в update*Settings)
+- **Не тронуто**: геометрия объектов, шаг 2 (сохранение нарисованных объектов), tier_policies, лимиты, ingest/aggregator, движок рендера.
+- **Тесты/проверки**:
+  - `go test ./...`: ALL PASS
+  - `npx tsc --noEmit`: PASS (0 errors)
+  - `npx vite build`: PASS (643ms)
+- **Не коммитить** — жду скрин: второй объект наследует настройки первого + подтверждение что переживает перезаход.
+
 ### [2026-06-19] Фаза 13: Перенос объектов рисования и иконок из эталона PROCLUSTER3
 - **Компоненты**: `frontend/src/chart2d/utils/drawingRenderer.ts`, `frontend/src/chart2d/ClusterChart.tsx`
 - **Что перенесено:**

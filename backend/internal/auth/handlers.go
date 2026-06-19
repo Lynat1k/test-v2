@@ -131,6 +131,8 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v1/user/limits", h.handleGetLimits)
 	mux.HandleFunc("PUT /api/v1/user/profile", RequireAuth(h.cfg)(http.HandlerFunc(h.handleUpdateProfile)).ServeHTTP)
 	mux.HandleFunc("POST /api/v1/user/change-password", RequireAuth(h.cfg)(http.HandlerFunc(h.handleChangePassword)).ServeHTTP)
+	mux.HandleFunc("GET /api/v1/user/drawing-defaults", h.handleGetDrawingDefaults)
+	mux.HandleFunc("PUT /api/v1/user/drawing-defaults", RequireAuth(h.cfg)(http.HandlerFunc(h.handlePutDrawingDefaults)).ServeHTTP)
 	mux.HandleFunc("POST /api/v1/auth/google", h.handleGoogleAuth)
 	mux.HandleFunc("GET /api/v1/auth/google/callback", h.handleGoogleCallback)
 }
@@ -501,6 +503,97 @@ func (h *Handler) handlePutSettings(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, authResponse{OK: true})
+}
+
+// --- Drawing Defaults (Phase 14 Step 1) ---
+
+var validDrawingTypes = map[string]bool{
+	"volume":    true,
+	"position":  true,
+	"trend":     true,
+	"arrow":     true,
+	"channel":   true,
+	"horizontal": true,
+	"rect":      true,
+	"fibonacci": true,
+	"ruler":     true,
+	"text":      true,
+}
+
+// GET /api/v1/user/drawing-defaults
+// Public (like /user/limits): guest → {}, auth user → their drawing defaults.
+func (h *Handler) handleGetDrawingDefaults(w http.ResponseWriter, r *http.Request) {
+	userID, _, err := ExtractUserFromRequest(h.cfg, r)
+	if err != nil {
+		// Guest — return empty object
+		writeJSON(w, http.StatusOK, authResponse{OK: true, Data: map[string]interface{}{}})
+		return
+	}
+
+	defaults, err := GetDrawingDefaults(r.Context(), h.db, userID)
+	if err != nil {
+		log.Printf("[auth] get drawing defaults: %v", err)
+		writeError(w, http.StatusInternalServerError, "DB_ERROR", "failed to get drawing defaults")
+		return
+	}
+
+	// Parse JSON strings into objects for clean JSON response
+	result := make(map[string]interface{})
+	for drawingType, settingsJSON := range defaults {
+		var parsed interface{}
+		if err := json.Unmarshal([]byte(settingsJSON), &parsed); err != nil {
+			parsed = map[string]interface{}{}
+		}
+		result[drawingType] = parsed
+	}
+
+	writeJSON(w, http.StatusOK, authResponse{OK: true, Data: result})
+}
+
+// PUT /api/v1/user/drawing-defaults
+// Requires auth. Upserts settings for a given drawingType.
+func (h *Handler) handlePutDrawingDefaults(w http.ResponseWriter, r *http.Request) {
+	userID := r.Context().Value(UserIDKey).(string)
+
+	r.Body = http.MaxBytesReader(w, r.Body, 4096)
+	defer r.Body.Close()
+
+	var body struct {
+		DrawingType string          `json:"drawingType"`
+		Settings    json.RawMessage `json:"settings"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeError(w, http.StatusBadRequest, "INVALID_BODY", "invalid request body")
+		return
+	}
+
+	if !validDrawingTypes[body.DrawingType] {
+		writeError(w, http.StatusBadRequest, "INVALID_PARAMS", "unknown drawing type")
+		return
+	}
+
+	if len(body.Settings) == 0 || string(body.Settings) == "null" {
+		writeError(w, http.StatusBadRequest, "INVALID_PARAMS", "settings must be a non-null JSON object")
+		return
+	}
+
+	// Validate that settings is a valid JSON object (not array, not scalar)
+	var obj map[string]interface{}
+	if err := json.Unmarshal(body.Settings, &obj); err != nil {
+		writeError(w, http.StatusBadRequest, "INVALID_PARAMS", "settings must be a valid JSON object")
+		return
+	}
+
+	settingsJSON := string(body.Settings)
+
+	if err := UpsertDrawingDefault(r.Context(), h.db, userID, body.DrawingType, settingsJSON); err != nil {
+		log.Printf("[auth] upsert drawing default: %v", err)
+		writeError(w, http.StatusInternalServerError, "DB_ERROR", "failed to save drawing defaults")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, authResponse{OK: true})
+	log.Printf("[auth] drawing default saved: user=%s type=%s", userID, body.DrawingType)
 }
 
 // --- Google OAuth stubs ---

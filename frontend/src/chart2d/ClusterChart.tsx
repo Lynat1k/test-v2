@@ -11,6 +11,7 @@ import logoWatermark from "@/assets/images/procluster_logo_1779485281399.png";
 import { storage } from "./lib/storage";
 import { volumeOnChartIndicator, deltaIndicator, cvdIndicator, clusterSearchIndicator } from "./indicators";
 import { drawDrawingObjects } from "./utils/drawingRenderer";
+import { useDrawingDefaults, getClientDefaults } from "@/contexts/DrawingDefaultsContext";
 
 const parseHexColor = (hex: string): string => {
   if (!hex) return "#ffffff";
@@ -94,6 +95,7 @@ export default function ClusterChart({
   
   const isLight = theme === "light";
   const effectiveStep = (clusterStep && clusterStep > 0) ? clusterStep : activePair.priceStep;
+  const { drawingDefaults, updateDrawingDefault } = useDrawingDefaults();
 
   const [isMobile, setIsMobile] = useState<boolean>(typeof window !== "undefined" ? window.innerWidth < 768 : false);
 
@@ -171,6 +173,7 @@ export default function ClusterChart({
     const updated = { ...positionGlobalSettings, ...newSettings };
     setPositionGlobalSettings(updated);
     storage.setJson("procluster_position_settings", updated);
+    updateDrawingDefault("position", updated);
     if (positionSettingsDrawingId !== null) {
       setDrawings(prev => prev.map(d =>
         d.id === positionSettingsDrawingId ? { ...d, ...newSettings } : d
@@ -195,6 +198,7 @@ export default function ClusterChart({
     const updated = { ...volProfileGlobalSettings, ...newSettings };
     setVolProfileGlobalSettings(updated);
     storage.setJson("procluster_volume_profile_settings", updated);
+    updateDrawingDefault("volume", updated);
     setDrawings(prev => prev.map(d => d.type === "volume" ? { ...d, ...updated } : d));
   };
 
@@ -204,6 +208,16 @@ export default function ClusterChart({
   useEffect(() => {
     storage.set("chart_settings_show_candle_outline", String(showCandleOutline));
   }, [showCandleOutline]);
+
+  // Sync drawing defaults from backend (Phase 14 Step 1)
+  useEffect(() => {
+    if (drawingDefaults["volume"]) {
+      setVolProfileGlobalSettings(prev => ({ ...prev, ...drawingDefaults["volume"] }));
+    }
+    if (drawingDefaults["position"]) {
+      setPositionGlobalSettings(prev => ({ ...prev, ...drawingDefaults["position"] }));
+    }
+  }, [drawingDefaults]);
 
   const [selectedTimezone, setSelectedTimezone] = useState<string>(() => {
     return storage.get("procluster_chart_timezone") || "local";
@@ -924,6 +938,13 @@ export default function ClusterChart({
           } else {
             // Start a dragging drawing
             const isChannel = activeDrawingTool === "channel";
+            // Phase 14 Step 1: bake inherited settings into the in-progress drawing
+            let inherited: Record<string, unknown> = {};
+            if (activeDrawingTool === "volume") {
+              inherited = { volColor: volProfileGlobalSettings.volColor, pocColor: volProfileGlobalSettings.pocColor, opacity: volProfileGlobalSettings.opacity, extendPoc: volProfileGlobalSettings.extendPoc };
+            } else if (activeDrawingTool === "long" || activeDrawingTool === "short") {
+              inherited = { deposit: positionGlobalSettings.deposit, risk: positionGlobalSettings.risk, riskType: positionGlobalSettings.riskType, colorTarget: positionGlobalSettings.colorTarget, colorStop: positionGlobalSettings.colorStop, opacity: positionGlobalSettings.opacity, fontSize: positionGlobalSettings.fontSize, makerFee: positionGlobalSettings.makerFee, takerFee: positionGlobalSettings.takerFee, entryFeeType: positionGlobalSettings.entryFeeType, exitFeeType: positionGlobalSettings.exitFeeType };
+            }
             setDrawingInProgress({
               id: Date.now(),
               type: activeDrawingTool,
@@ -934,6 +955,7 @@ export default function ClusterChart({
               stage: isChannel ? 1 : undefined,
               offsetPrice: isChannel ? 0 : undefined,
               text: "",
+              ...inherited,
             });
           }
           return; // Skip normal panning
@@ -1305,8 +1327,14 @@ export default function ClusterChart({
         });
         setTextInputValue("");
       } else {
-        // Minimum distance safe check or let all slide
-        setDrawings(prev => [...prev, drawingInProgress]);
+        // Phase 14 Step 1: bake inherited settings into the new drawing at creation time
+        let inherited: Record<string, unknown> = {};
+        if (drawingInProgress.type === "volume") {
+          inherited = { volColor: volProfileGlobalSettings.volColor, pocColor: volProfileGlobalSettings.pocColor, opacity: volProfileGlobalSettings.opacity, extendPoc: volProfileGlobalSettings.extendPoc };
+        } else if (drawingInProgress.type === "long" || drawingInProgress.type === "short") {
+          inherited = { deposit: positionGlobalSettings.deposit, risk: positionGlobalSettings.risk, riskType: positionGlobalSettings.riskType, colorTarget: positionGlobalSettings.colorTarget, colorStop: positionGlobalSettings.colorStop, opacity: positionGlobalSettings.opacity, fontSize: positionGlobalSettings.fontSize, makerFee: positionGlobalSettings.makerFee, takerFee: positionGlobalSettings.takerFee, entryFeeType: positionGlobalSettings.entryFeeType, exitFeeType: positionGlobalSettings.exitFeeType };
+        }
+        setDrawings(prev => [...prev, { ...drawingInProgress, ...inherited }]);
       }
       setDrawingInProgress(null);
       setActiveDrawingTool(null); // Reset tool after drawing

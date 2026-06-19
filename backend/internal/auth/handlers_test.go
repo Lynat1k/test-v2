@@ -1098,3 +1098,213 @@ func GetUserByIDMust(t *testing.T, db *sql.DB, id string) *User {
 	}
 	return user
 }
+
+// --- Drawing Defaults tests ---
+
+func TestGetDrawingDefaults_Guest_ReturnsEmpty(t *testing.T) {
+	handler, db := setupTestHandler(t)
+	defer db.Close()
+
+	req := httptest.NewRequest("GET", "/api/v1/user/drawing-defaults", nil)
+	w := httptest.NewRecorder()
+	handler.handleGetDrawingDefaults(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var resp struct {
+		OK   bool                   `json:"ok"`
+		Data map[string]interface{} `json:"data"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if !resp.OK {
+		t.Fatalf("expected ok=true")
+	}
+	if len(resp.Data) != 0 {
+		t.Fatalf("guest drawing-defaults should be empty, got %v", resp.Data)
+	}
+}
+
+func TestGetDrawingDefaults_AuthUser_Success(t *testing.T) {
+	handler, db := setupTestHandler(t)
+	defer db.Close()
+	user := createVerifiedUser(t, db, "draw@example.com", "pass1234", "DrawUser")
+
+	// Insert a default
+	ctx := context.Background()
+	if err := UpsertDrawingDefault(ctx, db, user.ID, "volume", `{"opacity":0.5,"volColor":"#ff0000","pocColor":"#00ff00","extendPoc":true}`); err != nil {
+		t.Fatalf("upsert: %v", err)
+	}
+	if err := UpsertDrawingDefault(ctx, db, user.ID, "position", `{"deposit":5000,"risk":2}`); err != nil {
+		t.Fatalf("upsert: %v", err)
+	}
+
+	w, req := authRequest(handler, "GET", "/api/v1/user/drawing-defaults", "", user)
+	handler.handleGetDrawingDefaults(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var resp struct {
+		OK   bool                   `json:"ok"`
+		Data map[string]interface{} `json:"data"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if !resp.OK {
+		t.Fatalf("expected ok=true")
+	}
+	if len(resp.Data) != 2 {
+		t.Fatalf("expected 2 drawing types, got %d", len(resp.Data))
+	}
+
+	volume, ok := resp.Data["volume"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("expected volume key in data")
+	}
+	if volume["opacity"] != 0.5 {
+		t.Fatalf("expected opacity=0.5, got %v", volume["opacity"])
+	}
+	if volume["volColor"] != "#ff0000" {
+		t.Fatalf("expected volColor=#ff0000, got %v", volume["volColor"])
+	}
+	if volume["extendPoc"] != true {
+		t.Fatalf("expected extendPoc=true, got %v", volume["extendPoc"])
+	}
+
+	position, ok := resp.Data["position"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("expected position key in data")
+	}
+	if position["deposit"] != float64(5000) {
+		t.Fatalf("expected deposit=5000, got %v", position["deposit"])
+	}
+}
+
+func TestPutDrawingDefaults_Success(t *testing.T) {
+	handler, db := setupTestHandler(t)
+	defer db.Close()
+	user := createVerifiedUser(t, db, "putdraw@example.com", "pass1234", "PutDrawUser")
+
+	body := `{"drawingType":"volume","settings":{"opacity":0.75,"volColor":"#ff0000","pocColor":"#00ff00","extendPoc":true}}`
+	w, req := authRequest(handler, "PUT", "/api/v1/user/drawing-defaults", body, user)
+	handler.handlePutDrawingDefaults(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	// Verify via GET
+	ctx := context.Background()
+	defaults, err := GetDrawingDefaults(ctx, db, user.ID)
+	if err != nil {
+		t.Fatalf("get drawing defaults: %v", err)
+	}
+	if len(defaults) != 1 {
+		t.Fatalf("expected 1 drawing default, got %d", len(defaults))
+	}
+	if defaults["volume"] != `{"opacity":0.75,"volColor":"#ff0000","pocColor":"#00ff00","extendPoc":true}` {
+		t.Fatalf("unexpected volume settings: %s", defaults["volume"])
+	}
+}
+
+func TestPutDrawingDefaults_OverwritesExisting(t *testing.T) {
+	handler, db := setupTestHandler(t)
+	defer db.Close()
+	user := createVerifiedUser(t, db, "overwrite@example.com", "pass1234", "OverwriteUser")
+
+	ctx := context.Background()
+	UpsertDrawingDefault(ctx, db, user.ID, "volume", `{"opacity":0.3,"volColor":"#0000ff"}`)
+
+	body := `{"drawingType":"volume","settings":{"opacity":0.9,"volColor":"#ff0000","pocColor":"#00ff00","extendPoc":true}}`
+	w, req := authRequest(handler, "PUT", "/api/v1/user/drawing-defaults", body, user)
+	handler.handlePutDrawingDefaults(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	defaults, err := GetDrawingDefaults(ctx, db, user.ID)
+	if err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	if defaults["volume"] != `{"opacity":0.9,"volColor":"#ff0000","pocColor":"#00ff00","extendPoc":true}` {
+		t.Fatalf("expected overwritten settings, got: %s", defaults["volume"])
+	}
+}
+
+func TestPutDrawingDefaults_InvalidType(t *testing.T) {
+	handler, db := setupTestHandler(t)
+	defer db.Close()
+	user := createVerifiedUser(t, db, "invalidtype@example.com", "pass1234", "InvalidType")
+
+	body := `{"drawingType":"nonexistent","settings":{"opacity":0.5}}`
+	w, req := authRequest(handler, "PUT", "/api/v1/user/drawing-defaults", body, user)
+	handler.handlePutDrawingDefaults(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", w.Code)
+	}
+}
+
+func TestPutDrawingDefaults_InvalidSettings(t *testing.T) {
+	handler, db := setupTestHandler(t)
+	defer db.Close()
+	user := createVerifiedUser(t, db, "invalidjson@example.com", "pass1234", "InvalidJSON")
+
+	body := `{"drawingType":"volume","settings":"notanobject"}`
+	w, req := authRequest(handler, "PUT", "/api/v1/user/drawing-defaults", body, user)
+	handler.handlePutDrawingDefaults(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", w.Code)
+	}
+}
+
+func TestPutDrawingDefaults_NullSettings(t *testing.T) {
+	handler, db := setupTestHandler(t)
+	defer db.Close()
+	user := createVerifiedUser(t, db, "nullsettings@example.com", "pass1234", "NullSettings")
+
+	body := `{"drawingType":"volume","settings":null}`
+	w, req := authRequest(handler, "PUT", "/api/v1/user/drawing-defaults", body, user)
+	handler.handlePutDrawingDefaults(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", w.Code)
+	}
+}
+
+func TestGetDrawingDefaults_OnlyOwnUser(t *testing.T) {
+	db := setupTestDB(t)
+	defer db.Close()
+	user1 := createVerifiedUser(t, db, "user1@example.com", "pass1234", "UserOne")
+	user2 := createVerifiedUser(t, db, "user2@example.com", "pass1234", "UserTwo")
+
+	ctx := context.Background()
+	UpsertDrawingDefault(ctx, db, user1.ID, "volume", `{"opacity":0.5}`)
+	UpsertDrawingDefault(ctx, db, user2.ID, "position", `{"deposit":100}`)
+
+	// User1 sees only their volume default
+	defaults1, err := GetDrawingDefaults(ctx, db, user1.ID)
+	if err != nil {
+		t.Fatalf("get user1: %v", err)
+	}
+	if len(defaults1) != 1 || defaults1["volume"] == "" {
+		t.Fatalf("user1 should have 1 default (volume), got %v", defaults1)
+	}
+
+	// User2 sees only their position default
+	defaults2, err := GetDrawingDefaults(ctx, db, user2.ID)
+	if err != nil {
+		t.Fatalf("get user2: %v", err)
+	}
+	if len(defaults2) != 1 || defaults2["position"] == "" {
+		t.Fatalf("user2 should have 1 default (position), got %v", defaults2)
+	}
+}

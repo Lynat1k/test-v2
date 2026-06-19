@@ -259,6 +259,22 @@ func Migrate(db *sql.DB) error {
 		}
 	}
 
+	// Phase 14 Step 1: drawing_defaults table (per-user per-type drawing settings)
+	drawingDefaultsQueries := []string{
+		`CREATE TABLE IF NOT EXISTS drawing_defaults (
+			user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+			drawing_type TEXT NOT NULL,
+			settings TEXT NOT NULL DEFAULT '{}',
+			updated_at TEXT NOT NULL,
+			PRIMARY KEY (user_id, drawing_type)
+		)`,
+	}
+	for _, q := range drawingDefaultsQueries {
+		if _, err := db.Exec(q); err != nil {
+			return fmt.Errorf("migration drawing_defaults: %w", err)
+		}
+	}
+
 	log.Println("[auth] sqlite migrations applied")
 	return nil
 }
@@ -484,6 +500,39 @@ func GetUserByNickname(ctx context.Context, db *sql.DB, nickname string) (*User,
 		 FROM users WHERE LOWER(nickname) = LOWER(?)`, nickname,
 	)
 	return scanUser(row)
+}
+
+// --- Drawing Defaults (Phase 14 Step 1) ---
+
+func GetDrawingDefaults(ctx context.Context, db *sql.DB, userID string) (map[string]string, error) {
+	rows, err := db.QueryContext(ctx,
+		`SELECT drawing_type, settings FROM drawing_defaults WHERE user_id = ?`, userID)
+	if err != nil {
+		return nil, fmt.Errorf("get drawing defaults: %w", err)
+	}
+	defer rows.Close()
+
+	result := make(map[string]string)
+	for rows.Next() {
+		var drawingType, settings string
+		if err := rows.Scan(&drawingType, &settings); err != nil {
+			return nil, fmt.Errorf("scan drawing default: %w", err)
+		}
+		result[drawingType] = settings
+	}
+	return result, rows.Err()
+}
+
+func UpsertDrawingDefault(ctx context.Context, db *sql.DB, userID, drawingType, settings string) error {
+	_, err := db.ExecContext(ctx,
+		`INSERT INTO drawing_defaults (user_id, drawing_type, settings, updated_at)
+		 VALUES (?, ?, ?, ?)
+		 ON CONFLICT(user_id, drawing_type) DO UPDATE SET settings = excluded.settings, updated_at = excluded.updated_at`,
+		userID, drawingType, settings, time.Now().UTC().Format(time.RFC3339))
+	if err != nil {
+		return fmt.Errorf("upsert drawing default: %w", err)
+	}
+	return nil
 }
 
 func ensureNicknameUnique(db *sql.DB) error {
