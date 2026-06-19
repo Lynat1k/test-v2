@@ -26,6 +26,8 @@ type Aggregator struct {
 	mu            sync.Mutex
 	UpdatesCh     chan<- CandleUpdate
 	CandleCloseCh chan<- CandleCloseSignal
+
+	tfStates map[string]map[string]*tfLiveState // bookKey -> tf -> state
 }
 
 type CandleLevel struct {
@@ -76,11 +78,26 @@ type candleState struct {
 	lastUpdateTime    time.Time
 }
 
+type priceLevel struct {
+	bid float64
+	ask float64
+}
+
+type tfLiveState struct {
+	currentCandleOpen time.Time
+	live              liveCandle
+	lastUpdateTime    time.Time
+	levels            map[float64]*priceLevel
+}
+
+var higherTimeframes = []string{"5m", "15m", "30m", "1h", "4h", "1d"}
+
 func New(repo repository.MarketRepository, rdb *redis.Client) *Aggregator {
 	a := &Aggregator{
-		repo:    repo,
-		rdb:     rdb,
-		configs: make(map[string]aggregationCompressionConfig),
+		repo:     repo,
+		rdb:      rdb,
+		configs:  make(map[string]aggregationCompressionConfig),
+		tfStates: make(map[string]map[string]*tfLiveState),
 	}
 
 	a.configs["BTCUSDT:futures"] = aggregationCompressionConfig{
@@ -236,6 +253,8 @@ func (a *Aggregator) processTrade(trade model.Trade, live *liveCandle, lastUpdat
 		live.low = trade.Price
 	}
 
+	a.updateTFStates(trade, level, side, volume)
+
 	if a.UpdatesCh != nil && time.Since(*lastUpdateTime) >= 200*time.Millisecond {
 		*lastUpdateTime = time.Now()
 
@@ -253,6 +272,103 @@ func (a *Aggregator) processTrade(trade model.Trade, live *liveCandle, lastUpdat
 			Close:       live.close,
 			TotalVolume: live.totalVolume,
 			TradesCount: live.tradesCount,
+			Levels:      levels,
+		}:
+		default:
+		}
+
+		a.pushTFUpdates(trade.Symbol, trade.Market)
+	}
+}
+
+func (a *Aggregator) updateTFStates(trade model.Trade, level float64, side model.Side, volume float64) {
+	bookKey := BookKey(trade.Symbol, trade.Market)
+	states, exists := a.tfStates[bookKey]
+	if !exists {
+		states = make(map[string]*tfLiveState)
+		a.tfStates[bookKey] = states
+	}
+
+	for _, tf := range higherTimeframes {
+		aligned := aggregation.AlignToTimeframe(trade.Time, tf)
+
+		st, ok := states[tf]
+		if !ok || !aligned.Equal(st.currentCandleOpen) {
+			states[tf] = &tfLiveState{
+				currentCandleOpen: aligned,
+				live: liveCandle{
+					open:        trade.Price,
+					high:        trade.Price,
+					low:         trade.Price,
+					close:       trade.Price,
+					totalVolume: volume,
+					tradesCount: 1,
+				},
+				levels: map[float64]*priceLevel{
+					level: {bid: 0, ask: 0},
+				},
+			}
+			pl := states[tf].levels[level]
+			if side == model.SideSell {
+				pl.ask = volume
+			} else {
+				pl.bid = volume
+			}
+			continue
+		}
+
+		st.live.close = trade.Price
+		st.live.totalVolume += volume
+		st.live.tradesCount++
+		if trade.Price > st.live.high || st.live.high == 0 {
+			st.live.high = trade.Price
+		}
+		if trade.Price < st.live.low || st.live.low == 0 {
+			st.live.low = trade.Price
+		}
+
+		pl, ok := st.levels[level]
+		if !ok {
+			pl = &priceLevel{}
+			st.levels[level] = pl
+		}
+		if side == model.SideSell {
+			pl.ask += volume
+		} else {
+			pl.bid += volume
+		}
+	}
+}
+
+func (a *Aggregator) pushTFUpdates(symbol, market string) {
+	bookKey := BookKey(symbol, market)
+	states := a.tfStates[bookKey]
+	if states == nil {
+		return
+	}
+
+	for tf, st := range states {
+		levels := make([]CandleLevel, 0, len(st.levels))
+		for price, pl := range st.levels {
+			levels = append(levels, CandleLevel{
+				PriceLevel: price,
+				BidVolume:  pl.bid,
+				AskVolume:  pl.ask,
+			})
+		}
+
+		select {
+		case a.UpdatesCh <- CandleUpdate{
+			Symbol:      symbol,
+			Market:      market,
+			Timeframe:   tf,
+			CandleOpen:  st.currentCandleOpen.UnixMilli(),
+			Open:        st.live.open,
+			High:        st.live.high,
+			Low:         st.live.low,
+			Close:       st.live.close,
+			TotalVolume: st.live.totalVolume,
+			TradesCount: st.live.tradesCount,
 			Levels:      levels,
 		}:
 		default:

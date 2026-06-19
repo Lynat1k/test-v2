@@ -45,7 +45,20 @@ export function useLiveChart({
       ws: WebSocket | null;
       heartbeatTimer: ReturnType<typeof setInterval> | undefined;
       reconnectTimer: ReturnType<typeof setTimeout> | undefined;
-    } = { mounted: true, ws: null, heartbeatTimer: undefined, reconnectTimer: undefined };
+      throttleTimer: ReturnType<typeof setInterval> | undefined;
+      pendingUpdate: any;
+    } = {
+      mounted: true, ws: null,
+      heartbeatTimer: undefined, reconnectTimer: undefined,
+      throttleTimer: undefined, pendingUpdate: null,
+    };
+
+    function flushUpdate() {
+      if (state.pendingUpdate !== null) {
+        onCandleUpdateRef.current(parseCandleUpdate(state.pendingUpdate));
+        state.pendingUpdate = null;
+      }
+    }
 
     function cleanup() {
       if (state.heartbeatTimer !== undefined) {
@@ -56,6 +69,11 @@ export function useLiveChart({
         clearTimeout(state.reconnectTimer);
         state.reconnectTimer = undefined;
       }
+      if (state.throttleTimer !== undefined) {
+        clearInterval(state.throttleTimer);
+        state.throttleTimer = undefined;
+      }
+      state.pendingUpdate = null;
       if (state.ws) {
         try {
           if (state.ws.readyState === WebSocket.OPEN) {
@@ -101,6 +119,8 @@ export function useLiveChart({
             state.ws.send(JSON.stringify({ type: "heartbeat" }));
           }
         }, 8000);
+
+        state.throttleTimer = setInterval(flushUpdate, 500);
       };
 
       state.ws.onmessage = (event) => {
@@ -110,7 +130,7 @@ export function useLiveChart({
           switch (msg.type) {
             case "candle_update":
               if (msg.data) {
-                onCandleUpdateRef.current(parseCandleUpdate(msg.data));
+                state.pendingUpdate = msg.data;
               }
               break;
             case "session_active":

@@ -3,6 +3,46 @@
 > Claude обновляет этот файл в КОНЦЕ каждой задачи. Новые записи — сверху.
 > Формат записи строго по шаблону. Это память между чатами.
 
+### [2026-06-19] Добавление 5m в роллап (бэкенд) — AlignToTimeframe, Rollup, live-рассылка
+- **Проблема**: 5m не роллапился → ClickHouse не содержал 5m-записей → REST возвращал пустой массив.
+- **Правки**:
+  - `aggregation/rollup.go:22-25`: добавлен `case "5m"` в `AlignToTimeframe` — граница периода = `t.Minute() / 5 * 5`.
+  - `aggregation/rollup.go:102`: `"5m"` добавлен в список ТФ функции `Rollup()` (теперь 6 ТФ: 5m,15m,30m,1h,4h,1d).
+  - `aggregator/aggregator.go:95`: `"5m"` добавлен в `higherTimeframes` — live-рассылка автоматически шлёт `candle_update` на канал `...:5m`.
+- **Как работает**: Ingest пушит 1m кластера, `FlushCandle` → `rollup` → `AggregateForTimeframe(rows, "5m")` группирует 1m строки по 5-минутным bucket'ам (сумма Bid/Ask, first→open, last→close). Live: `updateTFStates` аккумулирует трейды в 5m-период, при смене границы — сброс. Никаких новых таблиц — timeframe='5m' пишется в те же `clusters_futures`/`clusters_spot`.
+- **Проверки**:
+  - `go build ./cmd/procluster/`: PASS
+  - `go test ./...`: ALL PASS (aggregation/rollup тесты не сломаны)
+  - `go vet ./...`: PASS
+  - `npx tsc --noEmit`: PASS (0 errors)
+  - `npx vite build`: PASS (712ms)
+- **Примечание**: после перезапуска роллапу нужно несколько минут для накопления 5m-данных.
+- **Не коммитить** — жду скрин: 5m показывает историю и обновляется вживую.
+
+### [2026-06-19] Live broadcast всех ТФ (бэкенд) — 1м→15м/30м/1ч/4ч/1д + диагностика 5м
+- **Причина (подтверждена)**: `aggregator.go:248` хардкодит `Timeframe:"1m"` в `CandleUpdate`, `stream.go:36` шлёт broadcast только в канал `...:1m`. Старшие ТФ (15м/30м/1ч/4ч/1д) и спот-не-1м никогда не получают WS-сообщений. Живёт только фьюч 1м.
+- **Диагностика 5m (REST)**:
+  - `Rollup()` в `aggregation/rollup.go:98-109` производит только `15m, 30m, 1h, 4h, 1d` — **5m не роллапится**. GET `/api/v1/candles?symbol=BTCUSDT&market=futures&timeframe=5m&limit=200` → ClickHouse не содержит 5m-записей → пустой массив.
+  - Причина: в `AlignToTimeframe()` (rollup.go:20-36) нет case `"5m"`. В `Rollup()` нет `"5m"` в списке ТФ. 5m никогда не пишется в БД → всегда пустая история.
+  - **Зафиксировано, НЕ ПОЧИНЕНО** — требуется решение о model/data gap.
+- **Решение (бэкенд — aggregator.go)**:
+  - Добавлены типы `priceLevel` (bid/ask) и `tfLiveState` (candleOpen, live, levels map) для аккумуляции live-данных старших ТФ в памяти.
+  - `a.tfStates map[string]map[string]*tfLiveState` — bookKey → tf → состояние. Инициализируется в New().
+  - **`updateTFStates(trade, level, side, volume)`** (aggregator.go:280-330): на каждый trade обновляет OHLC + level-аккумулятор для 15м/30м/1ч/4ч/1д через `aggregation.AlignToTimeframe(trade.Time, tf)`. При смене периода ТФ — сброс (без записи в БД). Уровни накапливаются в памяти той же функцией `CompressPrice`/`InterpretTrade`/`TruncateVolume`, что и 1м.
+  - **`pushTFUpdates(symbol, market)`** (aggregator.go:332-365): конвертирует in-memory levels в `[]CandleLevel` и шлёт `CandleUpdate` в `UpdatesCh` для каждого активированного ТФ.
+  - **`processTrade`** модифицирован: зовёт `a.updateTFStates()` после 1м-обновления, и `a.pushTFUpdates()` после 1м-пуша (тот же 200ms throttle).
+  - **Переиспользован `aggregation.AlignToTimeframe`** — та же усечка времени, что в rollup.go. OHLC и уровни для старших ТФ считаются так же, как их посчитал бы `AggregateForTimeframe()`, но для текущей не-закрытой свечи.
+  - **stream.go/hub.go не тронуты** — `ListenToAggregator` уже использует `update.Timeframe` динамически в `buildChannelKey`.
+- **Не тронуто**: ingest, схема БД, tier_policies, объекты рисования, фронтовый WS-клиент (он уже шлёт правильные ТФ в подписке).
+- **Файл**:строка правки: `aggregator/aggregator.go:280-365` — новые методы `updateTFStates` + `pushTFUpdates` + модификация `processTrade` (строки 256, 278).
+- **Проверки**:
+  - `go build ./cmd/procluster/`: PASS
+  - `go test ./...`: ALL PASS
+  - `go vet ./...`: PASS
+  - `npx tsc --noEmit`: PASS (0 errors)
+  - `npx vite build`: PASS (495ms)
+- **Не коммитить** — жду скрин/гиф: на 15м и на споте свеча и кластера обновляются вживую.
+
 ### [2026-06-19] Live chart update — Canvas2D WebSocket client
 - **Диагностика**: `VITE_USE_CANVAS2D=true` → активен Canvas2D путь (`ClusterChartAdapter` → `ClusterChart`). PIXI.js WS код (`ChartContainer.tsx:197-236`) мёртв — не используется. Canvas2D путь вообще не имел WS-клиента.
 - **Факт 1** (`auth/middleware.go:71-77`): `ExtractUserFromRequest` читает JWT из `?token=` query-параметра — подходит для `new WebSocket()` (не умеет кастомные headers).

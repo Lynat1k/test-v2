@@ -19,6 +19,9 @@ type intervalTracker struct {
 
 func AlignToTimeframe(t time.Time, tf string) time.Time {
 	switch tf {
+	case "5m":
+		minute := t.Minute() / 5 * 5
+		return time.Date(t.Year(), t.Month(), t.Day(), t.Hour(), minute, 0, 0, t.Location())
 	case "15m":
 		minute := t.Minute() / 15 * 15
 		return time.Date(t.Year(), t.Month(), t.Day(), t.Hour(), minute, 0, 0, t.Location())
@@ -97,7 +100,7 @@ func AggregateForTimeframe(rows []model.ClusterRow, tf string) []model.ClusterRo
 
 func Rollup(rows []model.ClusterRow) []model.ClusterRow {
 	var result []model.ClusterRow
-	for _, tf := range []string{"15m", "30m", "1h", "4h", "1d"} {
+	for _, tf := range []string{"5m", "15m", "30m", "1h", "4h", "1d"} {
 		rollupRows := AggregateForTimeframe(rows, tf)
 		for i := range rollupRows {
 			rollupRows[i].BidVolume = TruncateVolume(rollupRows[i].BidVolume)
