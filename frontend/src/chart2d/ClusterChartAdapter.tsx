@@ -1,8 +1,10 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import ClusterChart from "./ClusterChart";
-import { adapter, apiRowsToCells } from "./adapter";
+import { adapter, apiRowsToCells, mergeLiveUpdate } from "./adapter";
 import type { ClusterCandle } from "./types";
 import type { ApiCandle, ApiClusterRow } from "./adapter";
+import { useLiveChart } from "./useLiveChart";
+import type { LiveChartState } from "./useLiveChart";
 
 const BATCH_SIZE = 100;
 const PARALLEL_LIMIT = 3;
@@ -112,6 +114,20 @@ export default function ClusterChartAdapter({
   useEffect(() => {
     accessTokenRef.current = accessToken;
   }, [accessToken]);
+
+  const [liveState, setLiveState] = useState<LiveChartState>({ status: "disconnected" });
+
+  useLiveChart({
+    symbol,
+    market,
+    timeframe,
+    accessToken,
+    enabled: true,
+    onCandleUpdate: (candle) => {
+      setCandles((prev) => mergeLiveUpdate(prev, candle));
+    },
+    onStateChange: setLiveState,
+  });
 
   useEffect(() => {
     allHistoryLoadedRef.current = false;
@@ -300,5 +316,20 @@ export default function ClusterChartAdapter({
     />
   );
 
-  return <div className="flex-1 flex flex-col min-h-0">{inner}</div>;
+  const showBadge = liveState.status !== "disconnected" && liveState.status !== "active";
+  const badgeClass = liveState.status === "connecting" ? "bg-blue-500/20 text-blue-400 border-blue-500/30"
+    : liveState.status === "rejected" ? "bg-red-500/20 text-red-400 border-red-500/30"
+    : liveState.status === "evicted" ? "bg-orange-500/20 text-orange-400 border-orange-500/30"
+    : "";
+  const badgeText = liveState.status === "connecting" ? "WS..."
+    : liveState.status === "rejected" ? "Session limit"
+    : liveState.status === "evicted" ? "Session evicted"
+    : "";
+  const liveBadge = showBadge ? (
+    <div className={`absolute top-2 left-2 z-50 px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider select-none pointer-events-none border ${badgeClass}`}>
+      {badgeText}
+    </div>
+  ) : null;
+
+  return <div className="flex-1 flex flex-col min-h-0 relative">{inner}{liveBadge}</div>;
 }

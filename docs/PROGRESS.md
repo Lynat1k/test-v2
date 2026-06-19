@@ -3,6 +3,26 @@
 > Claude обновляет этот файл в КОНЦЕ каждой задачи. Новые записи — сверху.
 > Формат записи строго по шаблону. Это память между чатами.
 
+### [2026-06-19] Live chart update — Canvas2D WebSocket client
+- **Диагностика**: `VITE_USE_CANVAS2D=true` → активен Canvas2D путь (`ClusterChartAdapter` → `ClusterChart`). PIXI.js WS код (`ChartContainer.tsx:197-236`) мёртв — не используется. Canvas2D путь вообще не имел WS-клиента.
+- **Факт 1** (`auth/middleware.go:71-77`): `ExtractUserFromRequest` читает JWT из `?token=` query-параметра — подходит для `new WebSocket()` (не умеет кастомные headers).
+- **Факт 2** (`api/session.go:13-16`): `heartbeatInterval=10s`, `sessionTTL=30s` — heartbeat на клиенте ставить на **8с**.
+- **Создан `useLiveChart.ts`** (`frontend/src/chart2d/useLiveChart.ts`):
+  - WS подключение к `/ws?token=<accessToken>` (без токена — гость)
+  - `chart_subscribe` при открытии и при смене symbol/market/timeframe (unsubscribe старого)
+  - Heartbeat каждые 8с
+  - `candle_update` → парсинг OHLC + levels → `parseCandleUpdate()` (вычисляет delta/cells/poc/vah/val)
+  - Обработка `session_active`, `session_rejected`, `session_evicted`
+  - Авто-переподключение через 3с при обрыве
+  - Cleanup: `chart_unsubscribe` + `ws.close()` + очистка таймеров
+- **ClusterChartAdapter.tsx** (строки 109-125): интегрирован `useLiveChart`, вызывает `setCandles(prev => mergeLiveUpdate(prev, candle))` на каждый `candle_update`. Добавлен `liveState` + UI-бейдж для `rejected`/`evicted`.
+- **Split-layout**: каждая панель рендерит свой `ClusterChartAdapter` → свой WS с независимой подпиской.
+- **Не тронуто**: бэкенд (ingest/aggregator/hub/session), БД, tier_policies, объекты рисования, PIXI-путь.
+- **Проверки**:
+  - `npx tsc --noEmit`: PASS (0 errors)
+  - `npx vite build`: PASS (548ms)
+- **Не коммитить** — жду скрин/гиф с живой свечой.
+
 ### [2026-06-19] Фаза 14 Шаг 2: Сохранение нарисованных объектов на бэкенде (per-user, привязка к symbol+interval+market)
 - **Бэкенд — миграция (auth/sqlite.go:278-289)**: `CREATE TABLE IF NOT EXISTS drawings (id, user_id, symbol, interval, market_type, drawing_type, payload TEXT, created_at, updated_at, PRIMARY KEY (id, user_id))` + индекс `idx_drawings_lookup(user_id, symbol, interval, market_type)` — идемпотентно.
 - **Бэкенд — SQL функции (auth/sqlite.go:560-630)**: `GetDrawings(ctx, db, userID, symbol, interval, marketType)` → `[]DrawingRow`; `BatchReplaceDrawings(ctx, db, userID, symbol, interval, marketType, []DrawingRow)` — транзакция DELETE + INSERT batch; `DeleteDrawing(ctx, db, id, userID)` — DELETE с проверкой user_id.
