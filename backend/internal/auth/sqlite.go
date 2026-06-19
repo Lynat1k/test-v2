@@ -275,6 +275,28 @@ func Migrate(db *sql.DB) error {
 		}
 	}
 
+	// Phase 14 Step 2: drawings table (saved drawing objects, scoped to symbol+interval+market_type)
+	drawingsQueries := []string{
+		`CREATE TABLE IF NOT EXISTS drawings (
+			id TEXT NOT NULL,
+			user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+			symbol TEXT NOT NULL,
+			interval TEXT NOT NULL,
+			market_type TEXT NOT NULL,
+			drawing_type TEXT NOT NULL,
+			payload TEXT NOT NULL DEFAULT '{}',
+			created_at TEXT NOT NULL,
+			updated_at TEXT NOT NULL,
+			PRIMARY KEY (id, user_id)
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_drawings_lookup ON drawings(user_id, symbol, interval, market_type)`,
+	}
+	for _, q := range drawingsQueries {
+		if _, err := db.Exec(q); err != nil {
+			return fmt.Errorf("migration drawings: %w", err)
+		}
+	}
+
 	log.Println("[auth] sqlite migrations applied")
 	return nil
 }
@@ -531,6 +553,89 @@ func UpsertDrawingDefault(ctx context.Context, db *sql.DB, userID, drawingType, 
 		userID, drawingType, settings, time.Now().UTC().Format(time.RFC3339))
 	if err != nil {
 		return fmt.Errorf("upsert drawing default: %w", err)
+	}
+	return nil
+}
+
+// --- Drawings (Phase 14 Step 2) ---
+
+type DrawingRow struct {
+	ID          string
+	UserID      string
+	Symbol      string
+	Interval    string
+	MarketType  string
+	DrawingType string
+	Payload     string
+	CreatedAt   string
+	UpdatedAt   string
+}
+
+func GetDrawings(ctx context.Context, db *sql.DB, userID, symbol, interval, marketType string) ([]DrawingRow, error) {
+	rows, err := db.QueryContext(ctx,
+		`SELECT id, user_id, symbol, interval, market_type, drawing_type, payload, created_at, updated_at
+		 FROM drawings WHERE user_id = ? AND symbol = ? AND interval = ? AND market_type = ?
+		 ORDER BY created_at ASC`, userID, symbol, interval, marketType)
+	if err != nil {
+		return nil, fmt.Errorf("get drawings: %w", err)
+	}
+	defer rows.Close()
+
+	var result []DrawingRow
+	for rows.Next() {
+		var r DrawingRow
+		if err := rows.Scan(&r.ID, &r.UserID, &r.Symbol, &r.Interval, &r.MarketType,
+			&r.DrawingType, &r.Payload, &r.CreatedAt, &r.UpdatedAt); err != nil {
+			return nil, fmt.Errorf("scan drawing: %w", err)
+		}
+		result = append(result, r)
+	}
+	return result, rows.Err()
+}
+
+func BatchReplaceDrawings(ctx context.Context, db *sql.DB, userID, symbol, interval, marketType string, drawings []DrawingRow) error {
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin tx: %w", err)
+	}
+	defer tx.Rollback()
+
+	// Delete all existing drawings for this combo
+	if _, err := tx.ExecContext(ctx,
+		`DELETE FROM drawings WHERE user_id = ? AND symbol = ? AND interval = ? AND market_type = ?`,
+		userID, symbol, interval, marketType); err != nil {
+		return fmt.Errorf("delete existing drawings: %w", err)
+	}
+
+	// Insert new batch
+	now := time.Now().UTC().Format(time.RFC3339)
+	stmt, err := tx.PrepareContext(ctx,
+		`INSERT INTO drawings (id, user_id, symbol, interval, market_type, drawing_type, payload, created_at, updated_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+	if err != nil {
+		return fmt.Errorf("prepare insert: %w", err)
+	}
+	defer stmt.Close()
+
+	for _, d := range drawings {
+		if _, err := stmt.ExecContext(ctx, d.ID, d.UserID, d.Symbol, d.Interval,
+			d.MarketType, d.DrawingType, d.Payload, now, now); err != nil {
+			return fmt.Errorf("insert drawing %s: %w", d.ID, err)
+		}
+	}
+
+	return tx.Commit()
+}
+
+func DeleteDrawing(ctx context.Context, db *sql.DB, id, userID string) error {
+	res, err := db.ExecContext(ctx,
+		`DELETE FROM drawings WHERE id = ? AND user_id = ?`, id, userID)
+	if err != nil {
+		return fmt.Errorf("delete drawing: %w", err)
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return sql.ErrNoRows
 	}
 	return nil
 }

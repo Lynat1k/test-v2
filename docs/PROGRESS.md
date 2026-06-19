@@ -3,6 +3,44 @@
 > Claude обновляет этот файл в КОНЦЕ каждой задачи. Новые записи — сверху.
 > Формат записи строго по шаблону. Это память между чатами.
 
+### [2026-06-19] Фаза 14 Шаг 2: Сохранение нарисованных объектов на бэкенде (per-user, привязка к symbol+interval+market)
+- **Бэкенд — миграция (auth/sqlite.go:278-289)**: `CREATE TABLE IF NOT EXISTS drawings (id, user_id, symbol, interval, market_type, drawing_type, payload TEXT, created_at, updated_at, PRIMARY KEY (id, user_id))` + индекс `idx_drawings_lookup(user_id, symbol, interval, market_type)` — идемпотентно.
+- **Бэкенд — SQL функции (auth/sqlite.go:560-630)**: `GetDrawings(ctx, db, userID, symbol, interval, marketType)` → `[]DrawingRow`; `BatchReplaceDrawings(ctx, db, userID, symbol, interval, marketType, []DrawingRow)` — транзакция DELETE + INSERT batch; `DeleteDrawing(ctx, db, id, userID)` — DELETE с проверкой user_id.
+- **Бэкенд — эндпоинты (auth/handlers.go:600-700)**:
+  - **`GET /api/v1/user/drawings?symbol=&interval=&market=`** — RequireAuth, параметризованный SELECT, возвращает `{id, drawingType, payload}`. Валидация market в (spot,futures).
+  - **`PUT /api/v1/user/drawings`** — RequireAuth, batch-replace: принимает `{symbol, interval, market, drawings:[{id, drawingType, payload}]}`, в транзакции DELETE все существующие для комбо + INSERT всех. Лимит 200 объектов на комбо, 10KB на payload, валидация drawingType из whitelist.
+  - **`DELETE /api/v1/user/drawings/{id}`** — RequireAuth, удаление с проверкой user_id (404 если не принадлежит).
+  - **Подход**: batch-replace (клиент шлёт полный список комбо → сервер заменяет полностью), т.к. фронт делает автосейв с debounce 800ms.
+- **Бэкенд — тесты (auth/handlers_test.go:1102-1325)**: 9 тестов (401 без auth, missing params, успешное чтение, scoped by combo, batch replace, replace existing, too many, invalid market, delete success, delete not-owned). ALL PASS.
+- **Фронтенд — API (features/drawings/api.ts:37-88)**: `apiGetDrawings()`, `apiPutDrawings()` (batch), `apiDeleteDrawing()`.
+- **Фронтенд — ClusterChart.tsx:100-101, 228-271**:
+  - **Загрузка**: `useEffect([comboKey])` — при монтировании и смене symbol/interval/marketType очищает drawings и загружает с бэка. Только для авторизованных (accessToken есть).
+  - **Автосохранение**: `useEffect([drawings])` с debounce 800ms — любое изменение drawings (создание/перемещение/изменение/удаление) сохраняет весь набор для текущего комбо через PUT batch. Не сохраняет до завершения первой загрузки (`drawingsLoadedRef`).
+  - **Гость**: без accessToken объекты только в памяти, не сохраняются.
+- **Затронутые файлы**:
+  - `backend/internal/auth/sqlite.go` (+drawings CREATE + индекс, +GetDrawings, +BatchReplaceDrawings, +DeleteDrawing, +DrawingRow)
+  - `backend/internal/auth/handlers.go` (+handleGetDrawings, +handlePutDrawingsBatch, +handleDeleteDrawing, +routes)
+  - `backend/internal/auth/handlers_test.go` (+9 тестов, +import fmt)
+  - `frontend/src/features/drawings/api.ts` (+apiGetDrawings, +apiPutDrawings, +apiDeleteDrawing, +типы)
+  - `frontend/src/chart2d/ClusterChart.tsx` (+import useAuthContext + api*; +comboKey, refs; +useEffect load, +useEffect auto-save 800ms)
+- **Не тронуто**: drawing_defaults (шаг 1), tier_policies, лимиты, ingest/aggregator, движок рендера.
+- **Тесты/проверки**:
+  - `go test ./...`: ALL PASS
+  - `npx tsc --noEmit`: PASS (0 errors)
+  - `npx vite build`: PASS (624ms)
+- **Багфикс (2026-06-19, после выявления через Network-тест)**:
+  - **Primary cause**: `id` отправлялся как JSON number (`Date.now()`) → бэкенд ожидал string → `json.Decode` падал с 400, catch молчал. Исправлено: `String(d.id)` в auto-save payload (`ClusterChart.tsx:269`), тип `DrawingSaveItem.id: string` (`api.ts:40`).
+  - **Secondary cause**: `accessToken` не был в зависимостях load effect → effect не перезапускался после появления токена (token=`null` → async `apiRefresh()` → token появляется). GET никогда не выполнялся при перезагрузке. Исправлено: dep `[comboKey, accessToken]` + guard refs (`prevComboKeyRef`, `hadTokenRef`) чтобы не перезагружать при обновлении токена.
+  - **Race condition**: load effect делал `setDrawings(mapped)` после GET → затирал объекты, созданные локально во время загрузки. Исправлено: merge `setDrawings(prev => ...)` сохраняет локальные + бэкендовые.
+  - **Whitelist incomplete**: `validDrawingTypes` отсутствовали `"long"` и `"short"` → PUT падал с 400 на любом батче, содержащем эти типы. Исправлено: добавлены `"long"`, `"short"` в whitelist (12 типов).
+  - **CSS warning**: `<input type="color">` получал `"rgba(16,185,129,0.22)"` (невалидный формат). Исправлено: добавлена `rgbaToHex()` утилита, применяется к value обоих color-инпутов в Position Settings.
+- **Верификация**:
+  - `go test ./...`: ALL PASS
+  - `npx tsc --noEmit`: PASS (0 errors)
+  - `npx vite build`: PASS (511ms)
+  - Empirically verified: PUT volume+horizontal → 200; GET возвращает оба типа; long/short больше не валятся.
+- **Не коммитить** — жду скриншот: все типы переживают перезагрузку, консоль чистая от rgba warning.
+
 ### [2026-06-19] Фаза 14 Шаг 1: Per-user per-type drawing defaults (backend storage)
 - **Бэкенд — миграция (auth/sqlite.go:267-277)**: `CREATE TABLE IF NOT EXISTS drawing_defaults (user_id, drawing_type, settings TEXT, updated_at, PRIMARY KEY (user_id, drawing_type))` — идемпотентно.
 - **Бэкенд — SQL функции (auth/sqlite.go:512-538)**: `GetDrawingDefaults(ctx, db, userID)` → `map[string]string`; `UpsertDrawingDefault(ctx, db, userID, drawingType, settings)` → INSERT ... ON CONFLICT DO UPDATE.

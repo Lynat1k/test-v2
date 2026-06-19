@@ -12,6 +12,17 @@ import { storage } from "./lib/storage";
 import { volumeOnChartIndicator, deltaIndicator, cvdIndicator, clusterSearchIndicator } from "./indicators";
 import { drawDrawingObjects } from "./utils/drawingRenderer";
 import { useDrawingDefaults, getClientDefaults } from "@/contexts/DrawingDefaultsContext";
+import { apiGetDrawings, apiPutDrawings } from "@/features/drawings/api";
+import { useAuthContext } from "@/features/auth/AuthContext";
+
+const rgbaToHex = (rgba: string): string => {
+  const m = rgba.match(/^rgba?\s*\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/);
+  if (!m) return rgba;
+  const r = parseInt(m[1]).toString(16).padStart(2, "0");
+  const g = parseInt(m[2]).toString(16).padStart(2, "0");
+  const b = parseInt(m[3]).toString(16).padStart(2, "0");
+  return `#${r}${g}${b}`;
+};
 
 const parseHexColor = (hex: string): string => {
   if (!hex) return "#ffffff";
@@ -96,6 +107,12 @@ export default function ClusterChart({
   const isLight = theme === "light";
   const effectiveStep = (clusterStep && clusterStep > 0) ? clusterStep : activePair.priceStep;
   const { drawingDefaults, updateDrawingDefault } = useDrawingDefaults();
+  const { accessToken } = useAuthContext();
+  const comboKey = `${activePair.symbol}_${timeframe}_${marketType}`;
+  const drawingsLoadedRef = useRef(false);
+  const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const prevComboKeyRef = useRef(comboKey);
+  const hadTokenRef = useRef(false);
 
   const [isMobile, setIsMobile] = useState<boolean>(typeof window !== "undefined" ? window.innerWidth < 768 : false);
 
@@ -218,6 +235,75 @@ export default function ClusterChart({
       setPositionGlobalSettings(prev => ({ ...prev, ...drawingDefaults["position"] }));
     }
   }, [drawingDefaults]);
+
+  // Phase 14 Step 2: load drawings on mount / combo change / token arrival
+  useEffect(() => {
+    const comboChanged = comboKey !== prevComboKeyRef.current;
+    prevComboKeyRef.current = comboKey;
+
+    // Guest or logout: clear local drawings, block nothing
+    if (!accessToken) {
+      drawingsLoadedRef.current = true;
+      setDrawings([]);
+      return;
+    }
+
+    // Token refresh (already had a token, same combo): skip reload
+    if (!comboChanged && hadTokenRef.current) {
+      return;
+    }
+    hadTokenRef.current = true;
+
+    drawingsLoadedRef.current = false;
+    const symbol = activePair.symbol;
+    const interval = timeframe;
+    const market = (marketType || "SPOT").toLowerCase();
+    let cancelled = false;
+
+    if (comboChanged) {
+      setDrawings([]);
+    }
+
+    apiGetDrawings(symbol, interval, market, accessToken)
+      .then(loaded => {
+        if (cancelled) return;
+        const mapped = loaded.map(d => ({ id: Number(d.id), type: d.drawingType, ...d.payload }));
+        setDrawings(prev => {
+          if (prev.length === 0) return mapped;
+          const existingIds = new Set(prev.map(d => d.id));
+          const merged = [...prev];
+          for (const d of mapped) {
+            if (!existingIds.has(d.id)) merged.push(d);
+          }
+          return merged;
+        });
+      })
+      .catch(err => console.warn('[Drawings] load error:', err))
+      .finally(() => { if (!cancelled) drawingsLoadedRef.current = true; });
+
+    return () => { cancelled = true; };
+  }, [comboKey, accessToken]);
+
+  // Phase 14 Step 2: auto-save drawings with 800ms debounce
+  useEffect(() => {
+    if (!accessToken || !drawingsLoadedRef.current) return;
+
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    saveTimerRef.current = setTimeout(() => {
+      const symbol = activePair.symbol;
+      const interval = timeframe;
+      const market = (marketType || "SPOT").toLowerCase();
+      const items = drawings.map(d => ({
+        id: String(d.id),
+        drawingType: d.type,
+        payload: Object.fromEntries(Object.entries(d).filter(([k]) => k !== "id" && k !== "type")),
+      }));
+      apiPutDrawings(symbol, interval, market, items, accessToken)
+        .catch(err => console.warn('[Drawings] save error for', symbol, interval, market, err));
+    }, 800);
+
+    return () => { if (saveTimerRef.current) clearTimeout(saveTimerRef.current); };
+  }, [drawings]);
 
   const [selectedTimezone, setSelectedTimezone] = useState<string>(() => {
     return storage.get("procluster_chart_timezone") || "local";
@@ -4949,7 +5035,7 @@ export default function ClusterChart({
                 <div className="flex items-center gap-1.5">
                   <input
                     type="color"
-                    value={selDrawing.colorTarget || positionGlobalSettings.colorTarget || "#10b981"}
+                    value={rgbaToHex(selDrawing.colorTarget || positionGlobalSettings.colorTarget) || "#10b981"}
                     onChange={(e) => { updatePositionSettings({ colorTarget: e.target.value }); }}
                     className="w-6 h-6 rounded cursor-pointer border-0 p-0 overflow-hidden shrink-0"
                   />
@@ -4961,7 +5047,7 @@ export default function ClusterChart({
                 <div className="flex items-center gap-1.5">
                   <input
                     type="color"
-                    value={selDrawing.colorStop || positionGlobalSettings.colorStop || "#ef4444"}
+                    value={rgbaToHex(selDrawing.colorStop || positionGlobalSettings.colorStop) || "#ef4444"}
                     onChange={(e) => { updatePositionSettings({ colorStop: e.target.value }); }}
                     className="w-6 h-6 rounded cursor-pointer border-0 p-0 overflow-hidden shrink-0"
                   />

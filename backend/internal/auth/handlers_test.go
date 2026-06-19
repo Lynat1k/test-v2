@@ -5,6 +5,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -1087,6 +1088,251 @@ func TestGetMe_CompressionMax_UnknownRole_FallbackOne(t *testing.T) {
 	data := resp.Data.(map[string]interface{})
 	if data["compressionMax"] != float64(1) {
 		t.Errorf("unknown role compressionMax: got %v, want 1 (safe default)", data["compressionMax"])
+	}
+}
+
+// --- Drawings tests (Phase 14 Step 2) ---
+
+func TestGetDrawings_RequiresAuth(t *testing.T) {
+	handler, db := setupTestHandler(t)
+	defer db.Close()
+
+	mux := http.NewServeMux()
+	handler.RegisterRoutes(mux)
+
+	req := httptest.NewRequest("GET", "/api/v1/user/drawings?symbol=BTCUSDT&interval=1h&market=spot", nil)
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, req)
+
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401, got %d", w.Code)
+	}
+}
+
+func TestGetDrawings_MissingParams(t *testing.T) {
+	handler, db := setupTestHandler(t)
+	defer db.Close()
+	user := createVerifiedUser(t, db, "getdraw@example.com", "pass1234", "GetDrawUser")
+
+	w, req := authRequest(handler, "GET", "/api/v1/user/drawings", "", user)
+	handler.handleGetDrawings(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", w.Code)
+	}
+}
+
+func TestGetDrawings_Success(t *testing.T) {
+	handler, db := setupTestHandler(t)
+	defer db.Close()
+	user := createVerifiedUser(t, db, "getdraw2@example.com", "pass1234", "GetDrawUser2")
+
+	// Insert drawings directly
+	ctx := context.Background()
+	d1 := DrawingRow{ID: "d1", UserID: user.ID, Symbol: "BTCUSDT", Interval: "1h", MarketType: "spot", DrawingType: "volume", Payload: `{"volColor":"#ff0000"}`, CreatedAt: "now", UpdatedAt: "now"}
+	d2 := DrawingRow{ID: "d2", UserID: user.ID, Symbol: "BTCUSDT", Interval: "1h", MarketType: "spot", DrawingType: "trend", Payload: `{"color":"#00ff00"}`, CreatedAt: "now", UpdatedAt: "now"}
+	if err := BatchReplaceDrawings(ctx, db, user.ID, "BTCUSDT", "1h", "spot", []DrawingRow{d1, d2}); err != nil {
+		t.Fatalf("batch replace: %v", err)
+	}
+
+	w, req := authRequest(handler, "GET", "/api/v1/user/drawings?symbol=BTCUSDT&interval=1h&market=spot", "", user)
+	handler.handleGetDrawings(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var resp struct {
+		OK   bool            `json:"ok"`
+		Data []map[string]interface{} `json:"data"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if !resp.OK {
+		t.Fatalf("expected ok=true")
+	}
+	if len(resp.Data) != 2 {
+		t.Fatalf("expected 2 drawings, got %d", len(resp.Data))
+	}
+}
+
+func TestGetDrawings_ScopedByCombo(t *testing.T) {
+	handler, db := setupTestHandler(t)
+	defer db.Close()
+	user := createVerifiedUser(t, db, "scopedraw@example.com", "pass1234", "ScopedDraw")
+
+	ctx := context.Background()
+	BatchReplaceDrawings(ctx, db, user.ID, "BTCUSDT", "1h", "spot", []DrawingRow{
+		{ID: "b1", UserID: user.ID, Symbol: "BTCUSDT", Interval: "1h", MarketType: "spot", DrawingType: "volume", Payload: "{}", CreatedAt: "now", UpdatedAt: "now"},
+	})
+	BatchReplaceDrawings(ctx, db, user.ID, "ETHUSDT", "1h", "spot", []DrawingRow{
+		{ID: "b2", UserID: user.ID, Symbol: "ETHUSDT", Interval: "1h", MarketType: "spot", DrawingType: "trend", Payload: "{}", CreatedAt: "now", UpdatedAt: "now"},
+	})
+	BatchReplaceDrawings(ctx, db, user.ID, "BTCUSDT", "4h", "spot", []DrawingRow{
+		{ID: "b3", UserID: user.ID, Symbol: "BTCUSDT", Interval: "4h", MarketType: "spot", DrawingType: "long", Payload: "{}", CreatedAt: "now", UpdatedAt: "now"},
+	})
+
+	// Should only get BTCUSDT 1h spot
+	w, req := authRequest(handler, "GET", "/api/v1/user/drawings?symbol=BTCUSDT&interval=1h&market=spot", "", user)
+	handler.handleGetDrawings(w, req)
+
+	var resp struct {
+		OK   bool            `json:"ok"`
+		Data []map[string]interface{} `json:"data"`
+	}
+	json.Unmarshal(w.Body.Bytes(), &resp)
+	if len(resp.Data) != 1 || resp.Data[0]["id"] != "b1" {
+		t.Fatalf("expected 1 drawing (b1) for BTCUSDT 1h spot, got %d", len(resp.Data))
+	}
+}
+
+func TestPutDrawingsBatch_Success(t *testing.T) {
+	handler, db := setupTestHandler(t)
+	defer db.Close()
+	user := createVerifiedUser(t, db, "putbatch@example.com", "pass1234", "PutBatch")
+
+	body := `{"symbol":"BTCUSDT","interval":"1h","market":"spot","drawings":[
+		{"id":"d1","drawingType":"volume","payload":{"volColor":"#ff0000","opacity":0.5}},
+		{"id":"d2","drawingType":"trend","payload":{"color":"#00ff00"}}
+	]}`
+	w, req := authRequest(handler, "PUT", "/api/v1/user/drawings", body, user)
+	handler.handlePutDrawingsBatch(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	// Verify via GET
+	ctx := context.Background()
+	rows, err := GetDrawings(ctx, db, user.ID, "BTCUSDT", "1h", "spot")
+	if err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	if len(rows) != 2 {
+		t.Fatalf("expected 2 drawings, got %d", len(rows))
+	}
+}
+
+func TestPutDrawingsBatch_ReplacesExisting(t *testing.T) {
+	handler, db := setupTestHandler(t)
+	defer db.Close()
+	user := createVerifiedUser(t, db, "replbatch@example.com", "pass1234", "ReplBatch")
+
+	ctx := context.Background()
+	BatchReplaceDrawings(ctx, db, user.ID, "BTCUSDT", "1h", "spot", []DrawingRow{
+		{ID: "old1", UserID: user.ID, Symbol: "BTCUSDT", Interval: "1h", MarketType: "spot", DrawingType: "volume", Payload: "{}", CreatedAt: "now", UpdatedAt: "now"},
+		{ID: "old2", UserID: user.ID, Symbol: "BTCUSDT", Interval: "1h", MarketType: "spot", DrawingType: "trend", Payload: "{}", CreatedAt: "now", UpdatedAt: "now"},
+	})
+
+	body := `{"symbol":"BTCUSDT","interval":"1h","market":"spot","drawings":[
+		{"id":"new1","drawingType":"volume","payload":{"opacity":0.9}}
+	]}`
+	w, req := authRequest(handler, "PUT", "/api/v1/user/drawings", body, user)
+	handler.handlePutDrawingsBatch(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	rows, err := GetDrawings(ctx, db, user.ID, "BTCUSDT", "1h", "spot")
+	if err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	if len(rows) != 1 || rows[0].ID != "new1" {
+		t.Fatalf("expected 1 drawing (new1), got %d: %+v", len(rows), rows)
+	}
+}
+
+func TestPutDrawingsBatch_TooMany(t *testing.T) {
+	handler, db := setupTestHandler(t)
+	defer db.Close()
+	user := createVerifiedUser(t, db, "toomany@example.com", "pass1234", "TooMany")
+
+	drawings := make([]string, 201)
+	for i := range drawings {
+		drawings[i] = `{"id":"d` + fmt.Sprintf("%d", i) + `","drawingType":"volume","payload":{}}`
+	}
+	body := `{"symbol":"BTCUSDT","interval":"1h","market":"spot","drawings":[` + strings.Join(drawings, ",") + `]}`
+	w, req := authRequest(handler, "PUT", "/api/v1/user/drawings", body, user)
+	handler.handlePutDrawingsBatch(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for too many drawings, got %d", w.Code)
+	}
+}
+
+func TestPutDrawingsBatch_InvalidMarket(t *testing.T) {
+	handler, db := setupTestHandler(t)
+	defer db.Close()
+	user := createVerifiedUser(t, db, "badmarket@example.com", "pass1234", "BadMarket")
+
+	body := `{"symbol":"BTCUSDT","interval":"1h","market":"invalid","drawings":[{"id":"d1","drawingType":"volume","payload":{}}]}`
+	w, req := authRequest(handler, "PUT", "/api/v1/user/drawings", body, user)
+	handler.handlePutDrawingsBatch(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", w.Code)
+	}
+}
+
+func TestDeleteDrawing_Success(t *testing.T) {
+	handler, db := setupTestHandler(t)
+	defer db.Close()
+	user := createVerifiedUser(t, db, "deldraw@example.com", "pass1234", "DelDraw")
+
+	ctx := context.Background()
+	BatchReplaceDrawings(ctx, db, user.ID, "BTCUSDT", "1h", "spot", []DrawingRow{
+		{ID: "del1", UserID: user.ID, Symbol: "BTCUSDT", Interval: "1h", MarketType: "spot", DrawingType: "volume", Payload: "{}", CreatedAt: "now", UpdatedAt: "now"},
+	})
+
+	// Go 1.22 ServeMux requires routing through mux for PathValue to work
+	mux := http.NewServeMux()
+	handler.RegisterRoutes(mux)
+	req := httptest.NewRequest("DELETE", "/api/v1/user/drawings/del1", nil)
+	req.Header.Set("Content-Type", "application/json")
+	token, _ := GenerateAccessToken(handler.cfg, user.ID, user.Role)
+	req.Header.Set("Authorization", "Bearer "+token)
+
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	rows, err := GetDrawings(ctx, db, user.ID, "BTCUSDT", "1h", "spot")
+	if err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	if len(rows) != 0 {
+		t.Fatalf("expected 0 drawings after delete, got %d", len(rows))
+	}
+}
+
+func TestDeleteDrawing_NotOwned(t *testing.T) {
+	handler, db := setupTestHandler(t)
+	defer db.Close()
+	user1 := createVerifiedUser(t, db, "own1@example.com", "pass1234", "Own1")
+	user2 := createVerifiedUser(t, db, "own2@example.com", "pass1234", "Own2")
+
+	ctx := context.Background()
+	BatchReplaceDrawings(ctx, db, user1.ID, "BTCUSDT", "1h", "spot", []DrawingRow{
+		{ID: "own_d1", UserID: user1.ID, Symbol: "BTCUSDT", Interval: "1h", MarketType: "spot", DrawingType: "volume", Payload: "{}", CreatedAt: "now", UpdatedAt: "now"},
+	})
+
+	mux := http.NewServeMux()
+	handler.RegisterRoutes(mux)
+	req := httptest.NewRequest("DELETE", "/api/v1/user/drawings/own_d1", nil)
+	req.Header.Set("Content-Type", "application/json")
+	token, _ := GenerateAccessToken(handler.cfg, user2.ID, user2.Role)
+	req.Header.Set("Authorization", "Bearer "+token)
+
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, req)
+
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("expected 404 (not owned), got %d: %s", w.Code, w.Body.String())
 	}
 }
 

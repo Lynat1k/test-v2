@@ -133,6 +133,9 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/v1/user/change-password", RequireAuth(h.cfg)(http.HandlerFunc(h.handleChangePassword)).ServeHTTP)
 	mux.HandleFunc("GET /api/v1/user/drawing-defaults", h.handleGetDrawingDefaults)
 	mux.HandleFunc("PUT /api/v1/user/drawing-defaults", RequireAuth(h.cfg)(http.HandlerFunc(h.handlePutDrawingDefaults)).ServeHTTP)
+	mux.HandleFunc("GET /api/v1/user/drawings", RequireAuth(h.cfg)(http.HandlerFunc(h.handleGetDrawings)).ServeHTTP)
+	mux.HandleFunc("PUT /api/v1/user/drawings", RequireAuth(h.cfg)(http.HandlerFunc(h.handlePutDrawingsBatch)).ServeHTTP)
+	mux.HandleFunc("DELETE /api/v1/user/drawings/{id}", RequireAuth(h.cfg)(http.HandlerFunc(h.handleDeleteDrawing)).ServeHTTP)
 	mux.HandleFunc("POST /api/v1/auth/google", h.handleGoogleAuth)
 	mux.HandleFunc("GET /api/v1/auth/google/callback", h.handleGoogleCallback)
 }
@@ -508,16 +511,18 @@ func (h *Handler) handlePutSettings(w http.ResponseWriter, r *http.Request) {
 // --- Drawing Defaults (Phase 14 Step 1) ---
 
 var validDrawingTypes = map[string]bool{
-	"volume":    true,
-	"position":  true,
-	"trend":     true,
-	"arrow":     true,
-	"channel":   true,
+	"volume":     true,
+	"position":   true,
+	"trend":      true,
+	"arrow":      true,
+	"channel":    true,
 	"horizontal": true,
-	"rect":      true,
-	"fibonacci": true,
-	"ruler":     true,
-	"text":      true,
+	"rect":       true,
+	"fibonacci":  true,
+	"ruler":      true,
+	"text":       true,
+	"long":       true,
+	"short":      true,
 }
 
 // GET /api/v1/user/drawing-defaults
@@ -594,6 +599,159 @@ func (h *Handler) handlePutDrawingDefaults(w http.ResponseWriter, r *http.Reques
 
 	writeJSON(w, http.StatusOK, authResponse{OK: true})
 	log.Printf("[auth] drawing default saved: user=%s type=%s", userID, body.DrawingType)
+}
+
+// --- Drawings (Phase 14 Step 2) ---
+
+const maxDrawingsPerCombo = 200
+
+// GET /api/v1/user/drawings?symbol=X&interval=1h&market=spot
+func (h *Handler) handleGetDrawings(w http.ResponseWriter, r *http.Request) {
+	userID := r.Context().Value(UserIDKey).(string)
+	symbol := r.URL.Query().Get("symbol")
+	interval := r.URL.Query().Get("interval")
+	market := r.URL.Query().Get("market")
+
+	if symbol == "" || interval == "" || market == "" {
+		writeError(w, http.StatusBadRequest, "INVALID_PARAMS", "symbol, interval, and market are required")
+		return
+	}
+	if market != "spot" && market != "futures" {
+		writeError(w, http.StatusBadRequest, "INVALID_PARAMS", "market must be 'spot' or 'futures'")
+		return
+	}
+
+	rows, err := GetDrawings(r.Context(), h.db, userID, symbol, interval, market)
+	if err != nil {
+		log.Printf("[auth] get drawings: %v", err)
+		writeError(w, http.StatusInternalServerError, "DB_ERROR", "failed to get drawings")
+		return
+	}
+
+	type drawingResponse struct {
+		ID          string                 `json:"id"`
+		DrawingType string                 `json:"drawingType"`
+		Payload     map[string]interface{} `json:"payload"`
+	}
+
+	result := make([]drawingResponse, 0, len(rows))
+	for _, row := range rows {
+		var payload map[string]interface{}
+		if err := json.Unmarshal([]byte(row.Payload), &payload); err != nil {
+			payload = map[string]interface{}{}
+		}
+		result = append(result, drawingResponse{
+			ID:          row.ID,
+			DrawingType: row.DrawingType,
+			Payload:     payload,
+		})
+	}
+
+	writeJSON(w, http.StatusOK, authResponse{OK: true, Data: result})
+}
+
+// PUT /api/v1/user/drawings — batch replace all drawings for a combo
+func (h *Handler) handlePutDrawingsBatch(w http.ResponseWriter, r *http.Request) {
+	userID := r.Context().Value(UserIDKey).(string)
+
+	r.Body = http.MaxBytesReader(w, r.Body, 1024*512) // 512KB max
+	defer r.Body.Close()
+
+	var body struct {
+		Symbol   string `json:"symbol"`
+		Interval string `json:"interval"`
+		Market   string `json:"market"`
+		Drawings []struct {
+			ID          string          `json:"id"`
+			DrawingType string          `json:"drawingType"`
+			Payload     json.RawMessage `json:"payload"`
+		} `json:"drawings"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeError(w, http.StatusBadRequest, "INVALID_BODY", "invalid request body")
+		return
+	}
+
+	if body.Symbol == "" || body.Interval == "" || body.Market == "" {
+		writeError(w, http.StatusBadRequest, "INVALID_PARAMS", "symbol, interval, and market are required")
+		return
+	}
+	if body.Market != "spot" && body.Market != "futures" {
+		writeError(w, http.StatusBadRequest, "INVALID_PARAMS", "market must be 'spot' or 'futures'")
+		return
+	}
+	if len(body.Drawings) > maxDrawingsPerCombo {
+		writeError(w, http.StatusBadRequest, "TOO_MANY_DRAWINGS", "too many drawings (max 200)")
+		return
+	}
+
+	drawingRows := make([]DrawingRow, 0, len(body.Drawings))
+	for _, d := range body.Drawings {
+		if d.ID == "" {
+			writeError(w, http.StatusBadRequest, "INVALID_PARAMS", "each drawing must have an id")
+			return
+		}
+		if !validDrawingTypes[d.DrawingType] {
+			writeError(w, http.StatusBadRequest, "INVALID_PARAMS", "unknown drawing type: "+d.DrawingType)
+			return
+		}
+		if len(d.Payload) == 0 || string(d.Payload) == "null" {
+			writeError(w, http.StatusBadRequest, "INVALID_PARAMS", "each drawing must have a non-null payload")
+			return
+		}
+		var obj map[string]interface{}
+		if err := json.Unmarshal(d.Payload, &obj); err != nil {
+			writeError(w, http.StatusBadRequest, "INVALID_PARAMS", "each payload must be a valid JSON object")
+			return
+		}
+		if len(d.Payload) > 10240 {
+			writeError(w, http.StatusBadRequest, "PAYLOAD_TOO_LARGE", "payload too large (max 10KB)")
+			return
+		}
+
+		drawingRows = append(drawingRows, DrawingRow{
+			ID:          d.ID,
+			UserID:      userID,
+			Symbol:      body.Symbol,
+			Interval:    body.Interval,
+			MarketType:  body.Market,
+			DrawingType: d.DrawingType,
+			Payload:     string(d.Payload),
+		})
+	}
+
+	if err := BatchReplaceDrawings(r.Context(), h.db, userID, body.Symbol, body.Interval, body.Market, drawingRows); err != nil {
+		log.Printf("[auth] batch replace drawings: %v", err)
+		writeError(w, http.StatusInternalServerError, "DB_ERROR", "failed to save drawings")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, authResponse{OK: true})
+	log.Printf("[auth] drawings saved: user=%s symbol=%s interval=%s market=%s count=%d", userID, body.Symbol, body.Interval, body.Market, len(body.Drawings))
+}
+
+// DELETE /api/v1/user/drawings/{id}
+func (h *Handler) handleDeleteDrawing(w http.ResponseWriter, r *http.Request) {
+	userID := r.Context().Value(UserIDKey).(string)
+	id := r.PathValue("id")
+
+	if id == "" {
+		writeError(w, http.StatusBadRequest, "INVALID_PARAMS", "drawing id is required")
+		return
+	}
+
+	if err := DeleteDrawing(r.Context(), h.db, id, userID); err != nil {
+		if err == sql.ErrNoRows {
+			writeError(w, http.StatusNotFound, "NOT_FOUND", "drawing not found or not owned by user")
+			return
+		}
+		log.Printf("[auth] delete drawing: %v", err)
+		writeError(w, http.StatusInternalServerError, "DB_ERROR", "failed to delete drawing")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, authResponse{OK: true})
+	log.Printf("[auth] drawing deleted: user=%s id=%s", userID, id)
 }
 
 // --- Google OAuth stubs ---
