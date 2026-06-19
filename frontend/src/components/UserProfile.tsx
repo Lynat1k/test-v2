@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useAuthContext } from '@/features/auth/AuthContext'
 import { apiGetMe, apiUpdateProfile, apiChangePassword } from '@/features/auth/api'
+import { useUserLimits } from '@/contexts/LimitsContext'
 import { useTranslation } from '@/i18n'
 import { ArrowLeft, Check, ShieldCheck, CreditCard, Award } from 'lucide-react'
 import { motion } from 'motion/react'
@@ -134,6 +135,20 @@ export function UserProfile({ onClose }: Props) {
 
   const tier = (profile?.role || user?.role || 'free') as string
   const tierDisplay = tier === 'vip' ? 'VIP' : tier === 'pro' ? 'Pro' : tier === 'admin' ? 'Admin' : 'Free'
+  const { limits } = useUserLimits()
+
+  const cardValues = (cardTier: string) => {
+    if (tier !== cardTier) return null
+    return {
+      charts: limits.workspacesCount,
+      candles: limits.historyMaxDays,
+      compression: limits.compressionMax,
+      indicators: limits.maxIndicators,
+      customSettings: limits.customIndicatorSettings === 1,
+      telegram: limits.telegramEnabled === 1,
+      anomalies: limits.anomaliesEnabled === 1,
+    }
+  }
 
   if (loading) {
     return (
@@ -392,6 +407,9 @@ export function UserProfile({ onClose }: Props) {
 
       {/* Plans Comparison */}
       <div className="p-8 sm:p-12 rounded-[32px] flex flex-col gap-10 liquid-glass-card relative overflow-hidden">
+        <div className="absolute top-0 right-1/4 w-[350px] h-[350px] bg-[#1CD5A6]/5 rounded-full blur-[100px] pointer-events-none" />
+        <div className="absolute bottom-0 left-1/4 w-[350px] h-[350px] bg-indigo-500/5 rounded-full blur-[100px] pointer-events-none" />
+
         <div className="text-center space-y-2 z-10">
           <h2 className="text-3xl sm:text-4xl font-extrabold tracking-tight font-sans text-white">
             {t('profile.choosePlan')}
@@ -401,21 +419,36 @@ export function UserProfile({ onClose }: Props) {
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6 w-full max-w-5xl mx-auto z-10">
           <PlanCard
             name="Free" price="$0" desc={t('profile.planFreeDesc')} isActive={tier === 'free'}
-            charts={1} candles="700" compression={1} indicators={1}
-            customSettings={false} saveDrawing={false} telegram={false} customIndicators={false}
-            t={t}
+            charts={cardValues('free')?.charts ?? 1}
+            candles={cardValues('free')?.candles ?? '700'}
+            compression={cardValues('free')?.compression ?? 1}
+            indicators={cardValues('free')?.indicators ?? 1}
+            customSettings={cardValues('free')?.customSettings ?? false}
+            telegram={cardValues('free')?.telegram ?? false} anomalies={cardValues('free')?.anomalies ?? false}
+            saveDrawing={false} customIndicators={false}
+            userRole={tier} t={t}
           />
           <PlanCard
             name="Pro" price="$19" desc={t('profile.planProDesc')} isActive={tier === 'pro'} popular
-            charts={2} candles="1400" compression={2} indicators={3}
-            customSettings={false} saveDrawing={false} telegram={false} customIndicators={false}
-            t={t}
+            charts={cardValues('pro')?.charts ?? 2}
+            candles={cardValues('pro')?.candles ?? '1400'}
+            compression={cardValues('pro')?.compression ?? 2}
+            indicators={cardValues('pro')?.indicators ?? 3}
+            customSettings={cardValues('pro')?.customSettings ?? false}
+            telegram={cardValues('pro')?.telegram ?? false} anomalies={cardValues('pro')?.anomalies ?? false}
+            saveDrawing={false} customIndicators={false}
+            userRole={tier} t={t}
           />
           <PlanCard
             name="VIP" price="$49" desc={t('profile.planVipDesc')} isActive={tier === 'vip'}
-            charts={2} candles={t('profile.yes')} compression={10} indicators={t('profile.yes')}
-            customSettings={true} saveDrawing={true} telegram={true} customIndicators={true}
-            t={t}
+            charts={cardValues('vip')?.charts ?? 2}
+            candles={cardValues('vip')?.candles ?? t('profile.allHistory')}
+            compression={cardValues('vip')?.compression ?? 10}
+            indicators={cardValues('vip')?.indicators ?? t('profile.unlimited')}
+            customSettings={cardValues('vip')?.customSettings ?? true}
+            telegram={cardValues('vip')?.telegram ?? true} anomalies={cardValues('vip')?.anomalies ?? true}
+            saveDrawing={true} customIndicators={true}
+            userRole={tier} t={t}
           />
         </div>
       </div>
@@ -483,77 +516,23 @@ function InfoRow({ label, value, highlight, amber }: { label: string; value: str
   )
 }
 
-function PlanCard({
-  name, price, desc, isActive, popular,
-  charts, candles, compression, indicators,
-  customSettings, saveDrawing, telegram, customIndicators,
-  t,
-}: {
-  name: string; price: string; desc: string; isActive: boolean; popular?: boolean
-  charts: number | string; candles: number | string; compression: number | string; indicators: number | string
-  customSettings: boolean; saveDrawing: boolean; telegram: boolean; customIndicators: boolean
-  t: (key: string) => string
+function LimitRow({ label, value, t, unlimitedLabel }: {
+  label: string; value: number | string | boolean; t: (key: string) => string; unlimitedLabel?: string
 }) {
-  return (
-    <div className={`p-6 rounded-[24px] flex flex-col justify-between gap-6 transition-all duration-300 group relative ${
-      isActive
-        ? 'liquid-glass-card border border-emerald-500/20 shadow-[0_4px_30px_rgba(0,0,0,0.4)] scale-[1.01] text-white'
-        : 'liquid-glass-card hover:border-white/20 hover:shadow-[0_4px_25px_rgba(0,0,0,0.4)] hover:scale-[1.015] text-white'
-    }`}>
-      {popular && (
-        <div className="absolute -top-3 right-6 px-3 py-1 rounded-full text-[9px] font-extrabold uppercase tracking-wider shadow-md bg-[#10191B] border border-[#2FD3B2]/30 text-[#2FD3B2]">
-          MOST POPULAR
-        </div>
-      )}
-      <div className="flex flex-col gap-5">
-        <div>
-          <span className="text-sm font-bold tracking-normal block text-white">{name}</span>
-          <p className="text-[9px] mt-1 uppercase tracking-wider font-mono text-slate-400">Billed monthly</p>
-        </div>
-        <div className="flex items-baseline gap-1 mt-1">
-          <span className="text-4xl font-black tracking-tight text-white">{price}</span>
-          <span className="text-xs font-medium ml-1 text-[#8B949E]">/ month</span>
-        </div>
-        <p className="text-[11.5px] leading-relaxed min-h-[32px] text-[#8B949E]">{desc}</p>
-        <div className="flex flex-col gap-2 font-mono text-[11px] pt-4 mt-2 border-t border-white/[0.06]">
-          <LimitRow label={t('profile.propsCharts')} value={charts} />
-          <LimitRow label={t('profile.propsMaxCandles')} value={candles} />
-          <LimitRow label={t('profile.propsCompression')} value={compression} />
-          <LimitRow label={t('profile.propsIndicators')} value={indicators} />
-          <LimitRow label={t('profile.propsCustomSettings')} value={customSettings} />
-          <LimitRow label={t('profile.propsSaveDrawing')} value={saveDrawing} />
-          <LimitRow label={t('profile.propsTelegram')} value={telegram} />
-          <LimitRow label={t('profile.propsCustomIndicators')} value={customIndicators} />
-        </div>
-      </div>
-      <div>
-        {isActive ? (
-          <div className="w-full text-center py-2.5 rounded-full text-xs font-bold uppercase tracking-wider bg-slate-500/10 text-slate-500 border border-slate-500/20">
-            {t('profile.currentPlan')}
-          </div>
-        ) : (
-          <button
-            onClick={() => alert(t('profile.activateSoon'))}
-            className="w-full text-center py-2.5 rounded-full text-xs font-bold uppercase tracking-wider transition-all duration-200 cursor-pointer active:scale-95 bg-[#1F2228] hover:bg-[#282B33] text-white border border-white/10"
-          >
-            {t('profile.activate')}
-          </button>
-        )}
-      </div>
-    </div>
-  )
-}
-
-function LimitRow({ label, value }: { label: string; value: number | string | boolean }) {
   let display: string
   let color: string
 
   if (typeof value === 'boolean') {
-    display = value ? 'Yes' : 'No'
+    display = value ? t('profile.yes') : t('profile.no')
     color = value ? 'text-[#10B981]' : 'text-[#EF4444]'
   } else if (typeof value === 'number') {
-    display = String(value)
-    color = 'text-white'
+    if (value <= 0 || value >= 100) {
+      display = unlimitedLabel ?? t('profile.unlimited')
+      color = 'text-[#10B981]'
+    } else {
+      display = String(value)
+      color = 'text-white'
+    }
   } else {
     display = value
     color = 'text-white'
@@ -563,6 +542,100 @@ function LimitRow({ label, value }: { label: string; value: number | string | bo
     <div className="flex justify-between py-1 border-b border-white/[0.04]">
       <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">{label}</span>
       <span className={`font-extrabold ${color}`}>{display}</span>
+    </div>
+  )
+}
+
+function PlanCard({
+  name, price, desc, isActive, popular,
+  charts, candles, compression, indicators,
+  customSettings, saveDrawing, telegram, customIndicators, anomalies,
+  userRole, t,
+}: {
+  name: string; price: string; desc: string; isActive: boolean; popular?: boolean
+  charts: number | string; candles: number | string; compression: number | string; indicators: number | string
+  customSettings: boolean; saveDrawing: boolean; telegram: boolean; customIndicators: boolean; anomalies: boolean
+  userRole: string; t: (key: string) => string
+}) {
+  const isPro = name === 'Pro'
+  const isVIP = name === 'VIP'
+
+  const baseCard = 'p-6 rounded-[24px] flex flex-col justify-between gap-6 transition-all duration-300 group relative text-white'
+  let cardStyle: string
+  if (isActive) {
+    if (isVIP) cardStyle = `${baseCard} liquid-glass-card border border-amber-500/30 shadow-[0_0_35px_rgba(245,158,11,0.32)] scale-[1.035] -translate-y-1`
+    else if (isPro) cardStyle = `${baseCard} liquid-glass-card border border-[#2FD3B2]/30 shadow-[0_0_35px_rgba(45,212,178,0.32)] scale-[1.035] -translate-y-1`
+    else cardStyle = `${baseCard} liquid-glass-card border border-emerald-500/20 shadow-[0_0_35px_rgba(16,185,129,0.24)] scale-[1.035] -translate-y-1`
+  } else {
+    if (isVIP) cardStyle = `${baseCard} liquid-glass-card border border-white/[0.06] hover:border-amber-500/40 hover:shadow-[0_0_35px_rgba(245,158,11,0.28)] hover:bg-amber-500/[0.02] hover:scale-[1.03] hover:-translate-y-1`
+    else if (isPro) cardStyle = `${baseCard} liquid-glass-card border border-white/[0.06] hover:border-[#2FD3B2]/40 hover:shadow-[0_0_35px_rgba(45,212,178,0.28)] hover:bg-[#2FD3B2]/[0.02] hover:scale-[1.03] hover:-translate-y-1`
+    else cardStyle = `${baseCard} liquid-glass-card border border-white/[0.06] hover:border-white/20 hover:shadow-[0_0_25px_rgba(255,255,255,0.06)] hover:scale-[1.03] hover:-translate-y-1`
+  }
+
+  return (
+    <div className={cardStyle}>
+      {/* Inner ambient top glow */}
+      {isPro && (
+        <div className="absolute top-0 left-1/2 -translate-x-1/2 w-48 h-20 bg-gradient-to-b from-[#2FD3B2]/15 to-transparent blur-xl pointer-events-none rounded-full transition-all duration-500 group-hover:from-[#2FD3B2]/40 group-hover:scale-130" />
+      )}
+      {isVIP && (
+        <div className="absolute top-0 left-1/2 -translate-x-1/2 w-48 h-20 bg-gradient-to-b from-amber-500/10 to-transparent blur-xl pointer-events-none rounded-full transition-all duration-500 group-hover:from-amber-500/35 group-hover:scale-130" />
+      )}
+
+      {/* MOST POPULAR badge — only on Pro */}
+      {popular && (
+        <div className="absolute -top-3 right-6 px-3 py-1 rounded-full text-[9px] font-extrabold uppercase tracking-wider shadow-md bg-[#10191B] border border-[#2FD3B2]/30 text-[#2FD3B2] z-10">
+          {t('profile.popular')}
+        </div>
+      )}
+
+      <div className="flex flex-col gap-5 relative z-10">
+        <div>
+          <span className={`text-sm font-bold tracking-normal block ${isVIP ? 'text-amber-200' : isPro ? 'text-white' : 'text-slate-300'}`}>
+            {name}
+          </span>
+          <p className={`text-[9px] mt-1 uppercase tracking-wider font-mono ${isVIP ? 'text-amber-200/60' : isPro ? 'text-[#A6E8DB]' : 'text-slate-400'}`}>
+            Billed monthly
+          </p>
+        </div>
+        <div className="flex items-baseline gap-1 mt-1">
+          <span className="text-4xl font-black tracking-tight text-white">{price}</span>
+          <span className="text-xs font-medium ml-1 text-[#8B949E]">/ month</span>
+        </div>
+        <p className="text-[11.5px] leading-relaxed min-h-[32px] text-[#8B949E]">{desc}</p>
+        <div className="flex flex-col gap-2 font-mono text-[11px] pt-4 mt-2 border-t border-white/[0.06]">
+          <LimitRow label={t('profile.propsCharts')} value={charts} t={t} />
+          <LimitRow label={t('profile.propsMaxCandles')} value={candles} unlimitedLabel={t('profile.allHistory')} t={t} />
+          <LimitRow label={t('profile.propsCompression')} value={compression} t={t} />
+          <LimitRow label={t('profile.propsIndicators')} value={indicators} t={t} />
+          <LimitRow label={t('profile.propsCustomSettings')} value={customSettings} t={t} />
+          <LimitRow label={t('profile.propsSaveDrawing')} value={saveDrawing} t={t} />
+          <LimitRow label={t('profile.propsTelegram')} value={telegram} t={t} />
+          <LimitRow label={t('profile.propsCustomIndicators')} value={customIndicators} t={t} />
+          <LimitRow label={t('profile.propsAnomalies')} value={anomalies} t={t} />
+        </div>
+      </div>
+
+      <div className="relative z-10 w-full">
+        {isActive ? (
+          <div className="w-full text-center py-2.5 rounded-full text-xs font-bold uppercase tracking-wider bg-slate-500/10 text-slate-500 border border-slate-500/20">
+            {t('profile.currentPlan')}
+          </div>
+        ) : (
+          <button
+            onClick={() => alert(t('profile.activateSoon'))}
+            className={`w-full text-center py-2.5 rounded-full text-xs font-bold uppercase tracking-wider transition-all duration-200 cursor-pointer active:scale-95 ${
+              isVIP
+                ? 'bg-amber-500 hover:bg-amber-600 text-slate-950 font-black shadow-md shadow-amber-500/20'
+                : isPro
+                  ? 'bg-[#1CD5A6] hover:bg-[#20ebd6] hover:scale-[1.01] text-slate-950 font-black shadow-[0_4px_25px_rgba(28,213,166,0.3)]'
+                  : 'bg-[#1F2228] hover:bg-[#282B33] text-white border border-white/10'
+            }`}
+          >
+            {userRole === 'admin' || !isPro && !isVIP ? t('profile.activateFree') : t('profile.activate')}
+          </button>
+        )}
+      </div>
     </div>
   )
 }

@@ -3,6 +3,34 @@
 > Claude обновляет этот файл в КОНЦЕ каждой задачи. Новые записи — сверху.
 > Формат записи строго по шаблону. Это память между чатами.
 
+### [2026-06-18] Фаза 12: Стилизация страницы выбора тарифов по эталону design-src (2-я итерация)
+- **Компонент**: `frontend/src/components/UserProfile.tsx`
+- **Что изменено:**
+  - **Бейдж "ПОПУЛЯРНО"** (строки 585-587): зелёная капсула над Pro, `absolute -top-3 right-6`, bg `#10191B`, border `#2FD3B2/30`, текст `t('profile.popular')`.
+  - **Подсветка карточек** (строки 553-581): Pro — зелёная рамка `border-[#2FD3B2]/30` + glow `rgba(45,212,178,0.32)`, внутренняя ambient `from-[#2FD3B2]/15`. VIP — оранжевая рамка `border-amber-500/30` + glow `rgba(245,158,11,0.32)`, ambient `from-amber-500/10`. Free — нейтральная. На hover для неактивных — border + glow + scale.
+  - **Цвета кнопок** (строки 625-631): Pro — зелёная `bg-[#1CD5A6]` + `shadow-[0_4px_25px_rgba(28,213,166,0.3)]`. VIP — оранжевая `bg-amber-500` + `shadow-md shadow-amber-500/20`. Free — нейтральная `bg-[#1F2228] border border-white/10`.
+  - **Текст и логика кнопок** (строки 617-636):
+    - Текущий тариф (= карточка) → `isActive=true` → серая disabled `bg-slate-500/10 text-slate-500`, текст `t('profile.currentPlan')`.
+    - Роль `admin` → на ВСЕХ карточках `t('profile.activateFree')` (ru: "Активировать").
+    - Карточка Free (не текущая) → `t('profile.activateFree')` (ru: "Активировать").
+    - Карточки Pro/VIP (не текущие) → `t('profile.activate')` (ru: "Подключить").
+    - Цвет кнопки всегда по карточке (Pro-зелёная, VIP-оранжевая, Free-нейтральная), кроме "Текущий тариф" — серый.
+    - Примеры: FREE→[Текущий/Подключить/Подключить], PRO→[Активировать/Текущий/Подключить], VIP→[Активировать/Подключить/Текущий], ADMIN→[Активировать/Активировать/Активировать].
+  - **Значения из API** (строки 136-150, 420-448): `useUserLimits()` через `cardValues()` — если карточка совпадает с текущим тарифом, значения `workspacesCount`, `historyMaxDays`, `compressionMax`, `maxIndicators`, `customIndicatorSettings`, `telegramEnabled`, `anomaliesEnabled` берутся из API. Для других карт — fallback на дефолты.
+  - **Строка аномалий** (строка 613): `LimitRow label={t('profile.propsAnomalies')} value={anomalies}` — 9-я строка в списке.
+  - **Правило безлимита** (строки 510-540): `LimitRow`: числа >=100 → `t('profile.unlimited')` (зелёным `text-[#10B981]`). Compression >=10 → безлимит. History для VIP → `t('profile.allHistory')`.
+  - **i18n**: добавлены ключи `profile.activateFree` в en/ru/kz. ru: `activate`="Подключить", `activateFree`="Активировать".
+- **Затронутые файлы**:
+  - `frontend/src/components/UserProfile.tsx` (import useUserLimits, cardValues helper, PlanCard userRole prop, button logic)
+  - `frontend/src/i18n/dictionaries/en.ts` (+activateFree)
+  - `frontend/src/i18n/dictionaries/ru.ts` (+activateFree, activate→Подключить)
+  - `frontend/src/i18n/dictionaries/kz.ts` (+activateFree, activate→Қосу)
+- **Не тронуто**: бэкенд, логика оплаты, tier_policies.
+- **Тесты/проверки**:
+  - `npx tsc --noEmit`: PASS (0 errors)
+  - `npx vite build`: PASS (504ms)
+- **Не коммитить** — жду скрины.
+
 ### [2026-06-18] Фаза 12: БЛОК ТАРИФНЫХ ЛИМИТОВ ЗАВЕРШЁН — коммит feat(admin): tier policies admin tab + per-tier limits enforcement
 - Этапы 0-6 выполнены: миграция БД, seed, админ-эндпоинты GET/PUT /api/v1/admin/policies, вкладка в админке, GET /api/v1/user/limits (реалтайм из БД), публичный доступ для гостя, LimitsContext на фронте, применение 4 лимитов (compression, workspaces, indicators, anomalies).
 - Осталось (отдельные подшаги):
