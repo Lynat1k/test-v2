@@ -6,7 +6,7 @@
 
 import React, { useState, useRef, useEffect, useLayoutEffect, useMemo } from "react";
 import type { ClusterCandle, ClusterCell, CryptoPair, IndicatorSettings, Indicator, OrderBook } from "./types";
-import { ZoomIn, ZoomOut, Maximize2, Compass, Move, Layers, Activity, Eye, EyeOff, Settings, Trash2, Globe, Slash, Minus, Square, Grid3X3, Ruler, Type, BarChart3, Check, ChevronDown, LayoutGrid, ArrowUpRight, TrendingUp } from "lucide-react";
+import { ZoomIn, ZoomOut, Maximize2, Compass, Move, Layers, Activity, Eye, EyeOff, Settings, Trash2, Globe, Slash, Minus, Square, Grid3X3, Ruler, Type, BarChart3, Check, ChevronDown, LayoutGrid, ArrowUpRight, TrendingUp, TrendingDown, Equal } from "lucide-react";
 import logoWatermark from "@/assets/images/procluster_logo_1779485281399.png";
 import { storage } from "./lib/storage";
 import { volumeOnChartIndicator, deltaIndicator, cvdIndicator, clusterSearchIndicator } from "./indicators";
@@ -147,6 +147,56 @@ export default function ClusterChart({
   const [isOverlayLegendCollapsed, setIsOverlayLegendCollapsed] = useState<boolean>(() => {
     return storage.get("chart_overlay_legend_collapsed") === "true";
   });
+
+  const [volumeSettingsDrawingId, setVolumeSettingsDrawingId] = useState<number | null>(null);
+  const [positionSettingsDrawingId, setPositionSettingsDrawingId] = useState<number | null>(null);
+
+  const [positionGlobalSettings, setPositionGlobalSettings] = useState(() => {
+    return storage.getJson<any>("procluster_position_settings", {
+      deposit: 10000,
+      risk: 1,
+      riskType: "percent",
+      colorTarget: "rgba(16, 185, 129, 0.22)",
+      colorStop: "rgba(239, 68, 68, 0.22)",
+      opacity: 0.22,
+      fontSize: 10,
+      makerFee: 0.02,
+      takerFee: 0.05,
+      entryFeeType: "maker",
+      exitFeeType: "taker"
+    });
+  });
+
+  const updatePositionSettings = (newSettings: Partial<typeof positionGlobalSettings>) => {
+    const updated = { ...positionGlobalSettings, ...newSettings };
+    setPositionGlobalSettings(updated);
+    storage.setJson("procluster_position_settings", updated);
+    if (positionSettingsDrawingId !== null) {
+      setDrawings(prev => prev.map(d =>
+        d.id === positionSettingsDrawingId ? { ...d, ...newSettings } : d
+      ));
+    } else {
+      setDrawings(prev => prev.map(d =>
+        (d.type === "long" || d.type === "short") ? { ...d, ...newSettings } : d
+      ));
+    }
+  };
+
+  const [volProfileGlobalSettings, setVolProfileGlobalSettings] = useState(() => {
+    return storage.getJson<any>("procluster_volume_profile_settings", {
+      extendPoc: false,
+      opacity: 0.28,
+      volColor: "#3b82f6",
+      pocColor: "#3b82f6"
+    });
+  });
+
+  const updateVolProfileSettings = (newSettings: Partial<typeof volProfileGlobalSettings>) => {
+    const updated = { ...volProfileGlobalSettings, ...newSettings };
+    setVolProfileGlobalSettings(updated);
+    storage.setJson("procluster_volume_profile_settings", updated);
+    setDrawings(prev => prev.map(d => d.type === "volume" ? { ...d, ...updated } : d));
+  };
 
   const [showCandleOutline, setShowCandleOutline] = useState(() => storage.get("chart_settings_show_candle_outline") !== "false");
   const [showChartSettings, setShowChartSettings] = useState(false);
@@ -927,6 +977,16 @@ export default function ClusterChart({
                 { x: x2, y: y2_offset, idx: 3 },
                 { x: x1, y: y1_offset, idx: 4 }
               ];
+            } else if (d.type === "long" || d.type === "short") {
+              const yEntry = priceToY(d.startPrice);
+              const yTarget = priceToY(d.endPrice);
+              const yStop = priceToY(d.stopPrice !== undefined ? d.stopPrice : (d.type === "long" ? (d.startPrice - (d.endPrice - d.startPrice)) : (d.startPrice + (d.startPrice - d.endPrice))));
+              handles = [
+                { x: x1, y: yEntry, idx: 1 },
+                { x: x2, y: yEntry, idx: 2 },
+                { x: (x1 + x2) / 2, y: yTarget, idx: 3 },
+                { x: (x1 + x2) / 2, y: yStop, idx: 4 }
+              ];
             }
             
             const clickedHandle = handles.find(h => {
@@ -956,6 +1016,16 @@ export default function ClusterChart({
               const maxX = Math.max(x1, x2);
               const minY = Math.min(y1, y2);
               const maxY = Math.max(y1, y2);
+              if (clickX >= minX && clickX <= maxX && clickY >= minY && clickY <= maxY) {
+                foundDrawingId = d.id;
+                break;
+              }
+            } else if (d.type === "long" || d.type === "short") {
+              const minX = Math.min(x1, x2);
+              const maxX = Math.max(x1, x2);
+              const yStop = priceToY(d.stopPrice !== undefined ? d.stopPrice : (d.type === "long" ? (d.startPrice - (d.endPrice - d.startPrice)) : (d.startPrice + (d.startPrice - d.endPrice))));
+              const minY = Math.min(y1, y2, yStop);
+              const maxY = Math.max(y1, y2, yStop);
               if (clickX >= minX && clickX <= maxX && clickY >= minY && clickY <= maxY) {
                 foundDrawingId = d.id;
                 break;
@@ -1036,6 +1106,7 @@ export default function ClusterChart({
               initialStartPrice: d.startPrice,
               initialEndIdx: d.endIdx,
               initialEndPrice: d.endPrice,
+              initialStopPrice: d.stopPrice,
             });
             return; // Skip normal panning
           }
@@ -1122,6 +1193,9 @@ export default function ClusterChart({
               endIdx: drawingDragState.initialEndIdx + deltaIdx,
               startPrice: drawingDragState.initialStartPrice + deltaPrice,
               endPrice: drawingDragState.initialEndPrice + deltaPrice,
+              stopPrice: drawingDragState.initialStopPrice !== undefined
+                ? drawingDragState.initialStopPrice + deltaPrice
+                : undefined,
             };
           } else {
             const deltaIdx = (mouseX - drawingDragState.initialX) / candleWidthSpacing;
@@ -1131,6 +1205,7 @@ export default function ClusterChart({
             let nextEndIdx = d.endIdx;
             let nextEndPrice = d.endPrice;
             let nextOffsetPrice = d.offsetPrice;
+            let nextStopPrice = d.stopPrice;
             
             if (d.type === "channel") {
               if (drawingDragState.handleIndex === 1) {
@@ -1143,6 +1218,18 @@ export default function ClusterChart({
                 nextOffsetPrice = currentPrice - d.endPrice;
               } else if (drawingDragState.handleIndex === 4) {
                 nextOffsetPrice = currentPrice - d.startPrice;
+              }
+            } else if (d.type === "long" || d.type === "short") {
+              if (drawingDragState.handleIndex === 1) {
+                nextStartIdx = drawingDragState.initialStartIdx + deltaIdx;
+                nextStartPrice = currentPrice;
+              } else if (drawingDragState.handleIndex === 2) {
+                nextEndIdx = drawingDragState.initialEndIdx + deltaIdx;
+                nextStartPrice = currentPrice;
+              } else if (drawingDragState.handleIndex === 3) {
+                nextEndPrice = currentPrice;
+              } else if (drawingDragState.handleIndex === 4) {
+                nextStopPrice = currentPrice;
               }
             } else {
               if (drawingDragState.handleIndex === 1) {
@@ -1166,7 +1253,8 @@ export default function ClusterChart({
               startPrice: nextStartPrice,
               endIdx: nextEndIdx,
               endPrice: nextEndPrice,
-              offsetPrice: nextOffsetPrice
+              offsetPrice: nextOffsetPrice,
+              stopPrice: nextStopPrice
             };
           }
         }
@@ -1231,6 +1319,49 @@ export default function ClusterChart({
     }
 
     setIsDragging(false);
+  };
+
+  const handleDoubleClick = (e: React.MouseEvent) => {
+    if (!canvasRef.current) return;
+    const rect = canvasRef.current.getBoundingClientRect();
+    const clickX = e.clientX - rect.left;
+    const clickY = e.clientY - rect.top;
+
+    if (clickY >= margin.top && clickY <= totalSvgHeight - margin.bottom && clickX >= margin.left) {
+      if (areDrawingsVisible) {
+        for (let i = drawings.length - 1; i >= 0; i--) {
+          const d = drawings[i];
+          if (d.type !== "volume" && d.type !== "long" && d.type !== "short") continue;
+          const y1 = priceToY(d.startPrice);
+          const y2 = priceToY(d.endPrice);
+          const x1 = indexToX(d.startIdx) - visibleScrollLeft;
+          const x2 = indexToX(d.endIdx) - visibleScrollLeft;
+
+          const minX = Math.min(x1, x2);
+          const maxX = Math.max(x1, x2);
+          let minY = Math.min(y1, y2);
+          let maxY = Math.max(y1, y2);
+
+          if (d.type === "long" || d.type === "short") {
+            const yStop = priceToY(d.stopPrice !== undefined ? d.stopPrice : (d.type === "long" ? (d.startPrice - (d.endPrice - d.startPrice)) : (d.startPrice + (d.startPrice - d.endPrice))));
+            minY = Math.min(y1, y2, yStop);
+            maxY = Math.max(y1, y2, yStop);
+          }
+
+          if (clickX >= minX && clickX <= maxX && clickY >= minY && clickY <= maxY) {
+            setSelectedDrawingId(d.id);
+            if (d.type === "volume") {
+              setVolumeSettingsDrawingId(d.id);
+            } else {
+              setPositionSettingsDrawingId(d.id);
+            }
+            e.preventDefault();
+            e.stopPropagation();
+            break;
+          }
+        }
+      }
+    }
   };
 
   // Mouse crosshair update builder
@@ -2108,6 +2239,7 @@ export default function ClusterChart({
       candleWidth,
       candleSpacing,
       layer: "background",
+      language,
     });
 
     const startIdx = Math.max(0, Math.floor((visibleScrollLeft - margin.left - candleWidth) / (candleWidth + candleSpacing)));
@@ -3034,6 +3166,7 @@ export default function ClusterChart({
       candleWidth,
       candleSpacing,
       layer: "foreground",
+      language,
     });
 
     ctx.restore(); // Undoes translation of -visibleScrollLeft for viewport-wide elements
@@ -3731,13 +3864,15 @@ export default function ClusterChart({
             {[
               { id: "trend", icon: Slash, titleRU: "Трендовая линия", titleEN: "Trend Line" },
               { id: "arrow", icon: ArrowUpRight, titleRU: "Стрелка направления", titleEN: "Direction Arrow" },
-              { id: "channel", icon: TrendingUp, titleRU: "Параллельный канал", titleEN: "Parallel Channel" },
+              { id: "channel", icon: Equal, titleRU: "Параллельный канал", titleEN: "Parallel Channel" },
               { id: "horizontal", icon: Minus, titleRU: "Горизонтальный уровень", titleEN: "Horizontal Level" },
               { id: "rect", icon: Square, titleRU: "Прямоугольник", titleEN: "Rectangle" },
               { id: "fibonacci", icon: Grid3X3, titleRU: "Уровни Фибоначчи", titleEN: "Fibonacci Retracement" },
               { id: "ruler", icon: Ruler, titleRU: "Линейка диапазона", titleEN: "Range Ruler" },
               { id: "text", icon: Type, titleRU: "Текстовая заметка", titleEN: "Text Annotation" },
               { id: "volume", icon: BarChart3, titleRU: "Профиль объема диапазона", titleEN: "Range Volume Profile" },
+              { id: "long", icon: TrendingUp, titleRU: "Длинная позиция (Long)", titleEN: "Long Position" },
+              { id: "short", icon: TrendingDown, titleRU: "Короткая позиция (Short)", titleEN: "Short Position" },
             ].map((tool) => {
               const IconComp = tool.icon;
               const isActive = activeDrawingTool === tool.id;
@@ -3755,7 +3890,27 @@ export default function ClusterChart({
                   }`}
                   title={title}
                 >
-                  <IconComp className="w-4 h-4" />
+                  {tool.id === "long" ? (
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4">
+                      <circle cx="4" cy="5" r="1.5" />
+                      <line x1="6" y1="5" x2="20" y2="5" />
+                      <text x="12" y="12" fontFamily="sans-serif" fontSize="7.5" fontWeight="bold" textAnchor="middle" fill="currentColor" stroke="none">L</text>
+                      <line x1="4" y1="17" x2="20" y2="17" />
+                      <circle cx="4" cy="21" r="1.5" />
+                      <line x1="6" y1="21" x2="20" y2="21" />
+                    </svg>
+                  ) : tool.id === "short" ? (
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4">
+                      <circle cx="4" cy="5" r="1.5" />
+                      <line x1="6" y1="5" x2="20" y2="5" />
+                      <line x1="4" y1="10" x2="20" y2="10" />
+                      <text x="12" y="18" fontFamily="sans-serif" fontSize="7.5" fontWeight="bold" textAnchor="middle" fill="currentColor" stroke="none">S</text>
+                      <circle cx="4" cy="21" r="1.5" />
+                      <line x1="6" y1="21" x2="20" y2="21" />
+                    </svg>
+                  ) : (
+                    <IconComp className="w-4 h-4" />
+                  )}
                   
                   {/* Tooltip on Hover to the right */}
                   <div className={`absolute left-full ml-2 top-1.2 font-sans font-semibold text-[10px] px-2 py-1 rounded bg-slate-950 text-slate-100 border border-white/10 hidden group-hover:block whitespace-nowrap z-50 pointer-events-none shadow-xl`}>
@@ -3825,6 +3980,7 @@ export default function ClusterChart({
           onMouseMove={handleMouseMove}
           onMouseUp={handleMouseUpOrLeave}
           onMouseLeave={handleMouseUpOrLeave}
+          onDoubleClick={handleDoubleClick}
           onScroll={(e) => {
             setVisibleScrollLeft(e.currentTarget.scrollLeft);
             setVisibleClientWidth(e.currentTarget.clientWidth);
@@ -4471,6 +4627,319 @@ export default function ClusterChart({
               <span style={{ color: titleColor }} className="font-black text-right">
                 {imbalanceValueStr}
               </span>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* Floating Volume Profile Settings Overlay */}
+      {volumeSettingsDrawingId !== null && (() => {
+        const selDrawing = drawings.find((d) => d.id === volumeSettingsDrawingId);
+        if (!selDrawing || selDrawing.type !== "volume") return null;
+
+        return (
+          <div className={`absolute top-[60px] left-[60px] z-50 p-4 rounded-2xl border flex flex-col gap-3.5 font-sans text-xs shadow-2xl w-64 backdrop-blur-md transition-all duration-300 ${
+            isLight
+              ? "bg-white/95 border-slate-200/90 text-slate-800 shadow-slate-200/55"
+              : "bg-slate-950/90 border-white/10 text-white shadow-black/80"
+          }`}>
+            <div className="flex items-center justify-between border-b pb-2 border-slate-500/10">
+              <span className="font-extrabold text-[10.5px] uppercase tracking-wider font-mono">
+                {language === "RU" ? "Настройка профиля объема" : "Volume Profile Settings"}
+              </span>
+              <button
+                onClick={() => setVolumeSettingsDrawingId(null)}
+                className="p-1 rounded-lg hover:bg-white/10 transition-colors cursor-pointer text-slate-400 hover:text-white"
+              >
+                ✕
+              </button>
+            </div>
+
+            <label className="flex items-start gap-2.5 cursor-pointer py-1 select-none hover:opacity-90">
+              <input
+                type="checkbox"
+                checked={volProfileGlobalSettings.extendPoc ?? false}
+                onChange={(e) => {
+                  updateVolProfileSettings({ extendPoc: e.target.checked });
+                }}
+                className="rounded text-blue-600 focus:ring-blue-500 w-4 h-4 mt-0.5"
+              />
+              <div className="flex flex-col">
+                <span className="font-bold text-[11px] leading-tight">
+                  {language === "RU" ? "Продлевать POC до касания" : "Extend POC to Touch"}
+                </span>
+                <span className={`text-[9.5px] leading-relaxed mt-0.5 ${isLight ? "text-slate-500" : "text-slate-400"}`}>
+                  {language === "RU"
+                    ? "Уровень POC растянутого профиля объема будет продлеваться, пока его не коснется или не пересечет другая свеча."
+                    : "The POC level line of the stretched profile will continue until a future candle touches or intersects it."}
+                </span>
+              </div>
+            </label>
+
+            <div className="flex flex-col gap-1.5 border-t border-slate-500/10 pt-2.5">
+              <div className="flex justify-between font-bold text-[10.5px]">
+                <span>{language === "RU" ? "Прозрачность гистограммы" : "Histogram Opacity"}</span>
+                <span className="font-mono font-bold text-amber-500">
+                  {Math.round((volProfileGlobalSettings.opacity !== undefined ? volProfileGlobalSettings.opacity : (isLight ? 0.18 : 0.28)) * 100)}%
+                </span>
+              </div>
+              <input
+                type="range"
+                min="0.05"
+                max="0.8"
+                step="0.05"
+                value={volProfileGlobalSettings.opacity !== undefined ? volProfileGlobalSettings.opacity : (isLight ? 0.18 : 0.28)}
+                onChange={(e) => {
+                  updateVolProfileSettings({ opacity: parseFloat(e.target.value) });
+                }}
+                className={`w-full accent-blue-600 rounded-lg h-1 ${isLight ? "bg-slate-200" : "bg-slate-800"}`}
+              />
+            </div>
+
+            <div className="flex flex-col gap-1.5 border-t border-slate-500/10 pt-2.5">
+              <span className="font-bold text-[10.5px]">{language === "RU" ? "Цвет гистограммы" : "Histogram Color"}</span>
+              <div className="flex items-center gap-2">
+                {[
+                  { hex: "#3b82f6", bg: "bg-blue-500" },
+                  { hex: "#a855f7", bg: "bg-purple-500" },
+                  { hex: "#f97316", bg: "bg-orange-500" },
+                  { hex: "#22c55e", bg: "bg-green-500" },
+                  { hex: "#eab308", bg: "bg-yellow-500" },
+                ].map(p => (
+                  <button
+                    key={p.hex}
+                    onClick={() => { updateVolProfileSettings({ volColor: p.hex }); }}
+                    className={`w-5 h-5 rounded-full ${p.bg} cursor-pointer hover:scale-110 active:scale-95 transition-all border ${
+                      (volProfileGlobalSettings.volColor || "#3b82f6") === p.hex ? "border-white ring-2 ring-blue-500" : "border-transparent"
+                    }`}
+                  />
+                ))}
+                <input
+                  type="color"
+                  value={volProfileGlobalSettings.volColor || (isLight ? "#2563eb" : "#3b82f6")}
+                  onChange={(e) => { updateVolProfileSettings({ volColor: e.target.value }); }}
+                  className="w-5 h-5 rounded cursor-pointer border-0 p-0 overflow-hidden shrink-0"
+                />
+              </div>
+            </div>
+
+            <div className="flex flex-col gap-1.5 border-t border-slate-500/10 pt-2.5">
+              <span className="font-bold text-[10.5px]">{language === "RU" ? "Цвет линии POC" : "POC Line Color"}</span>
+              <div className="flex items-center gap-2">
+                {[
+                  { hex: "#2563eb", bg: "bg-blue-600" },
+                  { hex: "#dc2626", bg: "bg-red-600" },
+                  { hex: "#ea580c", bg: "bg-orange-600" },
+                  { hex: "#16a34a", bg: "bg-green-600" },
+                  { hex: "#ca8a04", bg: "bg-yellow-600" },
+                ].map(p => (
+                  <button
+                    key={p.hex}
+                    onClick={() => { updateVolProfileSettings({ pocColor: p.hex }); }}
+                    className={`w-5 h-5 rounded-full ${p.bg} cursor-pointer hover:scale-110 active:scale-95 transition-all border ${
+                      (volProfileGlobalSettings.pocColor || (isLight ? "#2563eb" : "#3b82f6")) === p.hex ? "border-blue-500 ring-2 ring-amber-500" : "border-slate-500/30"
+                    }`}
+                  />
+                ))}
+                <input
+                  type="color"
+                  value={volProfileGlobalSettings.pocColor || (isLight ? "#2563eb" : "#3b82f6")}
+                  onChange={(e) => { updateVolProfileSettings({ pocColor: e.target.value }); }}
+                  className="w-5 h-5 rounded cursor-pointer border-0 p-0 overflow-hidden shrink-0"
+                />
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* Floating Long/Short Position Settings Overlay */}
+      {positionSettingsDrawingId !== null && (() => {
+        const selDrawing = drawings.find((d) => d.id === positionSettingsDrawingId);
+        if (!selDrawing || (selDrawing.type !== "long" && selDrawing.type !== "short")) return null;
+
+        return (
+          <div className={`absolute top-[60px] left-[60px] z-50 p-4 rounded-2xl border flex flex-col gap-3 font-sans text-xs shadow-2xl w-72 backdrop-blur-md transition-all duration-300 ${
+            isLight
+              ? "bg-white/95 border-slate-200/90 text-slate-800 shadow-slate-200/55"
+              : "bg-slate-950/90 border-white/10 text-white shadow-black/80"
+          }`}>
+            <div className="flex items-center justify-between border-b pb-2 border-slate-500/10">
+              <span className="font-extrabold text-[10.5px] uppercase tracking-wider font-mono">
+                {language === "RU" ? "Настройка позиции" : "Position Settings"}
+              </span>
+              <button
+                onClick={() => setPositionSettingsDrawingId(null)}
+                className="p-1 rounded-lg hover:bg-white/10 transition-colors cursor-pointer text-slate-400 hover:text-white"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="flex flex-col gap-1">
+              <span className="font-bold text-[10px] uppercase opacity-75">{language === "RU" ? "Размер депозита ($)" : "Deposit Size ($)"}</span>
+              <input
+                type="number"
+                value={selDrawing.deposit ?? positionGlobalSettings.deposit}
+                onChange={(e) => { updatePositionSettings({ deposit: parseFloat(e.target.value) || 0 }); }}
+                className={`px-2.5 py-1.5 text-xs rounded-lg border font-mono ${
+                  isLight ? "bg-slate-50 border-slate-200 text-slate-800" : "bg-slate-900 border-white/10 text-white"
+                }`}
+              />
+            </div>
+
+            <div className="flex flex-col gap-1">
+              <span className="font-bold text-[10px] uppercase opacity-75">{language === "RU" ? "Риск на сделку" : "Trade Risk"}</span>
+              <div className="flex gap-2">
+                <input
+                  type="number"
+                  step="0.1"
+                  value={selDrawing.risk ?? positionGlobalSettings.risk}
+                  onChange={(e) => { updatePositionSettings({ risk: parseFloat(e.target.value) || 0 }); }}
+                  className={`flex-1 px-2.5 py-1.5 text-xs rounded-lg border font-mono ${
+                    isLight ? "bg-slate-50 border-slate-200 text-slate-800" : "bg-slate-900 border-white/10 text-white"
+                  }`}
+                />
+                <div className="flex rounded-lg overflow-hidden border border-slate-500/10">
+                  <button
+                    onClick={() => updatePositionSettings({ riskType: "percent" })}
+                    className={`px-3 py-1 bg-transparent font-bold cursor-pointer transition-colors ${
+                      (selDrawing.riskType ?? positionGlobalSettings.riskType) === "percent"
+                        ? "bg-amber-500/20 text-amber-500"
+                        : "hover:bg-white/5 opacity-60"
+                    }`}
+                  >
+                    %
+                  </button>
+                  <button
+                    onClick={() => updatePositionSettings({ riskType: "cash" })}
+                    className={`px-3 py-1 bg-transparent font-bold cursor-pointer transition-colors ${
+                      (selDrawing.riskType ?? positionGlobalSettings.riskType) === "cash"
+                        ? "bg-amber-500/20 text-amber-500"
+                        : "hover:bg-white/5 opacity-60"
+                    }`}
+                  >
+                    $
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-2 border-t border-slate-500/10 pt-2.5">
+              <div className="flex flex-col gap-1">
+                <span className="font-bold text-[10px] uppercase opacity-75">{language === "RU" ? "Мейкер % (Лимит)" : "Maker % (Limit)"}</span>
+                <input
+                  type="number"
+                  step="0.005"
+                  value={selDrawing.makerFee !== undefined ? selDrawing.makerFee : positionGlobalSettings.makerFee}
+                  onChange={(e) => { updatePositionSettings({ makerFee: parseFloat(e.target.value) || 0 }); }}
+                  className={`px-2.5 py-1.5 text-xs rounded-lg border font-mono ${
+                    isLight ? "bg-slate-50 border-slate-200 text-slate-800" : "bg-slate-900 border-white/10 text-white"
+                  }`}
+                />
+              </div>
+              <div className="flex flex-col gap-1">
+                <span className="font-bold text-[10px] uppercase opacity-75">{language === "RU" ? "Тейкер % (Рынок)" : "Taker % (Market)"}</span>
+                <input
+                  type="number"
+                  step="0.005"
+                  value={selDrawing.takerFee !== undefined ? selDrawing.takerFee : positionGlobalSettings.takerFee}
+                  onChange={(e) => { updatePositionSettings({ takerFee: parseFloat(e.target.value) || 0 }); }}
+                  className={`px-2.5 py-1.5 text-xs rounded-lg border font-mono ${
+                    isLight ? "bg-slate-50 border-slate-200 text-slate-800" : "bg-slate-900 border-white/10 text-white"
+                  }`}
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-2">
+              <div className="flex flex-col gap-1">
+                <span className="text-[9px] text-[#8a94a6]">{language === "RU" ? "Вход:" : "Entry:"}</span>
+                <select
+                  value={selDrawing.entryFeeType ?? positionGlobalSettings.entryFeeType}
+                  onChange={(e) => updatePositionSettings({ entryFeeType: e.target.value as any })}
+                  className={`px-1.5 py-1 rounded text-[10px] outline-none border ${
+                    isLight ? "bg-slate-50 border-slate-200 text-slate-800" : "bg-slate-900 border-white/10 text-white"
+                  }`}
+                >
+                  <option value="maker">Limit (Maker)</option>
+                  <option value="taker">Market (Taker)</option>
+                </select>
+              </div>
+              <div className="flex flex-col gap-1">
+                <span className="text-[9px] text-[#8a94a6]">{language === "RU" ? "Выход:" : "Exit:"}</span>
+                <select
+                  value={selDrawing.exitFeeType ?? positionGlobalSettings.exitFeeType}
+                  onChange={(e) => updatePositionSettings({ exitFeeType: e.target.value as any })}
+                  className={`px-1.5 py-1 rounded text-[10px] outline-none border ${
+                    isLight ? "bg-slate-50 border-slate-200 text-slate-800" : "bg-slate-900 border-white/10 text-white"
+                  }`}
+                >
+                  <option value="maker">Limit (Maker)</option>
+                  <option value="taker">Market (Taker)</option>
+                </select>
+              </div>
+            </div>
+
+            <div className="flex flex-col gap-1 border-t border-slate-500/10 pt-2.5">
+              <div className="flex justify-between font-bold text-[10.5px]">
+                <span>{language === "RU" ? "Размер текста" : "Text Font Size"}</span>
+                <span className="font-mono text-amber-500">{selDrawing.fontSize ?? positionGlobalSettings.fontSize}px</span>
+              </div>
+              <input
+                type="range"
+                min="8"
+                max="14"
+                step="1"
+                value={selDrawing.fontSize ?? positionGlobalSettings.fontSize}
+                onChange={(e) => { updatePositionSettings({ fontSize: parseInt(e.target.value) || 10 }); }}
+                className={`w-full accent-blue-600 rounded-lg h-1 ${isLight ? "bg-slate-200" : "bg-slate-800"}`}
+              />
+            </div>
+
+            <div className="flex flex-col gap-1 border-t border-slate-500/10 pt-2.5">
+              <div className="flex justify-between font-bold text-[10.5px]">
+                <span>{language === "RU" ? "Прозрачность зон" : "Zones Opacity"}</span>
+                <span className="font-mono text-amber-500">
+                  {Math.round((selDrawing.opacity !== undefined ? selDrawing.opacity : positionGlobalSettings.opacity) * 100)}%
+                </span>
+              </div>
+              <input
+                type="range"
+                min="0.05"
+                max="0.8"
+                step="0.05"
+                value={selDrawing.opacity !== undefined ? selDrawing.opacity : positionGlobalSettings.opacity}
+                onChange={(e) => { updatePositionSettings({ opacity: parseFloat(e.target.value) }); }}
+                className={`w-full accent-blue-600 rounded-lg h-1 ${isLight ? "bg-slate-200" : "bg-slate-800"}`}
+              />
+            </div>
+
+            <div className="grid grid-cols-2 gap-2 border-t border-slate-500/10 pt-2.5 pb-1">
+              <div className="flex flex-col gap-1">
+                <span className="font-bold text-[9px] uppercase opacity-75">{language === "RU" ? "Цвет цели" : "Target Color"}</span>
+                <div className="flex items-center gap-1.5">
+                  <input
+                    type="color"
+                    value={selDrawing.colorTarget || positionGlobalSettings.colorTarget || "#10b981"}
+                    onChange={(e) => { updatePositionSettings({ colorTarget: e.target.value }); }}
+                    className="w-6 h-6 rounded cursor-pointer border-0 p-0 overflow-hidden shrink-0"
+                  />
+                  <span className="text-[10px] text-zinc-500">Pick</span>
+                </div>
+              </div>
+              <div className="flex flex-col gap-1">
+                <span className="font-bold text-[9px] uppercase opacity-75">{language === "RU" ? "Цвет стопа" : "Stop Color"}</span>
+                <div className="flex items-center gap-1.5">
+                  <input
+                    type="color"
+                    value={selDrawing.colorStop || positionGlobalSettings.colorStop || "#ef4444"}
+                    onChange={(e) => { updatePositionSettings({ colorStop: e.target.value }); }}
+                    className="w-6 h-6 rounded cursor-pointer border-0 p-0 overflow-hidden shrink-0"
+                  />
+                  <span className="text-[10px] text-zinc-500">Pick</span>
+                </div>
+              </div>
             </div>
           </div>
         );

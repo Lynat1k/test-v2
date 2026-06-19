@@ -3,6 +3,28 @@
 > Claude обновляет этот файл в КОНЦЕ каждой задачи. Новые записи — сверху.
 > Формат записи строго по шаблону. Это память между чатами.
 
+### [2026-06-19] Фаза 13: Перенос объектов рисования и иконок из эталона PROCLUSTER3
+- **Компоненты**: `frontend/src/chart2d/utils/drawingRenderer.ts`, `frontend/src/chart2d/ClusterChart.tsx`
+- **Что перенесено:**
+  - **Long/Short Position (drawingRenderer.ts)**: Добавлены типы `"long"` и `"short"` в `DrawingType`, новые поля (`deposit`, `risk`, `riskType`, `colorTarget`, `colorStop`, `makerFee`, `takerFee`, `entryFeeType`, `exitFeeType`, `stopPrice`, `opacity`, `volColor`, `pocColor`, `extendPoc`) в `DrawingItem`. Полный рендер блока Long/Short с Canvas-расчётами позиции (риск/депозит, кол-во, комиссии, net PnL, соотношение риск/прибыль), цветными зонами (Цель/Стоп), badge-лейблами на ценах, i18n RU/EN.
+  - **Двойной клик по объектам рисования (ClusterChart.tsx)**: `handleDoubleClick` — при dblclick по `volume`/`long`/`short` объекту открывает соответствующее окно настроек. Обработчик привязан к `onDoubleClick` на контейнере.
+  - **Окно настройки профиля объема (Volume Profile Settings)**: Чекбокс "Продлевать POC до касания" (`extendPoc`), ползунок прозрачности гистограммы, две цвет-пикера (гистограмма + POC линия). Сохранение в `localStorage` (`procluster_volume_profile_settings`). Все настройки применяются ко всем volume-рисункам.
+  - **Окно настройки Long/Short позиции (Position Settings)**: Размер депозита ($), риск на сделку (%/$), комиссии мейкер/тейкер, тип входа/выхода, размер текста (px), прозрачность зон (%), цвет цели/стопа. Сохранение в `localStorage` (`procluster_position_settings`). Настройки применяются к текущему или ко всем long/short рисункам.
+  - **Обновлённая иконка параллельного канала**: `TrendingUp` → `Equal` (lucide-react).
+  - **Кнопки Long/Short на панели инструментов**: Кастомные SVG-иконки с "L" и "S" (TrendingUp/TrendingDown как fallback), тултипы RU/EN.
+  - **Hit testing и handles для Long/Short**: bounding box включает стоп-зону; handles на entry (x2), target (center), stop (center).
+  - **Custom volColor/pocColor/opacity/extendPoc для Volume Profile**: `hexToRgba()` конвертер, цвета применяются к гистограммам и POC линии, POC продлевается до касания свечи.
+  - **`language` в RenderContext**: передаётся в `drawDrawingObjects` для локализации надписей (RU/EN) на Long/Short badge-ах.
+  - **Дедуп названий индикаторов** (проверено): `ind.label.replace("(PROCLUSTER) ", "")` уже был в PROCLUSTER2 — дополнительных изменений не требуется.
+- **Затронутые файлы**:
+  - `frontend/src/chart2d/utils/drawingRenderer.ts` (+long/short типы +поля +рендер +handles +vol color/opacity/extendPoc +language)
+  - `frontend/src/chart2d/ClusterChart.tsx` (+imp: TrendingDown, Equal; +state: positionSettingsDrawingId, volumeSettingsDrawingId, positionGlobalSettings, volProfileGlobalSettings; +updatePositionSettings +updateVolProfileSettings; +handleDoubleClick; +hit test long/short; +long/short handler drag; +toolbar long/short +channel=Equal; +onDoubleClick binding; +language в render; +position +volume модалки)
+- **Не тронуто**: бэкенд, tier_policies, индикаторные пресеты (IndicatorsModal/server endpoints /api/indicator/presets).
+- **Тесты/проверки**:
+  - `npx tsc --noEmit`: PASS (0 errors)
+  - `npx vite build`: PASS (548ms)
+- **Не коммитить** — жду скрины.
+
 ### [2026-06-18] Фаза 12: Стилизация страницы выбора тарифов по эталону design-src (2-я итерация)
 - **Компонент**: `frontend/src/components/UserProfile.tsx`
 - **Что изменено:**

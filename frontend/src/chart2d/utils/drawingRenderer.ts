@@ -7,7 +7,9 @@ export type DrawingType =
   | "fibonacci"
   | "ruler"
   | "text"
-  | "volume";
+  | "volume"
+  | "long"
+  | "short";
 
 export interface DrawingItem {
   id: number;
@@ -21,6 +23,20 @@ export interface DrawingItem {
   offsetPrice?: number;
   color?: string;
   fontSize?: number;
+  deposit?: number;
+  risk?: number;
+  riskType?: "percent" | "cash";
+  colorTarget?: string;
+  colorStop?: string;
+  makerFee?: number;
+  takerFee?: number;
+  entryFeeType?: "maker" | "taker";
+  exitFeeType?: "maker" | "taker";
+  stopPrice?: number;
+  opacity?: number;
+  volColor?: string;
+  pocColor?: string;
+  extendPoc?: boolean;
 }
 
 interface RenderContext {
@@ -46,6 +62,7 @@ interface RenderContext {
   candleWidth: number;
   candleSpacing: number;
   layer?: "background" | "foreground";
+  language?: string;
 }
 
 export function drawDrawingObjects(ctx: CanvasRenderingContext2D, renderParams: RenderContext) {
@@ -64,6 +81,7 @@ export function drawDrawingObjects(ctx: CanvasRenderingContext2D, renderParams: 
     candleWidth,
     candleSpacing,
     layer = "foreground",
+    language = "EN",
   } = renderParams;
 
   const candleWidthSpacing = candleWidth + candleSpacing;
@@ -230,6 +248,200 @@ export function drawDrawingObjects(ctx: CanvasRenderingContext2D, renderParams: 
       ctx.fill();
       ctx.restore();
     }
+    else if (d.type === "long" || d.type === "short") {
+      ctx.save();
+
+      const entry = d.startPrice;
+      const target = d.endPrice;
+      const defaultStop = d.type === "long"
+        ? entry - (target - entry)
+        : entry + (entry - target);
+      const stop = d.stopPrice !== undefined ? d.stopPrice : defaultStop;
+
+      const yEntry = priceToY(entry);
+      const yTarget = priceToY(target);
+      const yStop = priceToY(stop);
+
+      const xLeft = Math.min(x1, x2);
+      const xRight = Math.max(x1, x2);
+      const width = xRight - xLeft;
+
+      const op = d.opacity !== undefined ? d.opacity : 0.22;
+      const fSize = d.fontSize || 10;
+
+      const depositVal = d.deposit !== undefined ? d.deposit : 10000;
+      const riskVal = d.risk !== undefined ? d.risk : 1;
+      const rType = d.riskType || "percent";
+      const lang = language || "EN";
+
+      const makerFeeDec = (d.makerFee !== undefined ? d.makerFee : 0.02) / 100;
+      const takerFeeDec = (d.takerFee !== undefined ? d.takerFee : 0.05) / 100;
+      const entryType = d.entryFeeType || "maker";
+      const exitType = d.exitFeeType || "taker";
+
+      const entryFeeRate = entryType === "maker" ? makerFeeDec : takerFeeDec;
+      const exitFeeRate = exitType === "maker" ? makerFeeDec : takerFeeDec;
+
+      const stopDistance = Math.max(0.00001, Math.abs(stop - entry));
+      const targetDistance = Math.max(0.00001, Math.abs(target - entry));
+
+      const riskCash = rType === "percent" ? depositVal * (riskVal / 100) : riskVal;
+
+      const positionQty = riskCash / (stopDistance + (entry * entryFeeRate) + (stop * exitFeeRate));
+
+      const entryFeeCash = positionQty * entry * entryFeeRate;
+      const targetExitFeeCash = positionQty * target * makerFeeDec;
+
+      const netProfit = (positionQty * targetDistance) - entryFeeCash - targetExitFeeCash;
+      const riskRewardRatio = targetDistance / stopDistance;
+
+      const pctTarget = (targetDistance / entry) * 100;
+      const pctStop = (stopDistance / entry) * 100;
+
+      const targetBg = d.colorTarget || (isLight ? "rgba(16, 185, 129, 0.22)" : "rgba(16, 185, 129, 0.25)");
+      const stopBg = d.colorStop || (isLight ? "rgba(239, 68, 68, 0.22)" : "rgba(239, 68, 68, 0.25)");
+
+      ctx.globalAlpha = op;
+      ctx.fillStyle = d.type === "long" ? targetBg : stopBg;
+      ctx.fillRect(xLeft, Math.min(yTarget, yEntry), width, Math.abs(yTarget - yEntry));
+
+      ctx.fillStyle = d.type === "long" ? stopBg : targetBg;
+      ctx.fillRect(xLeft, Math.min(yEntry, yStop), width, Math.abs(yEntry - yStop));
+      ctx.globalAlpha = 1.0;
+
+      ctx.lineWidth = 1.5;
+
+      ctx.strokeStyle = d.type === "long" ? "#10b981" : "#ef4444";
+      ctx.beginPath();
+      ctx.moveTo(xLeft, yTarget);
+      ctx.lineTo(xRight, yTarget);
+      ctx.stroke();
+
+      ctx.strokeStyle = d.type === "long" ? "#ef4444" : "#10b981";
+      ctx.beginPath();
+      ctx.moveTo(xLeft, yStop);
+      ctx.lineTo(xRight, yStop);
+      ctx.stroke();
+
+      ctx.strokeStyle = isLight ? "#2563eb" : "#3b82f6";
+      ctx.lineWidth = 2.0;
+      ctx.beginPath();
+      ctx.moveTo(xLeft, yEntry);
+      ctx.lineTo(xRight, yEntry);
+      ctx.stroke();
+
+      const priceStep = activePair.priceStep || 0.01;
+      const stepStr = priceStep.toString();
+      const dotIdx = stepStr.indexOf(".");
+      const priceStepDecimals = dotIdx === -1 ? 0 : Math.min(8, stepStr.length - dotIdx - 1);
+
+      const qtyStr = positionQty >= 1000
+        ? positionQty.toFixed(0)
+        : positionQty >= 100
+          ? positionQty.toFixed(1)
+          : positionQty >= 1
+            ? positionQty.toFixed(3)
+            : positionQty.toFixed(6);
+
+      const targetText = lang === "RU"
+        ? `Цель: ${target.toFixed(priceStepDecimals)} (+${pctTarget.toFixed(2)}%) Сумма: ${netProfit.toFixed(2)}`
+        : `Target: ${target.toFixed(priceStepDecimals)} (+${pctTarget.toFixed(2)}%) PnL: ${netProfit.toFixed(2)}`;
+
+      const stopText = lang === "RU"
+        ? `Стоп: ${stop.toFixed(priceStepDecimals)} (-${pctStop.toFixed(2)}%) Сумма: -${riskCash.toFixed(2)}`
+        : `Stop: ${stop.toFixed(priceStepDecimals)} (-${pctStop.toFixed(2)}%) PnL: -${riskCash.toFixed(2)}`;
+
+      const middleLine1 = lang === "RU" ? `Кол-во: ${qtyStr}` : `Qty: ${qtyStr}`;
+      const middleLine2 = lang === "RU"
+        ? `Соотношение риск/прибыль: ${riskRewardRatio.toFixed(2)}`
+        : `Risk/Reward Ratio: ${riskRewardRatio.toFixed(2)}`;
+
+      const drawSolidBadge = (txt: string, x: number, y: number, bgColor: string, textColor: string, fontSize: number) => {
+        ctx.save();
+        ctx.font = `bold ${fontSize}px sans-serif`;
+        ctx.textBaseline = "middle";
+        ctx.textAlign = "center";
+
+        const metrics = ctx.measureText(txt);
+        const txtW = metrics.width;
+        const padX = 10;
+        const padY = 5;
+        const bgW = txtW + padX * 2;
+        const bgH = fontSize + padY * 2;
+
+        const bgX = x - bgW / 2;
+        const bgY = y - bgH / 2;
+
+        ctx.fillStyle = bgColor;
+        ctx.beginPath();
+        if ((ctx as any).roundRect) {
+          (ctx as any).roundRect(bgX, bgY, bgW, bgH, 4);
+        } else {
+          ctx.rect(bgX, bgY, bgW, bgH);
+        }
+        ctx.fill();
+
+        ctx.fillStyle = textColor;
+        ctx.fillText(txt, x, y);
+        ctx.restore();
+      };
+
+      const drawTwoLineBadge = (
+        l1: string, l2: string,
+        x: number, y: number,
+        bgColor: string, borderColor: string, textColor: string, fontSize: number
+      ) => {
+        ctx.save();
+        ctx.font = `bold ${fontSize}px sans-serif`;
+        ctx.textBaseline = "top";
+        ctx.textAlign = "center";
+
+        const m1 = ctx.measureText(l1);
+        const m2 = ctx.measureText(l2);
+        const txtW = Math.max(m1.width, m2.width);
+
+        const padX = 12;
+        const padY = 7;
+        const lineGap = 4;
+        const bgW = txtW + padX * 2;
+        const bgH = fontSize * 2 + lineGap + padY * 2;
+
+        const bgX = x - bgW / 2;
+        const bgY = y - bgH / 2;
+
+        ctx.fillStyle = bgColor;
+        ctx.strokeStyle = borderColor;
+        ctx.lineWidth = 1.5;
+
+        ctx.beginPath();
+        if ((ctx as any).roundRect) {
+          (ctx as any).roundRect(bgX, bgY, bgW, bgH, 6);
+        } else {
+          ctx.rect(bgX, bgY, bgW, bgH);
+        }
+        ctx.fill();
+        ctx.stroke();
+
+        ctx.fillStyle = textColor;
+        ctx.fillText(l1, x, bgY + padY);
+        ctx.fillText(l2, x, bgY + padY + fontSize + lineGap);
+        ctx.restore();
+      };
+
+      const centerX = xLeft + width / 2;
+
+      const targetBadgeColor = d.type === "long" ? "#10b981" : "#ef4444";
+      drawSolidBadge(targetText, centerX, yTarget, targetBadgeColor, "#ffffff", fSize + 1);
+
+      const stopBadgeColor = d.type === "long" ? "#ef4444" : "#10b981";
+      drawSolidBadge(stopText, centerX, yStop, stopBadgeColor, "#ffffff", fSize + 1);
+
+      const middleBg = "rgba(13, 148, 136, 0.95)";
+      const middleBorder = isLight ? "rgba(13, 148, 136, 1.0)" : "rgba(20, 184, 166, 0.4)";
+      drawTwoLineBadge(middleLine1, middleLine2, centerX, yEntry, middleBg, middleBorder, "#ffffff", fSize + 1.5);
+
+      ctx.restore();
+    }
     else if (d.type === "channel") {
       ctx.save();
       const isStaging = d.stage === 1;
@@ -367,6 +579,18 @@ export function drawDrawingObjects(ctx: CanvasRenderingContext2D, renderParams: 
 
         ctx.save();
 
+        const hexToRgba = (hexColor: string, alpha: number) => {
+          if (hexColor.startsWith("rgba")) return hexColor;
+          const cleanHex = hexColor.replace("#", "");
+          const r = parseInt(cleanHex.substring(0, 2), 16) || 59;
+          const g = parseInt(cleanHex.substring(2, 4), 16) || 130;
+          const b = parseInt(cleanHex.substring(4, 6), 16) || 246;
+          return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+        };
+
+        const baseColor = d.volColor || (isLight ? "#2563eb" : "#3b82f6");
+        const customOpacity = d.opacity !== undefined ? d.opacity : (isLight ? 0.18 : 0.28);
+
         const vaY1 = bMinY + lowIdx * bHeightStep;
         const vaY2 = bMinY + (highIdx + 1) * bHeightStep;
         ctx.fillStyle = isLight ? "rgba(59, 130, 246, 0.02)" : "rgba(59, 130, 246, 0.03)";
@@ -381,9 +605,9 @@ export function drawDrawingObjects(ctx: CanvasRenderingContext2D, renderParams: 
           const isInValueArea = b >= lowIdx && b <= highIdx;
 
           if (isInValueArea) {
-            ctx.fillStyle = isLight ? "rgba(59, 130, 246, 0.18)" : "rgba(59, 130, 246, 0.28)";
+            ctx.fillStyle = hexToRgba(baseColor, customOpacity);
           } else {
-            ctx.fillStyle = isLight ? "rgba(148, 163, 184, 0.06)" : "rgba(148, 163, 184, 0.09)";
+            ctx.fillStyle = hexToRgba(baseColor, customOpacity * 0.3);
           }
 
           ctx.fillRect(minX, binY, drawW, bHeightStep + 0.25);
@@ -410,14 +634,32 @@ export function drawDrawingObjects(ctx: CanvasRenderingContext2D, renderParams: 
         ctx.fillText("VAL (70%)", maxX - 65, vaY2 + 9);
 
         const pocY = bMinY + (pocIdx + 0.5) * bHeightStep;
-        ctx.strokeStyle = isLight ? "#2563eb" : "#3b82f6";
+
+        let extendEndX = maxX;
+        if (d.extendPoc) {
+          const pocPrice = maxPrice - (pocIdx + 0.5) * priceStep;
+          const candleWidthSpacing = candleWidth + candleSpacing;
+          for (let cIdx = endIndex + 1; cIdx < candles.length; cIdx++) {
+            const c = candles[cIdx]!;
+            const candleX = margin.left + cIdx * candleWidthSpacing + candleWidth / 2;
+            extendEndX = candleX;
+            if (pocPrice >= c.low && pocPrice <= c.high) {
+              break;
+            }
+            if (cIdx === candles.length - 1) {
+              extendEndX = visibleScrollLeft + viewportWidth - margin.right;
+            }
+          }
+        }
+
+        ctx.strokeStyle = d.pocColor || (isLight ? "#2563eb" : "#3b82f6");
         ctx.lineWidth = 2.2;
         ctx.beginPath();
         ctx.moveTo(minX, pocY);
-        ctx.lineTo(maxX, pocY);
+        ctx.lineTo(extendEndX, pocY);
         ctx.stroke();
 
-        ctx.fillStyle = isLight ? "#1d4ed8" : "#60a5fa";
+        ctx.fillStyle = d.pocColor || (isLight ? "#1d4ed8" : "#60a5fa");
         ctx.font = "bold 9px 'JetBrains Mono', monospace";
         ctx.fillText("POC", minX + 5, pocY - 4);
 
@@ -434,7 +676,7 @@ export function drawDrawingObjects(ctx: CanvasRenderingContext2D, renderParams: 
       const x1 = indexToX(d.startIdx);
       const x2 = indexToX(d.endIdx);
 
-      if (d.type !== "horizontal" && d.type !== "channel") {
+      if (d.type !== "horizontal" && d.type !== "channel" && d.type !== "long" && d.type !== "short") {
         ctx.save();
         ctx.strokeStyle = isLight ? "#2563eb" : "#3b82f6";
         ctx.lineWidth = 1.2;
@@ -459,6 +701,17 @@ export function drawDrawingObjects(ctx: CanvasRenderingContext2D, renderParams: 
           { x: x2, y: y2 },
           { x: x2, y: y2_offset },
           { x: x1, y: y1_offset },
+        ];
+      } else if (d.type === "long" || d.type === "short") {
+        const yEntry = priceToY(d.startPrice);
+        const yTarget = priceToY(d.endPrice);
+        const yStop = priceToY(d.stopPrice !== undefined ? d.stopPrice : (d.type === "long" ? (d.startPrice - (d.endPrice - d.startPrice)) : (d.startPrice + (d.startPrice - d.endPrice))));
+
+        handles = [
+          { x: x1, y: yEntry },
+          { x: x2, y: yEntry },
+          { x: (x1 + x2) / 2, y: yTarget },
+          { x: (x1 + x2) / 2, y: yStop },
         ];
       }
 
