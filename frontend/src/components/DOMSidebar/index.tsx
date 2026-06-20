@@ -1,36 +1,126 @@
+import { useRef, useState, useEffect } from 'react'
+import { motion, AnimatePresence } from 'motion/react'
+import { ChevronDown } from 'lucide-react'
 import { useChartControls } from '@/contexts/ChartControlsContext'
 import { useTheme } from '@/contexts/ThemeContext'
+import { useUserSettings } from '@/contexts/UserSettingsContext'
 import { useDOM } from '@/hooks/useDOM'
+import { useTranslation } from '@/i18n'
 import { FearGreedPanel } from './FearGreedPanel'
 import { OrderBookTable } from './OrderBookTable'
-import { useTranslation } from '@/i18n'
+import { buildDOMCompressionLevels, getDomBaseStep, aggregateDOMLevels } from './domCompression'
 
 interface DOMSidebarProps {
   collapsed: boolean
 }
 
+const DOM_COMPRESSION_KEY = 'dom_compression_level'
+
 export function DOMSidebar({ collapsed }: DOMSidebarProps) {
   const { t } = useTranslation()
   const { theme } = useTheme()
   const isLight = theme === 'light'
-  const { getSlot, activeSlot } = useChartControls()
+  const { getSlot, activeSlot, getTickerConfig } = useChartControls()
   const slot = getSlot(activeSlot)
+  const { getSetting, setSetting } = useUserSettings()
+
+  const compressionIdx = getSetting<number>(DOM_COMPRESSION_KEY, 0)
+  const tickerConfig = getTickerConfig()
+  const baseStep = getDomBaseStep(tickerConfig, slot.market)
+  const compressionLevels = buildDOMCompressionLevels(baseStep)
+  const activeStep = compressionLevels[compressionIdx] ?? baseStep
 
   const { levels, lastPrice, fng, connected } = useDOM({
     symbol: slot.symbol,
     market: slot.market,
   })
 
+  // Apply client-side aggregation only when a non-base level is selected.
+  const displayLevels = compressionIdx === 0
+    ? levels
+    : aggregateDOMLevels(levels, activeStep)
+
+  const [dropdownOpen, setDropdownOpen] = useState(false)
+  const dropdownRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!dropdownOpen) return
+    function onClickOutside(e: MouseEvent) {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
+        setDropdownOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', onClickOutside)
+    return () => document.removeEventListener('mousedown', onClickOutside)
+  }, [dropdownOpen])
+
+  function formatStep(step: number): string {
+    return step % 1 === 0 ? `$${step}` : `$${step.toFixed(Math.max(0, -Math.floor(Math.log10(step))))}`
+  }
+
   return (
     <>
-      {/* Card content — hidden when collapsed */}
       {!collapsed && (
         <div className={`w-[280px] h-full flex flex-col rounded-2xl p-4 shadow-2xl ${isLight ? 'bg-white border border-slate-200' : 'liquid-glass-card'}`}>
           <div className={`flex items-center justify-between px-2 py-1.5 border-b ${isLight ? 'border-slate-200' : 'border-white/5'}`}>
             <span className={`text-[10px] font-mono uppercase tracking-wider ${isLight ? 'text-slate-500' : 'text-white/40'}`}>
               {t('terminal.dom')}
             </span>
-            <div className="flex items-center gap-1.5">
+
+            <div className="flex items-center gap-2">
+              {/* DOM compression selector */}
+              <div className="relative" ref={dropdownRef}>
+                <button
+                  onClick={() => setDropdownOpen(v => !v)}
+                  className="flex items-center gap-1 px-2 py-1 rounded-lg liquid-glass-button text-xs font-bold cursor-pointer select-none"
+                  title={t('chart.compression')}
+                >
+                  <span className="font-mono text-[10px] text-slate-300">
+                    {formatStep(activeStep)}
+                  </span>
+                  <ChevronDown className={`w-3 h-3 text-slate-400 transition-transform ${dropdownOpen ? 'rotate-180' : ''}`} />
+                </button>
+
+                <AnimatePresence>
+                  {dropdownOpen && (
+                    <motion.div
+                      initial={{ opacity: 0, y: -4, scale: 0.97 }}
+                      animate={{ opacity: 1, y: 0, scale: 1 }}
+                      exit={{ opacity: 0, y: -4, scale: 0.97 }}
+                      transition={{ duration: 0.12 }}
+                      className={`absolute right-0 top-full mt-1 z-[99999] rounded-xl p-1.5 min-w-[120px] ${
+                        isLight
+                          ? 'bg-white border border-slate-300 text-slate-900 shadow-2xl'
+                          : 'muddy-glass-popover text-slate-100'
+                      }`}
+                    >
+                      {compressionLevels.map((step, idx) => (
+                        <button
+                          key={step}
+                          onClick={() => {
+                            setSetting(DOM_COMPRESSION_KEY, idx)
+                            setDropdownOpen(false)
+                          }}
+                          className={`w-full flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-bold text-left transition ${
+                            compressionIdx === idx
+                              ? 'bg-amber-500/15 text-amber-400'
+                              : isLight
+                                ? 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 cursor-pointer'
+                                : 'text-slate-300 hover:bg-white/5 hover:text-white cursor-pointer'
+                          }`}
+                        >
+                          <span className="font-mono text-[11px]">{formatStep(step)}</span>
+                          {idx === 0 && (
+                            <span className="text-[9px] text-amber-500/70">base</span>
+                          )}
+                        </button>
+                      ))}
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </div>
+
+              {/* WebSocket connection indicator */}
               <div className={`w-1.5 h-1.5 rounded-full ${connected ? 'bg-green-400' : 'bg-red-400'}`} />
             </div>
           </div>
@@ -40,7 +130,7 @@ export function DOMSidebar({ collapsed }: DOMSidebarProps) {
           </div>
 
           <div className="flex-1 min-h-0">
-            <OrderBookTable levels={levels} lastPrice={lastPrice} />
+            <OrderBookTable levels={displayLevels} lastPrice={lastPrice} />
           </div>
         </div>
       )}
