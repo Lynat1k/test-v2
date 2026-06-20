@@ -74,8 +74,10 @@ export function DOMSidebar({ collapsed }: DOMSidebarProps) {
             <FearGreedPanel data={fng} />
           </div>
 
-          {/* Section header: "СТАКАН" title + compression selector */}
-          <div className="flex items-center justify-between mt-2.5 mb-1 opacity-95 select-none px-1 shrink-0">
+          {/* Section header: "СТАКАН" title + compression selector.
+              relative z-[50] creates a stacking context above OrderBookTable (z-auto),
+              so the absolute dropdown renders on top and captures pointer events. */}
+          <div className="relative z-[50] flex items-center justify-between mt-2.5 mb-1 select-none px-1 shrink-0">
             <span className={`text-[10px] font-extrabold uppercase tracking-widest font-mono ${isLight ? 'text-slate-600' : 'text-amber-500/90'}`}>
               {t('terminal.dom')}
             </span>
@@ -101,10 +103,10 @@ export function DOMSidebar({ collapsed }: DOMSidebarProps) {
                     animate={{ opacity: 1, y: 0, scale: 1 }}
                     exit={{ opacity: 0, y: -4, scale: 0.97 }}
                     transition={{ duration: 0.12 }}
-                    className={`absolute right-0 top-full mt-1 z-[99999] rounded-xl p-1.5 min-w-[120px] ${
+                    className={`absolute right-0 top-full mt-1 z-[99999] rounded-xl p-1.5 min-w-[120px] shadow-2xl ${
                       isLight
-                        ? 'bg-white border border-slate-300 text-slate-900 shadow-2xl'
-                        : 'muddy-glass-popover text-slate-100'
+                        ? 'bg-white border border-slate-300 text-slate-900'
+                        : 'bg-[#0d111d] border border-white/10 text-slate-100'
                     }`}
                   >
                     {compressionLevels.map((step, idx) => (
