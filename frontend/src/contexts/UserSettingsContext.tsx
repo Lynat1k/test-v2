@@ -19,14 +19,13 @@ function readLocal(): Record<string, any> {
   } catch { return {} }
 }
 
-function writeLocal(settings: Record<string, any>) {
-  localStorage.setItem(LS_KEY, JSON.stringify(settings))
+function writeLocal(data: Record<string, any>) {
+  try { localStorage.setItem(LS_KEY, JSON.stringify(data)) } catch {}
 }
 
 export function UserSettingsProvider({ children }: { children: ReactNode }) {
   const { user } = useAuthContext()
-  const [settings, setSettings] = useState<Record<string, any>>(() => user ? {} : readLocal())
-  // Ref always holds the latest settings so the async save timer never reads stale closure values.
+  const [settings, setSettings] = useState<Record<string, any>>(() => readLocal())
   const settingsRef = useRef<Record<string, any>>(settings)
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const dirtyRef = useRef(false)
@@ -57,9 +56,9 @@ export function UserSettingsProvider({ children }: { children: ReactNode }) {
         if (hasLocal) {
           try {
             await apiPutSettings(JSON.stringify(merged))
-            writeLocal({})  // clear localStorage only after successful PUT
+            writeLocal({})
           } catch {
-            // PUT failed — keep localStorage intact as backup for next load
+            // keep localStorage intact as backup
           }
         }
       } catch {
@@ -70,33 +69,32 @@ export function UserSettingsProvider({ children }: { children: ReactNode }) {
     })()
   }, [user])
 
-  // flushSave reads settingsRef (not the closed-over state) so the 500ms timer
-  // always persists the value that was actually written, not a stale snapshot.
+  // Debounced server sync for auth users only.
   const flushSave = useCallback(() => {
+    if (!user) return
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
     saveTimerRef.current = setTimeout(async () => {
       if (!dirtyRef.current) return
       dirtyRef.current = false
-      const current = settingsRef.current
-      if (user) {
-        try { await apiPutSettings(JSON.stringify(current)) } catch { /* retry next change */ }
-      } else {
-        writeLocal(current)
-      }
+      try { await apiPutSettings(JSON.stringify(settingsRef.current)) } catch {}
     }, 500)
-  }, [user]) // `settings` removed from deps — we use the ref instead
+  }, [user])
 
   useEffect(() => { return () => { if (saveTimerRef.current) clearTimeout(saveTimerRef.current) } }, [])
 
   const setSetting = useCallback((key: string, value: any) => {
-    setSettings(prev => {
-      const next = { ...prev, [key]: value }
-      settingsRef.current = next   // sync ref immediately so flushSave reads the new value
-      dirtyRef.current = true
-      setTimeout(flushSave, 0)
-      return next
-    })
-  }, [flushSave])
+    // Read from ref (always current) — avoids stale-prev risk in Concurrent Mode.
+    const next = { ...settingsRef.current, [key]: value }
+    settingsRef.current = next
+    dirtyRef.current = true
+    setSettings(next)
+    // Immediate localStorage write: guest persistence + auth backup.
+    writeLocal(next)
+    // Auth users additionally sync to server with debounce.
+    if (user) {
+      flushSave()
+    }
+  }, [user, flushSave])
 
   const getSetting = useCallback(<T = any>(key: string, fallback?: T): T => {
     return (settings[key] ?? fallback) as T
