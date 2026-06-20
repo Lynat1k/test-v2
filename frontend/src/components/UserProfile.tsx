@@ -50,6 +50,9 @@ export function UserProfile({ onClose }: Props) {
   const [pwError, setPwError] = useState('')
   const [pwSuccess, setPwSuccess] = useState('')
 
+  const pricePro = Number(localStorage.getItem('procluster_price_pro')) || 19
+  const priceVip = Number(localStorage.getItem('procluster_price_vip')) || 49
+
   useEffect(() => {
     let cancelled = false
     ;(async () => {
@@ -429,7 +432,7 @@ export function UserProfile({ onClose }: Props) {
             userRole={tier} t={t}
           />
           <PlanCard
-            name="Pro" price="$19" desc={t('profile.planProDesc')} isActive={tier === 'pro'} popular
+            name="Pro" price={`$${pricePro}`} desc={t('profile.planProDesc')} isActive={tier === 'pro'} popular
             charts={cardValues('pro')?.charts ?? 2}
             candles={cardValues('pro')?.candles ?? '1400'}
             compression={cardValues('pro')?.compression ?? 2}
@@ -440,7 +443,7 @@ export function UserProfile({ onClose }: Props) {
             userRole={tier} t={t}
           />
           <PlanCard
-            name="VIP" price="$49" desc={t('profile.planVipDesc')} isActive={tier === 'vip'}
+            name="VIP" price={`$${priceVip}`} desc={t('profile.planVipDesc')} isActive={tier === 'vip'}
             charts={cardValues('vip')?.charts ?? 2}
             candles={cardValues('vip')?.candles ?? t('profile.allHistory')}
             compression={cardValues('vip')?.compression ?? 10}

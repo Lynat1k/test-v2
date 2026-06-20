@@ -21,7 +21,7 @@ import {
 } from 'lucide-react'
 import { apiGetMetrics, apiGetMetricsHistory, apiGetTickers, apiAddTicker, apiUpdateTicker, apiDeleteTicker, apiGetCompressions, apiUpsertCompressions, apiStartDownload, apiGetJobs, apiClearJobs, apiGetUserStats, apiListUsers, apiCreateUser, apiUpdateUserRole, apiDeleteUser, apiGetPolicies, apiUpdatePolicies, type ServerMetrics, type MetricsHistoryPoint, type Ticker, type DefaultCompression, type DownloadJob, type UserListItem, type UserStats, type TierPolicy } from '@/features/admin/api'
 
-type AdminTab = 'server' | 'database' | 'users' | 'stats'
+type AdminTab = 'server' | 'database' | 'users' | 'settings' | 'stats'
 
 interface AdminPanelProps {
   onClose: () => void
@@ -46,11 +46,12 @@ export function AdminPanel({ onClose }: AdminPanelProps) {
     { key: 'server', label: t('admin.tabs.server'), icon: Cpu, color: 'blue' },
     { key: 'database', label: t('admin.tabs.database'), icon: Database, color: 'emerald' },
     { key: 'users', label: t('admin.tabs.users'), icon: Users, color: 'amber' },
+    { key: 'settings', label: t('admin.tabs.settings') || 'Настройки', icon: Settings, color: 'indigo' },
     { key: 'stats', label: t('admin.tabs.stats'), icon: BarChart2, color: 'purple' },
   ]
 
   return (
-    <div className={`flex-1 flex flex-col min-h-0 relative z-40 ${activeTab === 'server' ? 'overflow-hidden' : 'overflow-y-auto'} p-6 gap-6 font-sans select-none ${
+    <div className={`admin-panel-root flex-1 flex flex-col min-h-0 relative z-40 ${activeTab === 'server' ? 'overflow-hidden' : 'overflow-y-auto'} p-6 gap-6 font-sans select-none ${
       isLight ? 'bg-slate-50 text-slate-900' : 'bg-[#060813] text-slate-100'
     }`}>
       {/* Header */}
@@ -118,6 +119,7 @@ export function AdminPanel({ onClose }: AdminPanelProps) {
           {activeTab === 'server' && <ServerTab isLight={isLight} />}
           {activeTab === 'database' && <DatabaseTab isLight={isLight} />}
           {activeTab === 'users' && <UsersTab isLight={isLight} />}
+          {activeTab === 'settings' && <SettingsTab isLight={isLight} />}
           {activeTab === 'stats' && <StatsTabPlaceholder isLight={isLight} />}
         </motion.div>
       </AnimatePresence>
@@ -1139,6 +1141,17 @@ function UsersTab({ isLight }: { isLight: boolean }) {
   const [savingRoles, setSavingRoles] = useState<Record<string, boolean>>({})
   const [savedRoles, setSavedRoles] = useState<Record<string, boolean>>({})
 
+  // Pricing
+  const [pricePro, setPricePro] = useState<number>(() => {
+    const saved = localStorage.getItem('procluster_price_pro')
+    return saved ? Number(saved) : 19
+  })
+  const [priceVip, setPriceVip] = useState<number>(() => {
+    const saved = localStorage.getItem('procluster_price_vip')
+    return saved ? Number(saved) : 49
+  })
+  const [priceSuccessMsg, setPriceSuccessMsg] = useState('')
+
   const card = isLight ? 'bg-white border-slate-200' : 'liquid-glass-card'
   const input = isLight
     ? 'bg-slate-50 border-slate-200 text-slate-900 focus:border-emerald-500'
@@ -1260,22 +1273,131 @@ function UsersTab({ isLight }: { isLight: boolean }) {
         </div>
       )}
 
-      {/* Stats counters */}
-      <div className="grid grid-cols-3 gap-3">
-        {([
-          { label: t('admin.users.hosts'), value: stats?.hosts },
-          { label: t('admin.users.registered'), value: stats?.registered },
-          { label: t('admin.users.online'), value: stats?.onlineAuth },
-        ] as const).map(({ label, value }) => (
-          <div key={label} className={`flex flex-col items-center justify-center p-4 rounded-2xl border ${card}`}>
-            <span className="text-2xl font-bold font-mono">{value ?? '---'}</span>
-            <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-slate-500 mt-1">{label}</span>
+      {/* Unified Monitoring & Pricing Panel */}
+      <div className={`py-3 px-4 rounded-xl border flex flex-col gap-2.5 ${card}`}>
+        <div className="flex flex-wrap justify-between items-center gap-2.5 border-b border-slate-200/10 pb-2">
+          <div className="flex items-center gap-2">
+            <Activity className="w-4 h-4 text-emerald-500 animate-pulse" />
+            <div>
+              <h3 className={`text-xs font-black uppercase tracking-wider ${isLight ? 'text-slate-800' : 'text-white'}`}>
+                {t('admin.users.monitoringTitle') || 'Мониторинг Трафика и Настройка Стоимости Статусов'}
+              </h3>
+              <p className="text-[10px] text-slate-400 mt-0">
+                {t('admin.users.monitoringSubtitle') || 'Аналитика активности и управление тарифами PRO & VIP'}
+              </p>
+            </div>
           </div>
-        ))}
-      </div>
+          {priceSuccessMsg && (
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              className="text-[9px] font-mono font-black uppercase bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 px-2.5 py-0.5 rounded-full flex items-center gap-1 shadow"
+            >
+              <span>{priceSuccessMsg}</span>
+            </motion.div>
+          )}
+        </div>
 
-      {/* Tier Policies Settings */}
-      <TierPoliciesBlock isLight={isLight} />
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-3">
+          {/* Metrics */}
+          <div className="lg:col-span-7 grid grid-cols-1 sm:grid-cols-3 gap-2">
+            <div className={`p-2.5 rounded-lg border flex items-center gap-2.5 ${isLight ? 'bg-slate-50 border-slate-200' : 'bg-white/[0.015] border-white/5'}`}>
+              <div className={`p-1.5 rounded-md shrink-0 ${isLight ? 'bg-blue-100 text-blue-700 shadow-sm' : 'bg-blue-500/10 text-blue-500'}`}>
+                <Users className="w-4 h-4" />
+              </div>
+              <div className="min-w-0">
+                <span className={`text-[8.5px] font-mono font-extrabold block uppercase tracking-wider ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>{t('admin.users.hosts')}</span>
+                <div className="text-sm font-black tracking-tight flex items-center gap-1 mt-0">
+                  <span>{stats?.hosts?.toLocaleString() ?? '---'}</span>
+                  <span className={`text-[7.5px] px-1 py-0 font-mono font-black rounded ${isLight ? 'bg-emerald-600 text-white' : 'text-emerald-500 bg-emerald-500/10'}`}>LIVE</span>
+                </div>
+              </div>
+            </div>
+            <div className={`p-2.5 rounded-lg border flex items-center gap-2.5 ${isLight ? 'bg-slate-50 border-slate-200' : 'bg-white/[0.015] border-white/5'}`}>
+              <div className={`p-1.5 rounded-md shrink-0 ${isLight ? 'bg-amber-100 text-amber-800 shadow-sm' : 'bg-yellow-500/10 text-yellow-500'}`}>
+                <Users className="w-4 h-4 animate-pulse" />
+              </div>
+              <div className="min-w-0">
+                <span className={`text-[8.5px] font-mono font-extrabold block uppercase tracking-wider ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>{t('admin.users.registered')}</span>
+                <div className="text-sm font-black tracking-tight mt-0">{stats?.registered?.toLocaleString() ?? '---'}</div>
+              </div>
+            </div>
+            <div className={`p-2.5 rounded-lg border flex items-center gap-2.5 ${isLight ? 'bg-slate-50 border-slate-200' : 'bg-white/[0.015] border-white/5'}`}>
+              <div className={`p-1.5 rounded-md shrink-0 ${isLight ? 'bg-emerald-100 text-emerald-800 shadow-sm' : 'bg-emerald-500/10 text-emerald-500'}`}>
+                <Activity className="w-4 h-4" />
+              </div>
+              <div className="min-w-0">
+                <span className={`text-[8.5px] font-mono font-extrabold block uppercase tracking-wider ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>{t('admin.users.online')}</span>
+                <div className="text-sm font-black tracking-tight flex items-center gap-1 mt-0">
+                  <span>{stats?.onlineAuth ?? '---'}</span>
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-ping inline-block shrink-0" />
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Pricing */}
+          <div className="lg:col-span-5 grid grid-cols-1 sm:grid-cols-2 gap-2">
+            <div className={`p-2 rounded-lg border flex flex-col justify-between gap-1 ${isLight ? 'bg-slate-50 border-slate-200' : 'bg-white/[0.015] border-white/5'}`}>
+              <div className="flex justify-between items-center">
+                <span className="text-[8.5px] font-mono font-black uppercase tracking-wider text-amber-500">PRO</span>
+                <span className="text-[8px] font-mono text-slate-400">USDT / мес</span>
+              </div>
+              <div className="relative">
+                <input
+                  type="number"
+                  min="0"
+                  max="100000"
+                  value={pricePro}
+                  onChange={(e) => setPricePro(Number(e.target.value) || 0)}
+                  className={`w-full rounded-md pl-2 pr-9 py-0.5 font-mono font-bold text-[11px] border focus:outline-none ${
+                    isLight ? 'bg-white border-slate-300 text-slate-900' : 'bg-slate-950 border-white/10 text-white'
+                  }`}
+                />
+                <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[8px] font-mono font-black text-slate-400">USDT</span>
+              </div>
+            </div>
+            <div className={`p-2 rounded-lg border flex flex-col justify-between gap-1 ${isLight ? 'bg-slate-50 border-slate-200' : 'bg-white/[0.015] border-white/5'}`}>
+              <div className="flex justify-between items-center">
+                <span className="text-[8.5px] font-mono font-black uppercase tracking-wider text-yellow-500">VIP</span>
+                <span className="text-[8px] font-mono text-slate-400">USDT / мес</span>
+              </div>
+              <div className="relative">
+                <input
+                  type="number"
+                  min="0"
+                  max="100000"
+                  value={priceVip}
+                  onChange={(e) => setPriceVip(Number(e.target.value) || 0)}
+                  className={`w-full rounded-md pl-2 pr-9 py-0.5 font-mono font-bold text-[11px] border focus:outline-none ${
+                    isLight ? 'bg-white border-slate-300 text-slate-900' : 'bg-slate-950 border-white/10 text-white'
+                  }`}
+                />
+                <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[8px] font-mono font-black text-slate-400">USDT</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="flex justify-end border-t border-slate-200/5 pt-1.5">
+          <button
+            onClick={() => {
+              localStorage.setItem('procluster_price_pro', pricePro.toString())
+              localStorage.setItem('procluster_price_vip', priceVip.toString())
+              setPriceSuccessMsg('Цены успешно сохранены!')
+              setTimeout(() => setPriceSuccessMsg(''), 3000)
+            }}
+            className={`py-1 px-3 rounded-md font-bold uppercase tracking-wider text-[9px] flex items-center gap-1 cursor-pointer border transition-all duration-200 active:scale-95 ${
+              isLight
+                ? 'bg-emerald-600 hover:bg-emerald-500 text-white border-emerald-700 shadow shadow-emerald-600/10'
+                : 'bg-emerald-500/10 hover:bg-emerald-500/20 border-emerald-500/25 text-emerald-400'
+            }`}
+          >
+            <Save className="w-3 h-3" />
+            {t('admin.users.savePrices') || 'Сохранить цены'}
+          </button>
+        </div>
+      </div>
 
       {/* Add user form */}
       <div className={`p-4 rounded-2xl border ${card}`}>
@@ -1863,6 +1985,14 @@ function TierPoliciesBlock({ isLight }: { isLight: boolean }) {
           </div>
         )}
       </div>
+    </div>
+  )
+}
+
+function SettingsTab({ isLight }: { isLight: boolean }) {
+  return (
+    <div className="flex-1 flex flex-col gap-6 min-h-0 w-full overflow-y-auto">
+      <TierPoliciesBlock isLight={isLight} />
     </div>
   )
 }

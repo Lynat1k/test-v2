@@ -128,6 +128,7 @@ const en = {
       server: 'Server',
       database: 'Database',
       users: 'Users',
+      settings: 'Settings',
       stats: 'Statistics',
     },
     server: {

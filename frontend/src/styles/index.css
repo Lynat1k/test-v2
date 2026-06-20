@@ -14,3 +14,12 @@ html, body, #root {
   width: 100%;
   overflow: hidden;
 }
+
+/* Admin panel font scaling (+20%) */
+.admin-panel-root { font-size: 1.2rem; }
+.admin-panel-root .text-xs { font-size: 0.9rem !important; }
+.admin-panel-root .text-sm { font-size: 1.05rem !important; }
+.admin-panel-root .text-base { font-size: 1.2rem !important; }
+.admin-panel-root .text-lg { font-size: 1.35rem !important; }
+.admin-panel-root .text-xl { font-size: 1.5rem !important; }
+.admin-panel-root .text-2xl { font-size: 1.8rem !important; }

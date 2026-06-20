@@ -128,6 +128,7 @@ const kz = {
       server: 'Сервер',
       database: 'Деректер қоры',
       users: 'Пайдаланушылар',
+      settings: 'Баптаулар',
       stats: 'Статистика',
     },
     server: {
