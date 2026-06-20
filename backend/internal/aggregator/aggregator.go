@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"sort"
 	"sync"
 	"time"
 
@@ -73,9 +74,10 @@ type liveCandle struct {
 }
 
 type candleState struct {
-	currentCandleOpen time.Time
-	live              liveCandle
-	lastUpdateTime    time.Time
+	currentCandleOpen      time.Time
+	lastFlushedCandleOpen  time.Time
+	live                   liveCandle
+	lastUpdateTime         time.Time
 }
 
 type priceLevel struct {
@@ -88,6 +90,12 @@ type tfLiveState struct {
 	live              liveCandle
 	lastUpdateTime    time.Time
 	levels            map[float64]*priceLevel
+	flushed           bool
+}
+
+type closedTfState struct {
+	tf    string
+	state *tfLiveState
 }
 
 var higherTimeframes = []string{"5m", "15m", "30m", "1h", "4h", "1d"}
@@ -141,18 +149,36 @@ func (a *Aggregator) Run(ctx context.Context, trades <-chan model.Trade) {
 			return
 		case <-flushTimer.C:
 			now := time.Now()
+			prevMinute := now.Truncate(time.Minute).Add(-time.Minute)
+
+			// ФИКС 1: flush только prevMinute, без сброса state
 			for key, st := range states {
-				if !st.currentCandleOpen.IsZero() {
+				if !st.currentCandleOpen.IsZero() && st.currentCandleOpen.Equal(prevMinute) {
 					symbol, market := splitBookKey(key)
 					if err := a.FlushCandle(ctx, symbol, market, "1m", st.currentCandleOpen); err != nil {
 						log.Printf("[aggregator] flush error %s: %v", key, err)
 					}
+					st.lastFlushedCandleOpen = st.currentCandleOpen
+					// currentCandleOpen НЕ сбрасывается — предотвращает воскрешение past candle
 				}
-				st.currentCandleOpen = time.Time{}
-				st.live = liveCandle{}
-				st.lastUpdateTime = time.Time{}
-				_ = now
 			}
+
+			// Дозакрытие higher-TF бакетов на тихом рынке
+			for bk, tfm := range a.tfStates {
+				for tf, st := range tfm {
+					if st.currentCandleOpen.IsZero() || st.flushed {
+						continue
+					}
+					bucketEnd := st.currentCandleOpen.Add(tfDuration(tf))
+					if !now.Before(bucketEnd) {
+						symbol, market := splitBookKey(bk)
+						a.flushTfBucket(ctx, symbol, market, tf, st)
+						st.flushed = true
+						// НЕ удаляем из tfm — иначе trade path создаст дубль
+					}
+				}
+			}
+
 			flushTimer.Reset(time.Until(nextMinute()))
 		case trade, ok := <-trades:
 			if !ok {
@@ -166,10 +192,21 @@ func (a *Aggregator) Run(ctx context.Context, trades <-chan model.Trade) {
 			}
 
 			candleOpen := truncateToMinute(trade.Time)
+
+			// Guard: late 1m trade (ts < current минуты) — отбрасываем целиком
+			if candleOpen.Before(st.currentCandleOpen) {
+				log.Printf("[aggregator] late 1m trade %s %d @ %v (current=%v)", trade.Symbol, trade.TradeID, trade.Time, st.currentCandleOpen)
+				continue
+			}
+
 			if candleOpen != st.currentCandleOpen {
 				if !st.currentCandleOpen.IsZero() {
-					if err := a.FlushCandle(ctx, trade.Symbol, trade.Market, "1m", st.currentCandleOpen); err != nil {
-						log.Printf("[aggregator] flush error %s: %v", key, err)
+					if st.currentCandleOpen.After(st.lastFlushedCandleOpen) {
+						if err := a.FlushCandle(ctx, trade.Symbol, trade.Market, "1m", st.currentCandleOpen); err != nil {
+							log.Printf("[aggregator] flush error %s: %v", key, err)
+						}
+					} else {
+						log.Printf("[aggregator] stale 1m trade %s %d @ %v (candle %v already flushed)", trade.Symbol, trade.TradeID, trade.Time, st.currentCandleOpen)
 					}
 				}
 				st.currentCandleOpen = candleOpen
@@ -198,7 +235,6 @@ func (a *Aggregator) processTrade(trade model.Trade, live *liveCandle, lastUpdat
 	field := fmt.Sprintf("%f", level)
 
 	a.mu.Lock()
-	defer a.mu.Unlock()
 
 	existing, _ := a.rdb.HGet(context.Background(), key, field).Result()
 
@@ -240,6 +276,10 @@ func (a *Aggregator) processTrade(trade model.Trade, live *liveCandle, lastUpdat
 	)
 	a.rdb.Expire(context.Background(), metaKey, 2*time.Minute)
 
+	closedTfBuckets := a.updateTFStates(trade, level, side, volume)
+
+	a.mu.Unlock()
+
 	live.close = trade.Price
 	live.totalVolume += volume
 	live.tradesCount++
@@ -253,7 +293,10 @@ func (a *Aggregator) processTrade(trade model.Trade, live *liveCandle, lastUpdat
 		live.low = trade.Price
 	}
 
-	a.updateTFStates(trade, level, side, volume)
+	// Flush closed higher-TF buckets outside lock (I/O safe)
+	for _, ct := range closedTfBuckets {
+		a.flushTfBucket(context.Background(), trade.Symbol, trade.Market, ct.tf, ct.state)
+	}
 
 	if a.UpdatesCh != nil && time.Since(*lastUpdateTime) >= 200*time.Millisecond {
 		*lastUpdateTime = time.Now()
@@ -281,7 +324,7 @@ func (a *Aggregator) processTrade(trade model.Trade, live *liveCandle, lastUpdat
 	}
 }
 
-func (a *Aggregator) updateTFStates(trade model.Trade, level float64, side model.Side, volume float64) {
+func (a *Aggregator) updateTFStates(trade model.Trade, level float64, side model.Side, volume float64) (closed []closedTfState) {
 	bookKey := BookKey(trade.Symbol, trade.Market)
 	states, exists := a.tfStates[bookKey]
 	if !exists {
@@ -294,8 +337,19 @@ func (a *Aggregator) updateTFStates(trade model.Trade, level float64, side model
 
 		st, ok := states[tf]
 		if !ok || !aligned.Equal(st.currentCandleOpen) {
+			// Stale check: бакет уже закрыт таймером, не создаём дубль
+			if ok && st.flushed {
+				if aligned.Equal(st.currentCandleOpen) {
+					log.Printf("[aggregator] late higher-TF %s %s %d @ %v (bucket %v already flushed)", trade.Symbol, tf, trade.TradeID, trade.Time, st.currentCandleOpen)
+					continue
+				}
+			}
+			if ok && !st.currentCandleOpen.IsZero() && !st.flushed {
+				closed = append(closed, closedTfState{tf: tf, state: st})
+			}
 			states[tf] = &tfLiveState{
 				currentCandleOpen: aligned,
+				flushed:           false,
 				live: liveCandle{
 					open:        trade.Price,
 					high:        trade.Price,
@@ -314,6 +368,12 @@ func (a *Aggregator) updateTFStates(trade model.Trade, level float64, side model
 			} else {
 				pl.bid = volume
 			}
+			continue
+		}
+
+		// Same bucket, already flushed by timer — discard
+		if st.flushed {
+			log.Printf("[aggregator] late higher-TF %s %s %d @ %v (bucket %v already flushed)", trade.Symbol, tf, trade.TradeID, trade.Time, st.currentCandleOpen)
 			continue
 		}
 
@@ -338,6 +398,7 @@ func (a *Aggregator) updateTFStates(trade model.Trade, level float64, side model
 			pl.bid += volume
 		}
 	}
+	return
 }
 
 func (a *Aggregator) pushTFUpdates(symbol, market string) {
@@ -352,8 +413,8 @@ func (a *Aggregator) pushTFUpdates(symbol, market string) {
 		for price, pl := range st.levels {
 			levels = append(levels, CandleLevel{
 				PriceLevel: price,
-				BidVolume:  pl.bid,
-				AskVolume:  pl.ask,
+				BidVolume:  pl.ask,
+				AskVolume:  pl.bid,
 			})
 		}
 
@@ -445,10 +506,6 @@ func (a *Aggregator) FlushCandle(ctx context.Context, symbol, market, timeframe 
 		return fmt.Errorf("insert cluster batch: %w", err)
 	}
 
-	if err := a.rollup(ctx, symbol, market, rows); err != nil {
-		return fmt.Errorf("rollup: %w", err)
-	}
-
 	a.rdb.Del(ctx, levelsKey, metaKey)
 
 	if a.CandleCloseCh != nil {
@@ -464,27 +521,6 @@ func (a *Aggregator) FlushCandle(ctx context.Context, symbol, market, timeframe 
 	}
 
 	log.Printf("[aggregator] flushed candle %s %s %s at %v (%d rows, open=%.2f close=%.2f)", symbol, market, timeframe, candleOpen, len(rows), openPrice, closePrice)
-	return nil
-}
-
-func (a *Aggregator) rollup(ctx context.Context, symbol, market string, rows []model.ClusterRow) error {
-	rollupRows := aggregation.Rollup(rows)
-
-	buckets := make(map[string][]model.ClusterRow)
-	for _, r := range rollupRows {
-		buckets[r.Timeframe] = append(buckets[r.Timeframe], r)
-	}
-
-	for tf, tfRows := range buckets {
-		if len(tfRows) > 0 {
-			log.Printf("[rollup] inserting %d rows for %s %s %s", len(tfRows), symbol, market, tf)
-			if err := a.repo.InsertClusterBatch(ctx, tfRows, tableForMarket(market)); err != nil {
-				log.Printf("[rollup] ERROR inserting %s %s %s: %v", symbol, market, tf, err)
-				return fmt.Errorf("insert rollup %s: %w", tf, err)
-			}
-			log.Printf("[rollup] OK %s %s %s: %d rows", symbol, market, tf, len(tfRows))
-		}
-	}
 	return nil
 }
 
@@ -504,8 +540,8 @@ func (a *Aggregator) readLevelsFromRedis(key string) []CandleLevel {
 
 		levels = append(levels, CandleLevel{
 			PriceLevel: priceLevel,
-			BidVolume:  bidVol,
-			AskVolume:  askVol,
+			BidVolume:  askVol,
+			AskVolume:  bidVol,
 		})
 	}
 	return levels
@@ -529,6 +565,64 @@ func tableForMarket(market string) string {
 		return "clusters_spot"
 	}
 	return "clusters_futures"
+}
+
+func tfDuration(tf string) time.Duration {
+	switch tf {
+	case "5m":
+		return 5 * time.Minute
+	case "15m":
+		return 15 * time.Minute
+	case "30m":
+		return 30 * time.Minute
+	case "1h":
+		return time.Hour
+	case "4h":
+		return 4 * time.Hour
+	case "1d":
+		return 24 * time.Hour
+	}
+	return time.Minute
+}
+
+// tfStateToRows конвертирует tfLiveState в ClusterRows.
+// Формат идентичен результату aggregation.Rollup для того же набора трейдов.
+func (a *Aggregator) tfStateToRows(st *tfLiveState, symbol, market string) []model.ClusterRow {
+	config := a.getConfig(symbol, market)
+	rows := make([]model.ClusterRow, 0, len(st.levels))
+	for price, pl := range st.levels {
+		rows = append(rows, model.ClusterRow{
+			Symbol:      symbol,
+			PriceLevel:  price,
+			BidVolume:   pl.ask,
+			AskVolume:   pl.bid,
+			Compression: uint16(config.BaseLevel),
+			OpenPrice:   st.live.open,
+			ClosePrice:  st.live.close,
+		})
+	}
+	sort.Slice(rows, func(i, j int) bool {
+		return rows[i].PriceLevel < rows[j].PriceLevel
+	})
+	return rows
+}
+
+// flushTfBucket пишет closed tfLiveState в ClickHouse.
+// Один INSERT на бакет — без дублей, корректные OHLC.
+func (a *Aggregator) flushTfBucket(ctx context.Context, symbol, market, tf string, st *tfLiveState) {
+	rows := a.tfStateToRows(st, symbol, market)
+	for i := range rows {
+		rows[i].Timeframe = tf
+		rows[i].CandleOpen = st.currentCandleOpen
+	}
+	if len(rows) == 0 {
+		return
+	}
+	if err := a.repo.InsertClusterBatch(ctx, rows, tableForMarket(market)); err != nil {
+		log.Printf("[aggregator] flushTfBucket ERROR %s %s %s @ %v: %v", symbol, market, tf, st.currentCandleOpen, err)
+		return
+	}
+	log.Printf("[aggregator] flushTfBucket OK %s %s %s @ %v (%d rows, open=%.2f close=%.2f)", symbol, market, tf, st.currentCandleOpen, len(rows), st.live.open, st.live.close)
 }
 
 func splitBookKey(key string) (string, string) {
