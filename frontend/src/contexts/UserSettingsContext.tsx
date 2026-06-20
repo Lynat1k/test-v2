@@ -55,8 +55,12 @@ export function UserSettingsProvider({ children }: { children: ReactNode }) {
         settingsRef.current = merged
         setSettings(merged)
         if (hasLocal) {
-          await apiPutSettings(JSON.stringify(merged))
-          writeLocal({})
+          try {
+            await apiPutSettings(JSON.stringify(merged))
+            writeLocal({})  // clear localStorage only after successful PUT
+          } catch {
+            // PUT failed — keep localStorage intact as backup for next load
+          }
         }
       } catch {
         const local = readLocal()

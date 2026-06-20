@@ -134,10 +134,8 @@ export async function apiGetLimitsPublic(): Promise<UserLimits> {
 }
 
 export async function apiPutSettings(settingsJson: string) {
-  await fetch(`${BASE}/user/settings`, {
+  await request('/user/settings', {
     method: 'PUT',
-    credentials: 'include',
-    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ settingsJson }),
   })
 }
