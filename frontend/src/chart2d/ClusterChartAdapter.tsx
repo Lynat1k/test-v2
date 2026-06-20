@@ -110,10 +110,16 @@ export default function ClusterChartAdapter({
   const historyLoadingRef = useRef(false);
   const clusterLoadedTsRef = useRef<Set<number>>(new Set());
   const accessTokenRef = useRef(accessToken);
+  const candlesRef = useRef<ClusterCandle[]>(candles);
+  const prependScrollRef = useRef<((addedCount: number) => void) | null>(null);
 
   useEffect(() => {
     accessTokenRef.current = accessToken;
   }, [accessToken]);
+
+  useEffect(() => {
+    candlesRef.current = candles;
+  }, [candles]);
 
   const [liveState, setLiveState] = useState<LiveChartState>({ status: "disconnected" });
 
@@ -195,16 +201,24 @@ export default function ClusterChartAdapter({
       );
       const adapted = adapter(apiCandles, clusterMap);
 
+      // Compute addedCount BEFORE setCandles (synchronous, before React batches the update)
+      const prevFirstTs = candlesRef.current.length > 0 ? candlesRef.current[0]!.timestamp : Infinity;
+      const unique = adapted.filter((c: ClusterCandle) => c.timestamp < prevFirstTs);
+      const addedCount = unique.length;
+
       setCandles(prev => {
-        const prevFirstTs = prev.length > 0 ? prev[0]!.timestamp : Infinity;
-        const unique = adapted.filter((c: ClusterCandle) => c.timestamp < prevFirstTs);
-        if (unique.length === 0) {
+        if (addedCount === 0) {
           allHistoryLoadedRef.current = true;
           return prev;
         }
         const merged = [...unique, ...prev].sort((a, b) => a.timestamp - b.timestamp);
         return merged;
       });
+
+      // Sync scrollLeft in the same JS task (before React microtask and before browser paint)
+      if (addedCount > 0) {
+        prependScrollRef.current?.(addedCount);
+      }
     } catch (err) {
       console.warn('[chart2d] history fetch failed:', err);
     } finally {
@@ -311,6 +325,7 @@ export default function ClusterChartAdapter({
       workspacesCount={workspacesCount ?? 1}
       onNeedHistory={handleNeedHistory}
       onVisibleTimestampsChange={handleVisibleTimestampsChange}
+      prependScrollRef={prependScrollRef}
       showAnomalies={showAnomalies}
       onChangeShowAnomalies={onChangeShowAnomalies}
     />

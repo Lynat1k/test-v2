@@ -66,6 +66,7 @@ interface ClusterChartProps {
   showAnomalies?: boolean | undefined;
   onChangeShowAnomalies?: ((show: boolean) => void) | undefined;
   userRole?: string;
+  prependScrollRef?: React.MutableRefObject<((addedCount: number) => void) | null>;
 }
 
 export default function ClusterChart({
@@ -102,6 +103,7 @@ export default function ClusterChart({
   showAnomalies = true,
   onChangeShowAnomalies,
   userRole,
+  prependScrollRef,
 }: ClusterChartProps) {
   
   const isLight = theme === "light";
@@ -379,6 +381,7 @@ export default function ClusterChart({
   const [candleWidth, setCandleWidth] = useState<number>(145);
   const candleSpacing = Math.max(1, candleWidth < 30 ? Math.floor(candleWidth * 0.35) : 12);
   const margin = { top: 30, right: 90, bottom: 40, left: 60 };
+  const VISIBLE_CANDLES = 100;
 
   const candleWidthSpacing = candleWidth + candleSpacing;
   const indexToX = (idx: number) => margin.left + idx * candleWidthSpacing;
@@ -387,7 +390,7 @@ export default function ClusterChart({
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [containerHeight, setContainerHeight] = useState<number>(550);
-  const [verticalScale, setVerticalScale] = useState<number>(0.7);
+  const [verticalScale, setVerticalScale] = useState<number>(0.812);
 
   const hasInitializedZoomRef = useRef<string | null>(null);
 
@@ -452,7 +455,7 @@ export default function ClusterChart({
 
   // Synchronize state references for smooth zero-drift mouse wheel zooming
   const candleWidthRef = useRef<number>(145);
-  const verticalScaleRef = useRef<number>(0.7);
+  const verticalScaleRef = useRef<number>(0.812);
   const priceCenterOffsetRef = useRef<number>(0);
 
   useEffect(() => {
@@ -467,6 +470,28 @@ export default function ClusterChart({
     priceCenterOffsetRef.current = priceCenterOffset;
   }, [priceCenterOffset]);
 
+  // Expose imperative scroll compensation for prepend — called synchronously after setCandles
+  // in the same JS task, before React processes batched updates and before browser can paint.
+  useEffect(() => {
+    if (!prependScrollRef) return;
+    prependScrollRef.current = (addedCount: number) => {
+      const container = containerRef.current;
+      if (!container) return;
+      const beforeScrollLeft = container.scrollLeft;
+      void container.scrollWidth;
+      const cw = candleWidthRef.current;
+      const spacing = Math.max(1, cw < 30 ? Math.floor(cw * 0.35) : 12);
+      const addedWidth = addedCount * (cw + spacing);
+      container.scrollLeft = beforeScrollLeft + addedWidth;
+      setVisibleScrollLeft(container.scrollLeft);
+      // Suppress LayoutEffect if within tolerance (5px masks fractional rounding, real clamping is >>50px)
+      if (Math.abs(container.scrollLeft - (beforeScrollLeft + addedWidth)) <= 5) {
+        prependCompensatedRef.current = true;
+      }
+    };
+    return () => { prependScrollRef.current = null; };
+  }, [prependScrollRef]);
+
   // Refs for history-on-scroll and cluster-on-scroll
   const prevCandlesLengthRef = useRef(0);
   const prevFirstTsRef = useRef(0);
@@ -474,11 +499,18 @@ export default function ClusterChart({
   const lastVisibleTimestampsRef = useRef<string>('');
   const visibleTimestampsTimerRef = useRef<ReturnType<typeof setTimeout>>();
   const pendingScrollAnchorRef = useRef<{ ts: number; offset: number } | null>(null);
+  const prependCompensatedRef = useRef(false);
   const frozenPriceBoundsRef = useRef<{ maxPriceRaw: number; minPriceRaw: number; priceRange: number; basePriceCenter: number } | null>(null);
 
   // Adjust scrollLeft after history prepend to prevent viewport jump (sync before paint)
   // Uses timestamp-anchor from the trigger effect to find the candle at the same position in the new array
   useLayoutEffect(() => {
+    // If imperative prepend compensation already ran in the same JS task, skip to avoid overwrite
+    if (prependCompensatedRef.current) {
+      prependCompensatedRef.current = false;
+      pendingScrollAnchorRef.current = null;
+      return;
+    }
     const anchor = pendingScrollAnchorRef.current;
     const prevLen = prevCandlesLengthRef.current;
     const currLen = candles.length;
@@ -509,9 +541,12 @@ export default function ClusterChart({
   // Fire onNeedHistory when scroll approaches the left edge
   useEffect(() => {
     if (!onNeedHistory || candles.length === 0) return;
+    // Skip until zoom/scroll init has completed — prevents false anchor on initial mount (visibleScrollLeft=0)
+    if (hasInitializedZoomRef.current !== activePair.symbol) return;
     const firstVisibleIdx = Math.floor((visibleScrollLeft - margin.left) / (candleWidth + candleSpacing));
     const oldest = candles[0].timestamp;
-    if (firstVisibleIdx < 100 && oldest !== lastRequestedOldestRef.current) {
+    // Only trigger when user has actually scrolled near the left edge (not when visibleScrollLeft=0 on mount)
+    if (firstVisibleIdx >= 0 && firstVisibleIdx < 100 && oldest !== lastRequestedOldestRef.current) {
       // Capture scroll anchor BEFORE prepend (only if no anchor is pending, to prevent
       // overwrite by subsequent scroll events while a prepend is in flight).
       if (!pendingScrollAnchorRef.current) {
@@ -605,9 +640,9 @@ export default function ClusterChart({
   }, [candles.length]);
 
   const candlesToScale = useMemo(() => {
-    // Keep reference to all loaded candles so the vertical scaling is 100% stable
-    // and never shifts or jumps up/down when we zoom or scroll horizontally.
-    return candles;
+    // Use only the last VISIBLE_CANDLES candles so vertical scaling centers on visible data
+    const targetCount = Math.min(VISIBLE_CANDLES, candles.length);
+    return candles.length > 0 ? candles.slice(-targetCount) : candles;
   }, [candles]);
 
   const priceBounds = useMemo(() => {
@@ -739,6 +774,7 @@ export default function ClusterChart({
           const spacer = container.querySelector("#procluster-chart-spacer") as HTMLElement;
           if (spacer) {
             spacer.style.width = `${nextScrollWidth}px`;
+            void spacer.offsetWidth;
           }
 
           setCandleWidth(nextWidthClamped);
@@ -778,6 +814,7 @@ export default function ClusterChart({
           const spacer = container.querySelector("#procluster-chart-spacer") as HTMLElement;
           if (spacer) {
             spacer.style.width = `${nextScrollWidth}px`;
+            void spacer.offsetWidth;
           }
 
           setCandleWidth(nextWidthClamped);
@@ -829,13 +866,17 @@ export default function ClusterChart({
   useEffect(() => {
     const container = containerRef.current;
     if (container && candles.length > 0) {
-      const clientWidth = container.clientWidth || 800;
+      const clientWidth = container.clientWidth;
+      if (clientWidth <= 100) return;
 
-      // Ensure default zoom configuration on symbol change: 40 visible candles and 0.812 verticalScale (70% height)
+      // Detect combo change (symbol/timeframe/marketType/clusterStep) vs same-combo length growth
+      const isComboChange = hasInitializedZoomRef.current !== activePair.symbol;
+
+      // Ensure default zoom configuration on symbol change: VISIBLE_CANDLES candles filling ~70% vertical height
       let currentWidth = candleWidth;
-      if (hasInitializedZoomRef.current !== activePair.symbol) {
+      if (isComboChange) {
         const visibleWidth = clientWidth - margin.left - margin.right;
-        const spacePerCandle = visibleWidth / 40;
+        const spacePerCandle = visibleWidth / VISIBLE_CANDLES;
         
         let bestWidth = 10;
         for (let w = 2; w < 120; w++) {
@@ -849,25 +890,27 @@ export default function ClusterChart({
         currentWidth = Math.max(2, bestWidth);
         setCandleWidth(currentWidth);
 
-        // Centering on last 40 candles and scaling so they take up 70% of vertical height
-        const last40 = candles.slice(-40);
-        let maxL40 = candles[0]?.high || 100;
-        let minL40 = candles[0]?.low || 0;
-        if (last40.length > 0) {
-          maxL40 = last40[0].high;
-          minL40 = last40[0].low;
-          for (let i = 0; i < last40.length; i++) {
-            const c = last40[i];
-            if (c.high > maxL40) maxL40 = c.high;
-            if (c.low < minL40) minL40 = c.low;
+        // Centering on last VISIBLE_CANDLES candles; since candlesToScale already uses the
+        // same set, basePriceCenter and priceRange already reflect visible data, so
+        // verticalScale = 0.812 and priceCenterOffset = 0 produce the correct centered view.
+        const visibleCandles = candles.slice(-VISIBLE_CANDLES);
+        let maxV = candles[0]?.high || 100;
+        let minV = candles[0]?.low || 0;
+        if (visibleCandles.length > 0) {
+          maxV = visibleCandles[0].high;
+          minV = visibleCandles[0].low;
+          for (let i = 0; i < visibleCandles.length; i++) {
+            const c = visibleCandles[i];
+            if (c.high > maxV) maxV = c.high;
+            if (c.low < minV) minV = c.low;
           }
         }
-        const rangeL40 = maxL40 - minL40 || 1;
-        const centerL40 = (maxL40 + minL40) / 2;
-        const targetVerticalScale = (priceRange * 0.812) / rangeL40;
+        const rangeV = maxV - minV || 1;
+        const centerV = (maxV + minV) / 2;
+        const targetVerticalScale = (priceRange * 0.812) / rangeV;
 
         setVerticalScale(Math.min(2000.0, Math.max(0.1, targetVerticalScale)));
-        setPriceCenterOffset(centerL40 - basePriceCenter);
+        setPriceCenterOffset(centerV - basePriceCenter);
 
         hasInitializedZoomRef.current = activePair.symbol;
       }
@@ -883,13 +926,17 @@ export default function ClusterChart({
       const rightPadding = Math.round(clientWidth * 0.85);
       const computedScrollWidth = candlesTotalWidth + margin.left + margin.right + rightPadding;
       const maxScroll = computedScrollWidth - clientWidth;
-      const finalScrollLeft = Math.max(0, Math.min(maxScroll, targetScrollLeft));
       
-      container.scrollLeft = finalScrollLeft;
-      setVisibleScrollLeft(finalScrollLeft);
-      setVisibleClientWidth(clientWidth);
+      // Follow-mode: scroll to right edge only on combo change (init) or if user is already near the right edge
+      const isNearRightEdge = container.scrollLeft >= maxScroll - 50;
+      if (isComboChange || isNearRightEdge) {
+        const finalScrollLeft = Math.max(0, Math.min(maxScroll, targetScrollLeft));
+        container.scrollLeft = finalScrollLeft;
+        setVisibleScrollLeft(finalScrollLeft);
+      }
+      setVisibleClientWidth(prev => prev === clientWidth ? prev : clientWidth);
     }
-  }, [activePair.symbol, visibleClientWidth]);
+  }, [activePair.symbol, visibleClientWidth, candles.length, timeframe, marketType, clusterStep]);
 
   // Adjust canvas zoom
   const handleZoom = (factor: number) => {
@@ -2218,7 +2265,7 @@ export default function ClusterChart({
     ? `${cumulativeDeltaPoints[hoveredCandleIdx].value >= 0 ? "+" : ""}${cumulativeDeltaPoints[hoveredCandleIdx].value.toFixed(1)}K`
     : "--";
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (candles.length === 0) return;
     const canvas = canvasRef.current;
     if (!canvas) return;

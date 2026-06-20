@@ -3,6 +3,106 @@
 > Claude обновляет этот файл в КОНЦЕ каждой задачи. Новые записи — сверху.
 > Формат записи строго по шаблону. Это память между чатами.
 
+### [2026-06-19] Fix v3: follow-mode — live-append не кидает в историю, prepend без дёрганья (удалён prependHandledRef)
+- **Баг 2 (prepend дёргает масштаб)**: setVisibleClientWidth после prepend давал второй прогон эффекта, где prependHandledRef уже был consumed → scroll к правому краю.
+- **Баг 3 (live-append кидает на конец)**: при появлении новой свечи candles.length рос → авто-скролл ехал к правому краю, даже если пользователь в истории.
+- **Решение**: follow-mode на базе isNearRightEdge — scroll-к-правому-краю только при смене combo ИЛИ если пользователь уже у правого края (следит за live). Prepend (пользователь слева) и live-append в истории (пользователь не у края) — не трогают позицию.
+- **Правки** (только `frontend/src/chart2d/ClusterChart.tsx`):
+  - **isComboChange** (строка 840): захват `hasInitializedZoomRef.current !== activePair.symbol` ДО zoom-init (чтобы scroll-код знал, init это или нет).
+  - **isNearRightEdge** (строка 898): `container.scrollLeft >= maxScroll - 50` — порог ~50px от правого края.
+  - **Scroll guard** (строка 899): `if (isComboChange || isNearRightEdge)` — scroll-к-правому-краю только по этим условиям.
+  - **setVisibleClientWidth guard** (строка 904): `setVisibleClientWidth(prev => prev === clientWidth ? prev : clientWidth)` — не триггерит re-render тем же значением.
+  - **Удалён prependHandledRef** (был :478, :494, :882-886) — избыточен, заменён isNearRightEdge.
+- **Сценарии**:
+  - **F5 / смена TF/market/compression/тикера**: isComboChange=true → scroll к правому краю, ~100 свечей, центр вертикали. ✓
+  - **Live-свеча, пользователь У ПРАВОГО КРАЯ**: isNearRightEdge=true → scroll к обновлённому правому краю (следование). ✓
+  - **Live-свеча, пользователь В ИСТОРИИ**: isNearRightEdge=false → позиция не трогается, new свеча добавляется молча. ✓
+  - **Prepend (скролл влево, дозагрузка)**: пользователь у левого края → isNearRightEdge=false → scroll не трогается. Даже второй прогон от setVisibleClientWidth не сдвинет. ✓
+  - **Несколько prepend подряд**: стабильно. ✓
+  - **Prepend → смена TF**: isComboChange=true → scroll к правому краю. ✓
+- **Проверки**:
+  - `npx tsc --noEmit`: PASS (0 errors)
+  - `npx vite build`: PASS (619ms)
+- **Не коммитить** — жду подтверждение: live-свеча в истории не двигает; prepend без дёрганья; смена TF + live у края — правый край.
+
+### [2026-06-19] Fix v2: prepend — устранена регрессия (ложный триггер дозагрузки при F5)
+- **Регрессия**: после fix v1 (prependHandledRef) при F5/смене combo график застревал на левом крае/центре истории, не доезжая до последней свечи.
+- **Причина**: триггер дозагрузки (`ClusterChart.tsx:513-533`) срабатывал ЛОЖНО при `visibleScrollLeft=0` (начальное состояние). `firstVisibleIdx = floor((0-60)/157) = -1`, и условие `firstVisibleIdx < 100` было TRUE → ставился `pendingScrollAnchorRef` + вызывался `onNeedHistory`. Асинхронный fetch завершался, LayoutEffect :483 видел leaked anchor, ставил `prependHandledRef=true` и компенсировал scrollLeft на левый край — авто-скролл :830 скипался (prependHandledRef=true), график не доезжал до правого края.
+- **Правка** (только `frontend/src/chart2d/ClusterChart.tsx`, строка 516-520):
+  - **`hasInitializedZoomRef` guard** (строка 516): ранний return если `hasInitializedZoomRef.current !== activePair.symbol` — не пускать триггер до завершения инициализации зума/скролла.
+  - **`firstVisibleIdx >= 0`** (строка 520): добавлена нижняя граница индекса — триггерить дозагрузку только при реальном скролле к левому краю, а не при `visibleScrollLeft=0`.
+- **Trace для F5 (после правки)**:
+  1. Effect :513: `hasInitializedZoomRef (null) !== symbol` → early return. `pendingScrollAnchorRef` НЕ ставится.
+  2. Effect :830: zoom init + scroll-к-правому-краю → `hasInitializedZoomRef = symbol`. ✓
+  3. Effect :513 (повторно, если visibleScrollLeft изменился): guard passes, `firstVisibleIdx` большой → `>= 0 && < 100` → false → нет триггера.
+- **Краевые случаи**:
+  - **F5**: нет фейковой дозагрузки, график едет к правому краю, ~100 свечей, центр по вертикали.
+  - **Смена TF/market/compression/тикера**: правый край, без ложной дозагрузки.
+  - **Реальный скролл влево**: `firstVisibleIdx >= 0 && < 100` → дозагрузка срабатывает, prepend-компенсация работает, график стоит на месте.
+  - **firstVisibleIdx = 0**: дозагрузка срабатывает корректно (у самого начала истории).
+  - **Несколько prepend подряд**: стабильно.
+  - **Prepend → смена TF**: едет к правому краю.
+- **Проверки**:
+  - `npx tsc --noEmit`: PASS (0 errors)
+  - `npx vite build`: PASS (575ms)
+- **Не коммитить** — жду подтверждение: F5 → правый край + 100 свечей; реальный prepend → без дёрганья; смена TF → правый край.
+
+### [2026-06-19] Fix: prepend — график не дёргается и не прыгает на последнюю свечу при дозагрузке истории (Canvas2D)
+- **Проблема**: при скролле влево (дозагрузка старых свечей) график прыгал на последнюю свечу.
+- **Причина**: авто-скролл-эффект (`ClusterChart.tsx:830-903`, deps: `candles.length`) перезапускался при prepend (length вырос) и в строчке `container.scrollLeft = finalScrollLeft` (:898) перезаписывал scrollLeft на правый край, перетирая корректную компенсацию из `useLayoutEffect` (:492-498), которая уже восстановила позицию по anchor-свече.
+- **Правки** (только `frontend/src/chart2d/ClusterChart.tsx`):
+  - **Новый ref `prependHandledRef`** (строка 478): сигнал от LayoutEffect к useEffect, что прошла компенсация prepend.
+  - **LayoutEffect (строка 494)**: при успешной обработке anchor (компенсация scrollLeft) устанавливает `prependHandledRef.current = true` сразу после `pendingScrollAnchorRef.current = null`.
+  - **Auto-scroll effect (строки 881-900)**: scroll-к-правому-краю обёрнут в `if (prependHandledRef.current) { prependHandledRef.current = false } else { ... }` — при активном сигнале пропускает установку scrollLeft (позиция уже восстановлена LayoutEffect) и сбрасывает флаг. `setVisibleClientWidth(clientWidth)` остаётся вне if-блока (:901) — resize продолжает работать.
+- **Жизненный цикл флага**:
+  - `pendingScrollAnchorRef.current` СТАВИТСЯ (`ClusterChart.tsx:520-523`) при обнаружении скролла к левому краю (триггер дозагрузки).
+  - СБРАСЫВАЕТСЯ в null при успешной компенсации в LayoutEffect (строка 493).
+  - `prependHandledRef.current` СТАВИТСЯ сразу после этого (строка 494).
+  - СБРАСЫВАЕТСЯ при потреблении в авто-скролл эффекте (строка 883).
+- **Сценарии**:
+  - **Дозагрузка влево (prepend)**: флаг выставлен → scroll-к-правому-краю пропущен → график неподвижен, без дёрганья.
+  - **Несколько prepend подряд**: каждый раз anchor → компенсация → флаг → потребление → stable.
+  - **Prepend → смена TF**: после prepend флаг = false (consumed). Смена TF: symbol меняется → `hasInitializedZoomRef !== symbol` → zoom init + scroll-к-правому-краю работают.
+  - **F5 / загрузка**: флаг false → scroll к последней свече.
+  - **Resize окна**: `visibleClientWidth` в deps → флаг false → scroll-к-правому-краю работает (пересчёт позиции).
+  - **Live update**: `candles.length` растёт, но без anchor → флаг false → scroll-к-правому-краю работает (существующее поведение).
+- **Проверки**:
+  - `npx tsc --noEmit`: PASS (0 errors)
+  - `npx vite build`: PASS (571ms)
+- **Не коммитить** — жду подтверждение: при дозагрузке график стоит на месте, после смены TF едет к правому краю.
+
+### [2026-06-19] Fix: начальный зум ~100 свечей + центровка по вертикали (Canvas2D)
+- **Проблема**: при загрузке график смещён вверх (свечи в верхней половине) + начальный зум показывал ~40 свечей.
+- **Причина**: `priceBounds` считал `basePriceCenter` по ВСЕМ загруженным свечам (500+), а не по видимым → центр видимого диапазона не совпадал с центром последних свечей → смещение вверх. `zoomInit` считал candleWidth на 40 свечей, а не на комфортные 100.
+- **Правки** (только `frontend/src/chart2d/ClusterChart.tsx`):
+  - **Константа `VISIBLE_CANDLES = 100`** (строка 382): единое число видимых свечей для горизонтального зума и вертикальной центровки.
+  - **`candlesToScale` (строки 608-612)**: теперь использует `candles.slice(-VISIBLE_CANDLES)` вместо всех свечей → `priceBounds` считает диапазон и центр только по последним 100 свечам. Это чинит вертикальное смещение, т.к. `basePriceCenter` теперь совпадает с центром видимых свечей.
+  - **`zoomInit` (строки 838-876)**: `40` → `VISIBLE_CANDLES` для candleWidth (горизонталь) и для расчёта `rangeV/centerV` (вертикаль). Поскольку `candlesToScale` уже использует те же последние 100, `priceRange = rangeV` и `basePriceCenter = centerV` → `targetVerticalScale = 0.812`, `priceCenterOffset = 0` (синхронно с начальным состоянием).
+  - **Начальные `verticalScale`** (строка 391): `0.7` → `0.812` — совпадает с zoomInit, устраняет флэш первого кадра. Соответственно `verticalScaleRef` (строка 456) тоже `0.812`.
+- **Поведение**:
+  - **F5 / загрузка**: ~100 свечей в окне, вертикально центрированы, без смещения вверх, без флэша.
+  - **Смена TF/market/compression/тикера**: `activePair.symbol` меняется → zoomInit пересчитывает candleWidth под 100 свечей и центрует по последним 100.
+  - **Мало данных (< 100 свечей)**: `Math.min(VISIBLE_CANDLES, candles.length)` → показываются все имеющиеся, центрированы.
+  - **Ручной зум/скролл после загрузки**: не тронут, сохраняет всё поведение.
+- **Проверки**:
+  - `npx tsc --noEmit`: PASS (0 errors)
+  - `npx vite build`: PASS (498ms)
+- **Не коммитить** — жду скрин: ~100 свечей в окне, по центру вертикали.
+
+### [2026-06-19] Fix: авто-скролл к последней свече при F5 / смене TF/market/compression (Canvas2D)
+- **Причина**: `useEffect` авто-скролла (`ClusterChart.tsx:829-893`) имел deps `[activePair.symbol, visibleClientWidth]` — без данных и combo. На F5 эффект бежал при пустом `candles` (length=0 → skip) и не догонял при асинхронном приходе данных. Смена TF/market/compression работала только за счёт случайного unmount/remount через loading-флаг.
+- **Правки** (только `frontend/src/chart2d/ClusterChart.tsx`):
+  - **Deps (строка 893)**: добавлены `candles.length, timeframe, marketType, clusterStep` — теперь эффект догоняет при приходе данных и при любой смене combo.
+  - **clientWidth fallback (строка 832-833)**: убран `|| 800`. Вместо этого ранний return при `clientWidth <= 100` — скролл не ставится по ошибочной ширине, а дожидается реальной через ResizeObserver → visibleClientWidth → повторный вызов эффекта.
+  - **Zoom init (строка 837)**: не тронут — `hasInitializedZoomRef` блокирует только зум, но scrollLeft ПЕРЕустанавливается при каждом вызове эффекта (код после if-блока), что соответствует требованию.
+- **Проверки**:
+  - `npx tsc --noEmit`: PASS (0 errors)
+  - `npx vite build`: PASS (709ms)
+- **F5**: candles.length 0→N в deps → эффект догоняет → scrollLeft = правый край.
+- **Смена TF/market/compression**: соответствующий dep меняется → эффект бежит → scrollLeft = правый край.
+- **Драг-скролл** в рамках одной загрузки не тронут.
+- **Не коммитить** — жду скрин: после F5 и смены TF график на последней свече.
+
 ### [2026-06-19] Добавление 5m в роллап (бэкенд) — AlignToTimeframe, Rollup, live-рассылка
 - **Проблема**: 5m не роллапился → ClickHouse не содержал 5m-записей → REST возвращал пустой массив.
 - **Правки**:
