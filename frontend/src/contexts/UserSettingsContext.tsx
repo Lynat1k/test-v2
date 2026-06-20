@@ -26,13 +26,17 @@ function writeLocal(settings: Record<string, any>) {
 export function UserSettingsProvider({ children }: { children: ReactNode }) {
   const { user } = useAuthContext()
   const [settings, setSettings] = useState<Record<string, any>>(() => user ? {} : readLocal())
+  // Ref always holds the latest settings so the async save timer never reads stale closure values.
+  const settingsRef = useRef<Record<string, any>>(settings)
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const dirtyRef = useRef(false)
   const loadedFromApiRef = useRef(false)
 
   useEffect(() => {
     if (!user) {
-      setSettings(readLocal())
+      const local = readLocal()
+      settingsRef.current = local
+      setSettings(local)
       loadedFromApiRef.current = false
       return
     }
@@ -48,35 +52,42 @@ export function UserSettingsProvider({ children }: { children: ReactNode }) {
         const hasLocal = Object.keys(local).length > 0
         const merged = hasLocal ? { ...parsed, ...local } : parsed
 
+        settingsRef.current = merged
         setSettings(merged)
         if (hasLocal) {
           await apiPutSettings(JSON.stringify(merged))
           writeLocal({})
         }
       } catch {
-        setSettings(readLocal())
+        const local = readLocal()
+        settingsRef.current = local
+        setSettings(local)
       }
     })()
   }, [user])
 
+  // flushSave reads settingsRef (not the closed-over state) so the 500ms timer
+  // always persists the value that was actually written, not a stale snapshot.
   const flushSave = useCallback(() => {
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
     saveTimerRef.current = setTimeout(async () => {
       if (!dirtyRef.current) return
       dirtyRef.current = false
+      const current = settingsRef.current
       if (user) {
-        try { await apiPutSettings(JSON.stringify(settings)) } catch { /* retry next change */ }
+        try { await apiPutSettings(JSON.stringify(current)) } catch { /* retry next change */ }
       } else {
-        writeLocal(settings)
+        writeLocal(current)
       }
     }, 500)
-  }, [user, settings])
+  }, [user]) // `settings` removed from deps — we use the ref instead
 
   useEffect(() => { return () => { if (saveTimerRef.current) clearTimeout(saveTimerRef.current) } }, [])
 
   const setSetting = useCallback((key: string, value: any) => {
     setSettings(prev => {
       const next = { ...prev, [key]: value }
+      settingsRef.current = next   // sync ref immediately so flushSave reads the new value
       dirtyRef.current = true
       setTimeout(flushSave, 0)
       return next
