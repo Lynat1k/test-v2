@@ -105,7 +105,7 @@ func (ds *DepthSync) connectAndSync(ctx context.Context) error {
 	}
 	defer conn.Close()
 
-	conn.SetReadLimit(65536)
+	conn.SetReadLimit(2 * 1024 * 1024) // 2 MB — enough for large Binance diff bursts
 
 	done := make(chan error, 1)
 	go func() {
