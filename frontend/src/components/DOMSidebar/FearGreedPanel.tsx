@@ -1,3 +1,4 @@
+import { useTheme } from '@/contexts/ThemeContext'
 import type { FNGData } from '@/types/dom'
 
 interface FearGreedPanelProps {
@@ -21,10 +22,13 @@ function sentimentColor(val: number): string {
 }
 
 export function FearGreedPanel({ data }: FearGreedPanelProps) {
+  const { theme } = useTheme()
+  const isLight = theme === 'light'
+
   if (!data) {
     return (
-      <div className="rounded-xl p-2 bg-[#0c101b] border border-white/5">
-        <div className="text-[10px] text-white/40 font-mono">Loading F&G...</div>
+      <div className={`rounded-xl p-2 border ${isLight ? 'bg-slate-50 border-slate-200' : 'bg-[#0c101b] border-white/5'}`}>
+        <div className={`text-[10px] font-mono ${isLight ? 'text-slate-400' : 'text-white/40'}`}>Loading F&G...</div>
       </div>
     )
   }
@@ -43,13 +47,15 @@ export function FearGreedPanel({ data }: FearGreedPanelProps) {
     : new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
 
   return (
-    <div className="rounded-xl p-2 bg-[#0c101b] border border-white/5 shadow-inner text-slate-100">
+    <div className={`rounded-xl p-2 border shadow-inner ${
+      isLight ? 'bg-slate-50 border-slate-200 text-slate-900' : 'bg-[#0c101b] border-white/5 text-slate-100'
+    }`}>
       <div className="flex items-center gap-1.5 mb-1.5">
         <div className="w-5 h-5 rounded-full bg-[#f7931a] flex items-center justify-center shadow-sm shrink-0">
           <span className="text-white font-extrabold text-[11px] italic transform -skew-x-6 select-none">₿</span>
         </div>
         <div className="flex-1 min-w-0">
-          <h3 className="text-[13px] font-bold tracking-tight leading-none text-slate-100">
+          <h3 className={`text-[13px] font-bold tracking-tight leading-none ${isLight ? 'text-slate-800' : 'text-slate-100'}`}>
             Fear & Greed Index
           </h3>
         </div>

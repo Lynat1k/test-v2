@@ -1,4 +1,5 @@
 import { useChartControls } from '@/contexts/ChartControlsContext'
+import { useTheme } from '@/contexts/ThemeContext'
 import { useDOM } from '@/hooks/useDOM'
 import { FearGreedPanel } from './FearGreedPanel'
 import { OrderBookTable } from './OrderBookTable'
@@ -10,6 +11,8 @@ interface DOMSidebarProps {
 
 export function DOMSidebar({ collapsed }: DOMSidebarProps) {
   const { t } = useTranslation()
+  const { theme } = useTheme()
+  const isLight = theme === 'light'
   const { getSlot, activeSlot } = useChartControls()
   const slot = getSlot(activeSlot)
 
@@ -22,9 +25,9 @@ export function DOMSidebar({ collapsed }: DOMSidebarProps) {
     <>
       {/* Card content — hidden when collapsed */}
       {!collapsed && (
-        <div className="w-[280px] h-full flex flex-col rounded-2xl p-4 shadow-2xl liquid-glass-card">
-          <div className="flex items-center justify-between px-2 py-1.5 border-b border-white/5">
-            <span className="text-[10px] font-mono text-white/40 uppercase tracking-wider">
+        <div className={`w-[280px] h-full flex flex-col rounded-2xl p-4 shadow-2xl ${isLight ? 'bg-white border border-slate-200' : 'liquid-glass-card'}`}>
+          <div className={`flex items-center justify-between px-2 py-1.5 border-b ${isLight ? 'border-slate-200' : 'border-white/5'}`}>
+            <span className={`text-[10px] font-mono uppercase tracking-wider ${isLight ? 'text-slate-500' : 'text-white/40'}`}>
               {t('terminal.dom')}
             </span>
             <div className="flex items-center gap-1.5">

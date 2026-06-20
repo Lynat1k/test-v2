@@ -4,6 +4,7 @@ import {
   X, CheckCircle2, PlayCircle, Clock,
   Rocket, Star,
 } from 'lucide-react'
+import { useTheme } from '@/contexts/ThemeContext'
 
 interface RoadmapModalProps {
   isOpen: boolean
@@ -190,6 +191,8 @@ const MILESTONES: Milestone[] = [
 ]
 
 export default function RoadmapModal({ isOpen, onClose, language }: RoadmapModalProps) {
+  const { theme } = useTheme()
+  const isLight = theme === 'light'
   const [filter, setFilter] = useState<'all' | 'done' | 'in-progress' | 'planned'>('all')
 
   const filteredMilestones = MILESTONES.filter(
@@ -228,12 +231,14 @@ export default function RoadmapModal({ isOpen, onClose, language }: RoadmapModal
         animate={{ opacity: 1, scale: 1, y: 0 }}
         exit={{ opacity: 0, scale: 0.95, y: 15 }}
         transition={{ type: 'spring', duration: 0.4 }}
-        className="w-full max-w-4xl h-[85vh] max-h-[750px] rounded-[32px] border relative z-[9999] flex flex-col justify-between overflow-hidden shadow-2xl bg-slate-950 border-white/10 text-white shadow-black/80"
+        className={`w-full max-w-4xl h-[85vh] max-h-[750px] rounded-[32px] border relative z-[9999] flex flex-col justify-between overflow-hidden shadow-2xl ${
+          isLight ? 'bg-white border-slate-200 text-slate-900 shadow-slate-300/40' : 'bg-slate-950 border-white/10 text-white shadow-black/80'
+        }`}
       >
         <div className="absolute top-0 right-0 w-80 h-80 rounded-full bg-amber-500/5 blur-[90px] pointer-events-none" />
         <div className="absolute bottom-0 left-0 w-80 h-80 rounded-full bg-blue-500/5 blur-[90px] pointer-events-none" />
 
-        <div className="px-6 sm:px-8 py-5.5 border-b relative z-10 flex items-center justify-between bg-white/[0.01] border-white/5">
+        <div className={`px-6 sm:px-8 py-5.5 border-b relative z-10 flex items-center justify-between ${isLight ? 'bg-slate-50 border-slate-200' : 'bg-white/[0.01] border-white/5'}`}>
           <div className="flex items-center gap-3.5">
             <div className="p-3 rounded-2xl bg-amber-500/10 text-amber-500 border border-amber-500/20">
               <Rocket className="w-5.5 h-5.5 animate-bounce" />
@@ -247,7 +252,7 @@ export default function RoadmapModal({ isOpen, onClose, language }: RoadmapModal
                   BETA ROADMAP
                 </span>
               </div>
-              <p className="text-[11px] font-medium leading-snug mt-0.5 text-slate-400">
+              <p className={`text-[11px] font-medium leading-snug mt-0.5 ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
                 {t.subtitle}
               </p>
             </div>
@@ -255,15 +260,17 @@ export default function RoadmapModal({ isOpen, onClose, language }: RoadmapModal
 
           <button
             onClick={onClose}
-            className="p-2 rounded-xl transition duration-200 cursor-pointer border bg-white/5 hover:bg-white/10 border-white/5 text-slate-400 hover:text-slate-100"
+            className={`p-2 rounded-xl transition duration-200 cursor-pointer border ${
+              isLight ? 'bg-slate-100 hover:bg-slate-200 border-slate-200 text-slate-500 hover:text-slate-700' : 'bg-white/5 hover:bg-white/10 border-white/5 text-slate-400 hover:text-slate-100'
+            }`}
           >
             <X className="w-4 h-4" />
           </button>
         </div>
 
-        <div className="px-6 sm:px-8 py-3.5 border-b flex flex-wrap items-center justify-between gap-3 relative z-10 bg-black/10 border-white/5">
+        <div className={`px-6 sm:px-8 py-3.5 border-b flex flex-wrap items-center justify-between gap-3 relative z-10 ${isLight ? 'bg-slate-50 border-slate-200' : 'bg-black/10 border-white/5'}`}>
           <div className="flex items-center gap-1.5 overflow-x-auto scrollbar-none">
-            <div className="p-1 rounded-xl bg-slate-500/5 border border-white/5 flex items-center gap-1">
+            <div className={`p-1 rounded-xl flex items-center gap-1 ${isLight ? 'bg-slate-100 border border-slate-200' : 'bg-slate-500/5 border border-white/5'}`}>
               <button
                 onClick={() => setFilter('all')}
                 className={`px-3 py-1.5 rounded-lg text-[10.5px] font-bold tracking-wide transition cursor-pointer ${
@@ -315,7 +322,7 @@ export default function RoadmapModal({ isOpen, onClose, language }: RoadmapModal
           </span>
         </div>
 
-        <div className="flex-1 overflow-y-auto px-6 sm:px-8 py-6 relative z-10 space-y-6 scrollbar-thin-dark">
+        <div className={`flex-1 overflow-y-auto px-6 sm:px-8 py-6 relative z-10 space-y-6 ${isLight ? 'scrollbar-thin-light' : 'scrollbar-thin-dark'}`}>
           <div className="absolute left-[33px] sm:left-[41px] top-6 bottom-6 w-0.5 bg-gradient-to-b from-emerald-500 via-amber-500 to-blue-500 opacity-20 pointer-events-none" />
 
           {filteredMilestones.map((item, idx) => {
@@ -353,7 +360,7 @@ export default function RoadmapModal({ isOpen, onClose, language }: RoadmapModal
                 className="flex gap-4 relative"
               >
                 <div className="relative z-10 flex flex-col items-center shrink-0 w-8 sm:w-12 pt-1.5">
-                  <div className={`w-5 h-5 rounded-full flex items-center justify-center ring-4 ${ringColor} bg-slate-950`}>
+                  <div className={`w-5 h-5 rounded-full flex items-center justify-center ring-4 ${ringColor} ${isLight ? 'bg-white' : 'bg-slate-950'}`}>
                     <div className={`w-2 h-2 rounded-full ${dotColor} ${isIp ? 'animate-ping' : ''}`} />
                   </div>
                   <span className="text-[10px] font-mono font-bold text-slate-400 mt-2 block tracking-wider leading-none">
@@ -373,7 +380,7 @@ export default function RoadmapModal({ isOpen, onClose, language }: RoadmapModal
                       }`}>
                         {item.version}
                       </span>
-                      <h3 className="text-sm font-black font-sans tracking-tight text-white">
+                      <h3 className={`text-sm font-black font-sans tracking-tight ${isLight ? 'text-slate-900' : 'text-white'}`}>
                         {item.title[language]}
                       </h3>
                     </div>
@@ -389,7 +396,7 @@ export default function RoadmapModal({ isOpen, onClose, language }: RoadmapModal
                     </span>
                   </div>
 
-                  <p className="text-[11.5px] font-medium leading-relaxed text-slate-400">
+                  <p className={`text-[11.5px] font-medium leading-relaxed ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
                     {item.desc[language]}
                   </p>
 
@@ -399,7 +406,7 @@ export default function RoadmapModal({ isOpen, onClose, language }: RoadmapModal
                         <Star className={`w-3.5 h-3.5 shrink-0 mt-0.5 ${
                           isDone ? 'text-emerald-500' : isIp ? 'text-amber-500' : 'text-blue-500'
                         }`} />
-                        <span className="text-slate-300">{feat}</span>
+                        <span className={isLight ? 'text-slate-600' : 'text-slate-300'}>{feat}</span>
                       </div>
                     ))}
                   </div>
@@ -409,13 +416,15 @@ export default function RoadmapModal({ isOpen, onClose, language }: RoadmapModal
           })}
         </div>
 
-        <div className="px-6 sm:px-8 py-4.5 border-t relative z-10 flex items-center justify-between border-white/5 bg-slate-950/20">
+        <div className={`px-6 sm:px-8 py-4.5 border-t relative z-10 flex items-center justify-between ${isLight ? 'border-slate-200 bg-slate-50' : 'border-white/5 bg-slate-950/20'}`}>
           <span className="text-[10px] font-mono text-slate-500 select-none">
             PROCLUSTER ALPHA LABS &copy; 2026
           </span>
           <button
             onClick={onClose}
-            className="px-6 py-2.5 rounded-xl text-xs font-black uppercase tracking-wide transition flex items-center gap-1.5 hover:scale-102 active:scale-98 cursor-pointer border bg-white/10 hover:bg-white/15 border-white/10 text-white"
+            className={`px-6 py-2.5 rounded-xl text-xs font-black uppercase tracking-wide transition flex items-center gap-1.5 hover:scale-102 active:scale-98 cursor-pointer border ${
+              isLight ? 'bg-slate-100 hover:bg-slate-200 border-slate-200 text-slate-700' : 'bg-white/10 hover:bg-white/15 border-white/10 text-white'
+            }`}
           >
             <CheckCircle2 className="w-4 h-4 text-emerald-500" />
             <span>{t.close}</span>

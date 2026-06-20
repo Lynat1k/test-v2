@@ -26,6 +26,7 @@ import RoadmapModal from '@/components/RoadmapModal'
 import { Splitter } from '@/components/Splitter'
 import { DOMSidebar } from '@/components/DOMSidebar'
 import type { CandleMode, VolumeMode } from '@/chart-engine'
+import { useTheme } from '@/contexts/ThemeContext'
 import { Sparkles, Sliders, X, Layers, ChevronLeft, ChevronRight } from 'lucide-react'
 import { AnimatePresence, motion } from 'motion/react'
 
@@ -75,6 +76,8 @@ function AppShell() {
   const showAnomalies = activeSlot === 0 ? showAnomalies0 : showAnomalies1
   const setShowAnomalies = activeSlot === 0 ? setShowAnomalies0 : setShowAnomalies1
   const { language, t } = useTranslation()
+  const { theme } = useTheme()
+  const isLight = theme === 'light'
 
   const chartAreaRef = useRef<HTMLDivElement>(null)
 
@@ -96,20 +99,26 @@ function AppShell() {
   }, [layoutMode, setActiveSlot]);
 
   return (
-    <div className="h-screen w-screen flex flex-col overflow-hidden bg-[#030712]/92 text-white terminal-grid">
+    <div className={`h-screen w-screen flex flex-col overflow-hidden transition-all duration-300 ${
+      isLight ? 'light bg-[#cbd5e1] text-slate-900' : 'bg-[#030712]/92 text-white terminal-grid'
+    }`}>
       {/* Dynamic Drifting Liquid Background Blobs */}
       <div className="absolute inset-0 overflow-hidden pointer-events-none z-0">
-        <div className="absolute top-[5%] left-[3%] w-[450px] h-[450px] rounded-full liquid-blob-cyan blur-[100px] opacity-40" />
-        <div className="absolute top-[50%] right-[5%] w-[550px] h-[550px] rounded-full liquid-blob-magenta blur-[120px] opacity-35" />
-        <div className="absolute top-[30%] left-[45%] -translate-x-1/2 w-[420px] h-[420px] rounded-full liquid-blob-emerald blur-[90px] opacity-20" />
-        <div className="absolute bottom-[2%] left-[10%] w-[380px] h-[380px] rounded-full liquid-blob-gold blur-[100px] opacity-30" />
+        <div className={`absolute top-[5%] left-[3%] w-[450px] h-[450px] rounded-full liquid-blob-cyan blur-[100px] transition-all duration-300 ${isLight ? 'opacity-15' : 'opacity-40'}`} />
+        <div className={`absolute top-[50%] right-[5%] w-[550px] h-[550px] rounded-full liquid-blob-magenta blur-[120px] transition-all duration-300 ${isLight ? 'opacity-10' : 'opacity-35'}`} />
+        <div className={`absolute top-[30%] left-[45%] -translate-x-1/2 w-[420px] h-[420px] rounded-full liquid-blob-emerald blur-[90px] transition-all duration-300 ${isLight ? 'opacity-10' : 'opacity-20'}`} />
+        <div className={`absolute bottom-[2%] left-[10%] w-[380px] h-[380px] rounded-full liquid-blob-gold blur-[100px] transition-all duration-300 ${isLight ? 'opacity-10' : 'opacity-30'}`} />
       </div>
       <VerifyEmailBanner />
 
       {/* Main app header */}
-      <header className="shrink-0 relative z-[1100] bg-slate-950/45 backdrop-blur-md">
+      <header className={`shrink-0 relative z-[1100] transition-all duration-300 ${
+        isLight ? 'bg-slate-100 shadow-md shadow-slate-200/10' : 'bg-slate-950/45 backdrop-blur-md'
+      }`}>
         {/* First row */}
-        <div className="flex items-center justify-between px-2 py-2 sm:px-6 sm:py-3 border-b border-white/10">
+        <div className={`flex items-center justify-between px-2 py-2 sm:px-6 sm:py-3 border-b ${
+          isLight ? 'border-slate-300' : 'border-white/10'
+        }`}>
           <div className="flex items-center gap-2 relative z-10">
             <Logo />
             <button
@@ -124,7 +133,11 @@ function AppShell() {
           <div className="flex items-center gap-2 relative z-10">
             {currentView !== 'terminal' && (
               <button
-                className="hidden lg:flex items-center gap-1.5 px-3 py-1.5 rounded-xl border cursor-pointer hover:scale-105 active:scale-95 transition-all text-xs font-bold leading-none select-none bg-slate-950/40 hover:bg-slate-900/60 border-white/5 text-slate-300 hover:text-white shadow-inner"
+                className={`hidden lg:flex items-center gap-1.5 px-3 py-1.5 rounded-xl border cursor-pointer hover:scale-105 active:scale-95 transition-all text-xs font-bold leading-none select-none ${
+                  isLight
+                    ? 'bg-slate-200 hover:bg-slate-300 border-slate-300 text-slate-700 hover:text-slate-900 shadow-sm'
+                    : 'bg-slate-950/40 hover:bg-slate-900/60 border-white/5 text-slate-300 hover:text-white shadow-inner'
+                }`}
                 onClick={() => setCurrentView('terminal')}
               >
                 Terminal
@@ -140,26 +153,36 @@ function AppShell() {
         </div>
 
         {/* Mobile second row: settings toggle + Chart/DOM tabs */}
-        <div className="flex lg:hidden w-full items-center justify-between gap-2.5 px-2 sm:px-6 pb-2 pt-1.5 border-t border-white/5 relative z-10">
+        <div className={`flex lg:hidden w-full items-center justify-between gap-2.5 px-2 sm:px-6 pb-2 pt-1.5 border-t relative z-10 ${
+          isLight ? 'border-slate-200' : 'border-white/5'
+        }`}>
           <button
             onClick={() => setIsMobileSettingsOpen(!isMobileSettingsOpen)}
             className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 px-2 rounded-lg border text-[10px] font-black uppercase tracking-wider cursor-pointer transition-all duration-200 select-none ${
               isMobileSettingsOpen
-                ? 'bg-yellow-500 text-slate-950 border-yellow-500 shadow-sm'
-                : 'bg-yellow-500/10 hover:bg-yellow-500/15 border-yellow-500/20 text-yellow-400 shadow-inner'
+                ? 'bg-yellow-500 text-slate-950 border-yellow-500 shadow-sm font-black'
+                : isLight
+                  ? 'bg-amber-50/70 hover:bg-amber-100 border-amber-200 text-amber-700 shadow-xs'
+                  : 'bg-yellow-500/10 hover:bg-yellow-500/15 border-yellow-500/20 text-yellow-400 shadow-inner'
             }`}
           >
             {isMobileSettingsOpen ? <X className="w-3.5 h-3.5" /> : <Sliders className="w-3.5 h-3.5" />}
             <span>{language === 'RU' ? 'Настройки' : language === 'KZ' ? 'Реттеу' : 'Params'}</span>
           </button>
 
-          <div className="flex items-center p-0.5 rounded-lg border text-[10px] font-bold select-none gap-0.5 bg-slate-900/60 border-white/5">
+          <div className={`flex items-center p-0.5 rounded-lg border text-[10px] font-bold select-none gap-0.5 ${
+            isLight ? 'bg-slate-200 border-slate-300' : 'bg-slate-900/60 border-white/5'
+          }`}>
             <button
               onClick={() => setActiveMobileTab('chart')}
               className={`px-3 py-1 rounded-md transition-all duration-200 cursor-pointer flex items-center gap-1 ${
                 activeMobileTab === 'chart'
-                  ? 'bg-yellow-500/25 border border-yellow-500/30 text-yellow-500 font-extrabold'
-                  : 'text-slate-400 hover:text-slate-200'
+                  ? isLight
+                    ? 'bg-white text-slate-900 font-extrabold border border-slate-300 shadow-sm'
+                    : 'bg-yellow-500/25 border border-yellow-500/30 text-yellow-500 font-extrabold'
+                  : isLight
+                    ? 'text-slate-500 hover:text-slate-900'
+                    : 'text-slate-400 hover:text-slate-200'
               }`}
             >
               <span className="font-bold">{language === 'RU' ? 'ГРАФИК' : language === 'KZ' ? 'ГРАФИКА' : 'CHART'}</span>
@@ -168,8 +191,12 @@ function AppShell() {
               onClick={() => setActiveMobileTab('dom')}
               className={`px-3 py-1 rounded-md transition-all duration-200 cursor-pointer flex items-center gap-1 ${
                 activeMobileTab === 'dom'
-                  ? 'bg-yellow-500/25 border border-yellow-500/30 text-yellow-500 font-extrabold'
-                  : 'text-slate-400 hover:text-slate-200'
+                  ? isLight
+                    ? 'bg-white text-slate-900 font-extrabold border border-slate-300 shadow-sm'
+                    : 'bg-yellow-500/25 border border-yellow-500/30 text-yellow-500 font-extrabold'
+                  : isLight
+                    ? 'text-slate-500 hover:text-slate-900'
+                    : 'text-slate-400 hover:text-slate-200'
               }`}
             >
               <span className="font-bold">{language === 'RU' ? 'СТАКАН' : language === 'KZ' ? 'СТАКАН' : 'DOM'}</span>
@@ -186,17 +213,25 @@ function AppShell() {
             animate={{ opacity: 1, height: 'auto' }}
             exit={{ opacity: 0, height: 0 }}
             transition={{ type: 'spring', stiffness: 300, damping: 28 }}
-            className="lg:hidden border-b z-40 relative backdrop-blur-xl overflow-hidden select-none shadow-2xl bg-slate-950/95 border-slate-900/60 text-slate-100"
+            className={`lg:hidden border-b z-40 relative backdrop-blur-xl overflow-hidden select-none shadow-2xl transition-all duration-300 ${
+              isLight
+                ? 'bg-white/95 border-slate-300 text-slate-900'
+                : 'bg-slate-950/95 border-slate-900/60 text-slate-100'
+            }`}
           >
             <div className="p-4 flex flex-col gap-4 max-h-[80vh] overflow-y-auto">
-              <div className="flex items-center justify-between border-b border-white/5 pb-2">
+              <div className={`flex items-center justify-between border-b pb-2 ${isLight ? 'border-slate-200' : 'border-white/5'}`}>
                 <span className="text-sm font-black uppercase tracking-wider flex items-center gap-2">
                   <Sliders className="w-4 h-4 text-yellow-500" />
                   <span>{language === 'RU' ? 'Настройки графика' : language === 'KZ' ? 'График реттеулері' : 'Chart settings'}</span>
                 </span>
                 <button
                   onClick={() => setIsMobileSettingsOpen(false)}
-                  className="p-1.5 rounded-lg border transition hover:bg-white/10 border-white/5 text-slate-400"
+                  className={`p-1.5 rounded-lg border transition ${
+                    isLight
+                      ? 'hover:bg-slate-200 border-slate-300 text-slate-800'
+                      : 'hover:bg-white/10 border-white/5 text-slate-400'
+                  }`}
                 >
                   <X className="w-4 h-4" />
                 </button>
@@ -211,16 +246,20 @@ function AppShell() {
                     <>
                       {/* Ticker */}
                       <div className="flex flex-col gap-1">
-                        <span className="text-[10px] uppercase font-mono tracking-widest font-bold text-slate-400/80">
+                        <span className={`text-[10px] uppercase font-mono tracking-widest font-bold ${isLight ? 'text-slate-500' : 'text-slate-400/80'}`}>
                           {language === 'EN' ? 'Active Ticker' : 'Пара (Ticker)'}
                         </span>
                         <select
                           value={active.symbol}
                           onChange={(e) => setSymbol(e.target.value)}
-                          className="px-2.5 py-1.5 rounded-lg text-xs font-bold font-mono cursor-pointer h-[35px] border focus:outline-none transition-all duration-200 outline-none w-full bg-slate-900 border-white/5 text-yellow-500"
+                          className={`px-2.5 py-1.5 rounded-lg text-xs font-bold font-mono cursor-pointer h-[35px] border focus:outline-none transition-all duration-200 outline-none w-full ${
+                            isLight
+                              ? 'bg-slate-100 border-slate-300 text-slate-900 shadow-inner'
+                              : 'bg-slate-900 border-white/5 text-yellow-500'
+                          }`}
                         >
                           {AVAILABLE_TICKERS.map((p) => (
-                            <option key={p.symbol} value={p.symbol} className="bg-slate-950 text-slate-100">
+                            <option key={p.symbol} value={p.symbol} className={isLight ? 'text-slate-900' : 'bg-slate-950 text-slate-100'}>
                               {p.symbol}
                             </option>
                           ))}
@@ -229,10 +268,12 @@ function AppShell() {
 
                       {/* Market Type */}
                       <div className="flex flex-col gap-1">
-                        <span className="text-[10px] uppercase font-mono tracking-widest font-bold text-slate-400/80">
+                        <span className={`text-[10px] uppercase font-mono tracking-widest font-bold ${isLight ? 'text-slate-500' : 'text-slate-400/80'}`}>
                           {language === 'EN' ? 'Market Type' : 'Тип рынка (Market)'}
                         </span>
-                        <div className="grid grid-cols-2 gap-0.5 p-[2px] rounded-lg h-[35px] items-center select-none border bg-slate-950/60 border-white/5">
+                        <div className={`grid grid-cols-2 gap-0.5 p-[2px] rounded-lg h-[35px] items-center select-none border ${
+                          isLight ? 'bg-slate-200 border-slate-300' : 'bg-slate-950/60 border-white/5'
+                        }`}>
                           {(['SPOT', 'FUTURES'] as const).map((type) => {
                             const mkt: MarketType = type === 'SPOT' ? 'spot' : 'futures'
                             return (
@@ -241,8 +282,12 @@ function AppShell() {
                                 onClick={() => setMarket(mkt)}
                                 className={`py-1 rounded-md text-[10px] font-bold font-mono transition-colors duration-200 cursor-pointer text-center leading-none h-[29px] ${
                                   active.market === mkt
-                                    ? 'bg-yellow-500/10 border border-yellow-500/25 text-yellow-500 font-extrabold shadow-inner'
-                                    : 'text-slate-400 hover:text-slate-200'
+                                    ? isLight
+                                      ? 'bg-white text-slate-900 font-extrabold border border-slate-300 shadow-sm'
+                                      : 'bg-yellow-500/10 border border-yellow-500/25 text-yellow-500 font-extrabold shadow-inner'
+                                    : isLight
+                                      ? 'text-slate-500 hover:text-slate-900'
+                                      : 'text-slate-400 hover:text-slate-200'
                                 }`}
                               >
                                 {type}
@@ -254,16 +299,20 @@ function AppShell() {
 
                       {/* Interval */}
                       <div className="flex flex-col gap-1">
-                        <span className="text-[10px] uppercase font-mono tracking-widest font-bold text-slate-400/80">
+                        <span className={`text-[10px] uppercase font-mono tracking-widest font-bold ${isLight ? 'text-slate-500' : 'text-slate-400/80'}`}>
                           {language === 'EN' ? 'Interval' : 'Таймфрейм / Interval'}
                         </span>
                         <select
                           value={active.timeframe}
                           onChange={(e) => setTimeframe(e.target.value)}
-                          className="px-2.5 py-1.5 rounded-lg text-xs font-bold font-mono cursor-pointer h-[35px] border focus:outline-none transition-all duration-200 outline-none w-full bg-slate-900 border-white/5 text-slate-300 liquid-glass-button"
+                          className={`px-2.5 py-1.5 rounded-lg text-xs font-bold font-mono cursor-pointer h-[35px] border focus:outline-none transition-all duration-200 outline-none w-full ${
+                            isLight
+                              ? 'bg-slate-100 border-slate-300 text-slate-900 shadow-inner'
+                              : 'bg-slate-900 border-white/5 text-slate-300 liquid-glass-button'
+                          }`}
                         >
                           {TIMEFRAMES_BY_MARKET[active.market].map((item) => (
-                            <option key={item} value={item} className="bg-slate-950 text-slate-100">
+                            <option key={item} value={item} className={isLight ? 'text-slate-900' : 'bg-slate-950 text-slate-100'}>
                               {item}
                             </option>
                           ))}
@@ -272,67 +321,83 @@ function AppShell() {
 
                       {/* Candle Type */}
                       <div className="flex flex-col gap-1">
-                        <span className="text-[10px] uppercase font-mono tracking-widest font-bold text-slate-400/80">
+                        <span className={`text-[10px] uppercase font-mono tracking-widest font-bold ${isLight ? 'text-slate-500' : 'text-slate-400/80'}`}>
                           {language === 'EN' ? 'Candle Type' : 'Тип Свечей'}
                         </span>
                         <select
                           value={active.candleMode}
                           onChange={(e) => setCandleMode(e.target.value as any)}
-                          className="px-2.5 py-1.5 rounded-lg text-xs font-bold font-sans cursor-pointer h-[35px] border focus:outline-none transition-all duration-200 outline-none w-full bg-slate-900 border-white/5 text-slate-300 liquid-glass-button"
+                          className={`px-2.5 py-1.5 rounded-lg text-xs font-bold font-sans cursor-pointer h-[35px] border focus:outline-none transition-all duration-200 outline-none w-full ${
+                            isLight
+                              ? 'bg-slate-100 border-slate-300 text-slate-800 shadow-inner'
+                              : 'bg-slate-900 border-white/5 text-slate-300 liquid-glass-button'
+                          }`}
                         >
-                          <option value="auto" className="bg-slate-950 text-slate-100">{language === 'EN' ? 'Auto' : 'Автоматический / Auto'}</option>
-                          <option value="japanese" className="bg-slate-950 text-slate-100">{language === 'EN' ? 'Japanese' : 'Японские / Japanese'}</option>
-                          <option value="bars" className="bg-slate-950 text-slate-100">{language === 'EN' ? 'Bars' : 'Бары / Bars'}</option>
-                          <option value="footprint" className="bg-slate-950 text-slate-100">{language === 'EN' ? 'Footprint' : 'Футпринт / Footprint'}</option>
-                          <option value="clusters" className="bg-slate-950 text-slate-100">{language === 'EN' ? 'Clusters' : 'Кластера / Clusters'}</option>
+                          <option value="auto" className={isLight ? 'text-slate-900' : 'bg-slate-950 text-slate-100'}>{language === 'EN' ? 'Auto' : 'Автоматический / Auto'}</option>
+                          <option value="japanese" className={isLight ? 'text-slate-900' : 'bg-slate-950 text-slate-100'}>{language === 'EN' ? 'Japanese' : 'Японские / Japanese'}</option>
+                          <option value="bars" className={isLight ? 'text-slate-900' : 'bg-slate-950 text-slate-100'}>{language === 'EN' ? 'Bars' : 'Бары / Bars'}</option>
+                          <option value="footprint" className={isLight ? 'text-slate-900' : 'bg-slate-950 text-slate-100'}>{language === 'EN' ? 'Footprint' : 'Футпринт / Footprint'}</option>
+                          <option value="clusters" className={isLight ? 'text-slate-900' : 'bg-slate-950 text-slate-100'}>{language === 'EN' ? 'Clusters' : 'Кластера / Clusters'}</option>
                         </select>
                       </div>
 
                       {/* Palette */}
                       <div className="flex flex-col gap-1">
-                        <span className="text-[10px] uppercase font-mono tracking-widest font-bold text-slate-400/80">
+                        <span className={`text-[10px] uppercase font-mono tracking-widest font-bold ${isLight ? 'text-slate-500' : 'text-slate-400/80'}`}>
                           {language === 'EN' ? 'Palette' : 'Палитра'}
                         </span>
                         <select
                           value={active.palette}
                           onChange={(e) => setPalette(e.target.value as any)}
-                          className="px-2.5 py-1.5 rounded-lg text-xs font-bold font-sans cursor-pointer h-[35px] border focus:outline-none transition-all duration-200 outline-none w-full bg-slate-900 border-white/5 text-slate-300 liquid-glass-button"
+                          className={`px-2.5 py-1.5 rounded-lg text-xs font-bold font-sans cursor-pointer h-[35px] border focus:outline-none transition-all duration-200 outline-none w-full ${
+                            isLight
+                              ? 'bg-slate-100 border-slate-300 text-slate-800 shadow-inner'
+                              : 'bg-slate-900 border-white/5 text-slate-300 liquid-glass-button'
+                          }`}
                         >
-                          <option value="default" className="bg-slate-950 text-slate-100">{language === 'EN' ? 'Default' : 'Стандарт / Default'}</option>
-                          <option value="alternative" className="bg-slate-950 text-slate-100">{language === 'EN' ? 'Alternative' : 'Альт / Alternative'}</option>
+                          <option value="default" className={isLight ? 'text-slate-900' : 'bg-slate-950 text-slate-100'}>{language === 'EN' ? 'Default' : 'Стандарт / Default'}</option>
+                          <option value="alternative" className={isLight ? 'text-slate-900' : 'bg-slate-950 text-slate-100'}>{language === 'EN' ? 'Alternative' : 'Альт / Alternative'}</option>
                         </select>
                       </div>
 
                       {/* Candle Data (Volume Mode) */}
                       <div className="flex flex-col gap-1">
-                        <span className="text-[10px] uppercase font-mono tracking-widest font-bold text-slate-400/80">
+                        <span className={`text-[10px] uppercase font-mono tracking-widest font-bold ${isLight ? 'text-slate-500' : 'text-slate-400/80'}`}>
                           {language === 'EN' ? 'Candle Data' : 'Данные свечей'}
                         </span>
                         <select
                           value={active.volumeMode}
                           onChange={(e) => setVolumeMode(e.target.value as VolumeMode)}
-                          className="px-2.5 py-1.5 rounded-lg text-xs font-bold font-sans cursor-pointer h-[35px] border focus:outline-none transition-all duration-200 outline-none w-full bg-slate-900 border-white/5 text-slate-300 liquid-glass-button"
+                          className={`px-2.5 py-1.5 rounded-lg text-xs font-bold font-sans cursor-pointer h-[35px] border focus:outline-none transition-all duration-200 outline-none w-full ${
+                            isLight
+                              ? 'bg-slate-100 border-slate-300 text-slate-800 shadow-inner'
+                              : 'bg-slate-900 border-white/5 text-slate-300 liquid-glass-button'
+                          }`}
                         >
-                          <option value="bidask" className="bg-slate-950 text-slate-100">Bid Ask</option>
-                          <option value="volume" className="bg-slate-950 text-slate-100">{language === 'EN' ? 'Volume' : 'Объем / Volume'}</option>
-                          <option value="delta" className="bg-slate-950 text-slate-100">Delta</option>
+                          <option value="bidask" className={isLight ? 'text-slate-900' : 'bg-slate-950 text-slate-100'}>Bid Ask</option>
+                          <option value="volume" className={isLight ? 'text-slate-900' : 'bg-slate-950 text-slate-100'}>{language === 'EN' ? 'Volume' : 'Объем / Volume'}</option>
+                          <option value="delta" className={isLight ? 'text-slate-900' : 'bg-slate-950 text-slate-100'}>Delta</option>
                         </select>
                       </div>
 
                       {/* Compression */}
                       <div className="flex flex-col gap-1">
-                        <span className="text-[10px] uppercase font-mono tracking-widest font-bold text-slate-400/80">
+                        <span className={`text-[10px] uppercase font-mono tracking-widest font-bold ${isLight ? 'text-slate-500' : 'text-slate-400/80'}`}>
                           {language === 'EN' ? 'Compression' : 'Сжатие шага'}
                         </span>
                         <select
                           value={active.compression}
                           onChange={(e) => setCompression(parseInt(e.target.value))}
-                          className="px-2.5 py-1.5 rounded-lg text-xs font-bold font-mono cursor-pointer h-[35px] border focus:outline-none transition-all duration-200 outline-none w-full bg-slate-900 border-white/5 text-slate-300 liquid-glass-button"
+                          className={`px-2.5 py-1.5 rounded-lg text-xs font-bold font-mono cursor-pointer h-[35px] border focus:outline-none transition-all duration-200 outline-none w-full ${
+                            isLight
+                              ? 'bg-slate-100 border-slate-300 text-slate-800 shadow-inner'
+                              : 'bg-slate-900 border-white/5 text-slate-300 liquid-glass-button'
+                          }`}
                         >
                           {[1, 2, 3, 4, 5, 6].map((multiplier) => {
                             const actualValue = base * multiplier
                             return (
-                              <option key={multiplier} value={multiplier} className="bg-slate-950 text-slate-100">
+                              <option key={multiplier} value={multiplier} className={isLight ? 'text-slate-900 font-sans' : 'bg-slate-950 text-slate-100'}>
                                 {multiplier}x ({actualValue})
                               </option>
                             )
@@ -347,7 +412,11 @@ function AppShell() {
                             setShowIndicatorsModal(true)
                             setIsMobileSettingsOpen(false)
                           }}
-                          className="flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg font-black text-xs cursor-pointer h-[35px] hover:scale-[1.01] active:scale-[0.99] transition-all border liquid-glass-button text-slate-300 hover:text-white border-white/5"
+                          className={`flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg font-black text-xs cursor-pointer h-[35px] hover:scale-[1.01] active:scale-[0.99] transition-all border ${
+                            isLight
+                              ? 'bg-slate-200 hover:bg-slate-300 border-slate-300 text-slate-800 shadow-sm'
+                              : 'liquid-glass-button text-slate-300 hover:text-white border-white/5'
+                          }`}
                         >
                           <Layers className="w-3.5 h-3.5 text-blue-400 animate-pulse" />
                           <span>{language === 'EN' ? 'Indicators' : 'Индикаторы'}</span>
@@ -635,7 +704,11 @@ function AppShell() {
                 {/* DOMSidebar collapse chip — absolute inside chart row, overflow-hidden won't clip (chip within bounds) */}
                 <button
                   onClick={toggleDomCollapsed}
-                  className={`hidden lg:flex absolute top-1/2 -translate-y-1/2 z-50 items-center justify-center w-6 h-12 rounded-lg border transition-all duration-200 cursor-pointer liquid-glass-card hover:bg-white/5 border-white/5 text-white/40 hover:text-white/70 ${domCollapsed ? 'right-0' : 'right-[268px]'}`}
+                  className={`hidden lg:flex absolute top-1/2 -translate-y-1/2 z-50 items-center justify-center w-6 h-12 rounded-md border transition-all duration-200 cursor-pointer ${
+                    isLight
+                      ? 'bg-white hover:bg-slate-50 text-slate-600 border-slate-200 shadow-sm hover:text-slate-900'
+                      : 'liquid-glass-card hover:bg-white/5 border-white/5 text-white/40 hover:text-white/70'
+                  } ${domCollapsed ? 'right-0' : 'right-[268px]'}`}
                   title={domCollapsed ? t('dom.expand') : t('dom.collapse')}
                 >
                   {domCollapsed ? <ChevronLeft className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}

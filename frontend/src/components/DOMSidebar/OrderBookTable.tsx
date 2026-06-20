@@ -1,4 +1,5 @@
 import { useRef, useEffect, useState, useCallback, useMemo } from 'react'
+import { useTheme } from '@/contexts/ThemeContext'
 import type { DOMLevel } from '@/types/dom'
 
 interface OrderBookTableProps {
@@ -7,6 +8,8 @@ interface OrderBookTableProps {
 }
 
 export function OrderBookTable({ levels, lastPrice }: OrderBookTableProps) {
+  const { theme } = useTheme()
+  const isLight = theme === 'light'
   const containerRef = useRef<HTMLDivElement>(null)
   const [autoCenter, setAutoCenter] = useState(true)
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -60,16 +63,20 @@ export function OrderBookTable({ levels, lastPrice }: OrderBookTableProps) {
     p.toLocaleString(undefined, { minimumFractionDigits: 1, maximumFractionDigits: 2 })
 
   return (
-    <div className="flex flex-col h-full bg-[#06080e]/90 rounded-xl border border-white/5 overflow-hidden">
+    <div className={`flex flex-col h-full rounded-xl border overflow-hidden ${
+      isLight ? 'bg-white/90 border-slate-200' : 'bg-[#06080e]/90 border-white/5'
+    }`}>
       {/* Header */}
-      <div className="grid grid-cols-[1fr_1.2fr] gap-3 border-b border-white/5 py-1.5 px-2 text-[8.5px] font-mono font-black uppercase tracking-widest shrink-0 bg-slate-950 text-slate-500">
+      <div className={`grid grid-cols-[1fr_1.2fr] gap-3 border-b py-1.5 px-2 text-[8.5px] font-mono font-black uppercase tracking-widest shrink-0 ${
+        isLight ? 'bg-slate-100 border-slate-200 text-slate-500' : 'bg-slate-950 border-white/5 text-slate-500'
+      }`}>
         <div className="text-right pr-2">Size</div>
         <div className="text-left pl-1">Price (USDT)</div>
       </div>
 
       <div
         ref={containerRef}
-        className="flex-1 overflow-y-auto scrollbar-thin-dark"
+        className={`flex-1 overflow-y-auto ${isLight ? 'scrollbar-thin-light' : 'scrollbar-thin-dark'}`}
         onScroll={resetAutoCenter}
       >
         {/* --- ASKS (high → low) --- */}
@@ -81,7 +88,7 @@ export function OrderBookTable({ levels, lastPrice }: OrderBookTableProps) {
           return (
             <div
               key={`ask-${level.priceLevel}`}
-              className="grid grid-cols-[1fr_1.2fr] gap-3 font-mono text-[10.5px] relative h-[18px] items-center px-2 hover:bg-white/[0.02] transition-colors"
+              className="grid grid-cols-[1fr_1.2fr] gap-3 font-mono text-[10.5px] relative h-[18px] items-center px-2 transition-colors"
             >
               <div
                 className="absolute left-0 top-0 bottom-0 pointer-events-none transition-all duration-300"
@@ -101,7 +108,9 @@ export function OrderBookTable({ levels, lastPrice }: OrderBookTableProps) {
               </div>
               <div
                 className={`text-left pl-1 z-10 font-bold transition-all duration-200 ${
-                  isWall ? 'font-extrabold text-slate-200' : 'text-slate-400 hover:text-slate-100'
+                  isWall
+                    ? isLight ? 'font-extrabold text-slate-800' : 'font-extrabold text-slate-200'
+                    : isLight ? 'text-slate-600' : 'text-slate-400 hover:text-slate-100'
                 }`}
               >
                 {priceFmt(level.priceLevel)}
@@ -111,7 +120,7 @@ export function OrderBookTable({ levels, lastPrice }: OrderBookTableProps) {
         })}
 
         {/* --- MID ROW / LAST PRICE --- */}
-        <div className="flex justify-center items-center border-y border-amber-500/25 relative z-20 shrink-0 bg-[#090b11] h-14">
+        <div className={`flex justify-center items-center border-y border-amber-500/25 relative z-20 shrink-0 h-14 ${isLight ? 'bg-slate-100' : 'bg-[#090b11]'}`}>
           <div
             className="font-mono text-[30px] font-black tracking-widest leading-none text-center select-all text-amber-500"
             style={{
@@ -132,7 +141,7 @@ export function OrderBookTable({ levels, lastPrice }: OrderBookTableProps) {
           return (
             <div
               key={`bid-${level.priceLevel}`}
-              className="grid grid-cols-[1fr_1.2fr] gap-3 font-mono text-[10.5px] relative h-[18px] items-center px-2 hover:bg-white/[0.02] transition-colors"
+              className="grid grid-cols-[1fr_1.2fr] gap-3 font-mono text-[10.5px] relative h-[18px] items-center px-2 transition-colors"
             >
               <div
                 className="absolute left-0 top-0 bottom-0 pointer-events-none transition-all duration-300"
@@ -152,7 +161,9 @@ export function OrderBookTable({ levels, lastPrice }: OrderBookTableProps) {
               </div>
               <div
                 className={`text-left pl-1 z-10 font-bold transition-all duration-200 ${
-                  isWall ? 'font-extrabold text-slate-200' : 'text-slate-400 hover:text-slate-100'
+                  isWall
+                    ? isLight ? 'font-extrabold text-slate-800' : 'font-extrabold text-slate-200'
+                    : isLight ? 'text-slate-600' : 'text-slate-400 hover:text-slate-100'
                 }`}
               >
                 {priceFmt(level.priceLevel)}
@@ -162,7 +173,7 @@ export function OrderBookTable({ levels, lastPrice }: OrderBookTableProps) {
         })}
 
         {levels.length === 0 && (
-          <div className="flex items-center justify-center h-20 text-xs text-white/30 font-mono">
+          <div className={`flex items-center justify-center h-20 text-xs font-mono ${isLight ? 'text-slate-400' : 'text-white/30'}`}>
             Waiting for data...
           </div>
         )}

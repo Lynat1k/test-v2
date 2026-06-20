@@ -8,6 +8,7 @@ import {
   type MarketType,
 } from '@/contexts/ChartControlsContext'
 import { useCandlePalette } from '@/contexts/CandlePaletteContext'
+import { useTheme } from '@/contexts/ThemeContext'
 import type { CandleMode, VolumeMode } from '@/chart-engine'
 import { motion, AnimatePresence } from 'motion/react'
 import { ChevronDown, SlidersHorizontal, Zap, Lock, Check, Star } from 'lucide-react'
@@ -43,6 +44,8 @@ interface ChartHeaderProps {
 
 export function ChartHeader({ fps = 0, showAnomalies = true, onToggleAnomalies }: ChartHeaderProps) {
   const { t } = useTranslation()
+  const { theme } = useTheme()
+  const isLight = theme === 'light'
   const { limits } = useUserLimits()
   const {
     activeSlot, getSlot,
@@ -127,35 +130,45 @@ export function ChartHeader({ fps = 0, showAnomalies = true, onToggleAnomalies }
   }, [setControlsPalette, setActivePalette, activeSlot])
 
   return (
-    <div className="relative flex items-start gap-1 px-2 py-2.5 bg-slate-950/40 border-b border-slate-900/60 shadow-md backdrop-blur-md shrink-0 overflow-x-auto flex-wrap lg:flex-nowrap" style={{ zIndex: 1000 }}>
+    <div className={`relative flex items-start gap-1 px-2 py-2.5 border-b shadow-md shrink-0 overflow-x-auto flex-wrap lg:flex-nowrap transition-all duration-300 ${
+      isLight
+        ? 'bg-slate-200/90 border-slate-300 shadow-sm'
+        : 'bg-slate-950/40 border-slate-900/60 backdrop-blur-md'
+    }`} style={{ zIndex: 1000 }}>
       {/* 1. Ticker selector */}
       <div className="shrink-0">
-        <span className="text-[10px] uppercase font-mono tracking-widest font-bold block mb-0.5 text-slate-400/80">Active Ticker</span>
+        <span className={`text-[10px] uppercase font-mono tracking-widest font-bold block mb-0.5 ${isLight ? 'text-slate-500' : 'text-slate-400/80'}`}>Active Ticker</span>
         <div className="relative" ref={tickerRef}>
         <button
           onClick={() => tickerDropdownOpen ? setTickerDropdownOpen(false) : openTickerDropdown()}
-          className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg liquid-glass-button text-xs font-bold cursor-pointer select-none whitespace-nowrap"
+          className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg liquid-glass-button text-xs font-bold cursor-pointer select-none whitespace-nowrap ${
+            isLight ? 'text-slate-900' : ''
+          }`}
         >
-          <span className="text-amber-400 font-mono text-[11px]">{symbol}</span>
-          <ChevronDown className={`w-3 h-3 text-slate-400 transition-transform ${tickerDropdownOpen ? 'rotate-180' : ''}`} />
+          <span className={`font-mono text-[11px] ${isLight ? 'text-slate-800' : 'text-amber-400'}`}>{symbol}</span>
+          <ChevronDown className={`w-3 h-3 transition-transform ${isLight ? 'text-slate-600' : 'text-slate-400'} ${tickerDropdownOpen ? 'rotate-180' : ''}`} />
         </button>
       </div>
       </div>
 
-      <div className="w-px h-5 bg-white/10 mx-0.5" />
+      <div className={`w-px h-5 mx-0.5 ${isLight ? 'bg-slate-300' : 'bg-white/10'}`} />
 
       {/* 2. Market type SPOT / FUTURES */}
       <div className="shrink-0">
-        <span className="text-[10px] uppercase font-mono tracking-widest font-bold block mb-0.5 text-slate-400/80">Market Type</span>
-        <div className="flex items-center p-0.5 rounded-lg bg-slate-950/60 border border-white/5">
+        <span className={`text-[10px] uppercase font-mono tracking-widest font-bold block mb-0.5 ${isLight ? 'text-slate-500' : 'text-slate-400/80'}`}>Market Type</span>
+        <div className={`flex items-center p-0.5 rounded-lg border ${isLight ? 'bg-slate-200 border-slate-300' : 'bg-slate-950/60 border-white/5'}`}>
           {(['futures', 'spot'] as MarketType[]).map((m) => (
             <button
               key={m}
               onClick={() => setMarket(m)}
               className={`px-2.5 py-1 rounded-md text-[10px] font-black uppercase tracking-wider cursor-pointer transition-all ${
                 market === m
-                  ? 'bg-yellow-500/10 border border-yellow-500/25 text-yellow-500 font-extrabold shadow-inner'
-                  : 'text-slate-400 hover:text-slate-200 border border-transparent'
+                  ? isLight
+                    ? 'bg-white text-slate-900 font-extrabold border border-slate-300 shadow-sm'
+                    : 'bg-yellow-500/10 border border-yellow-500/25 text-yellow-500 font-extrabold shadow-inner'
+                  : isLight
+                    ? 'text-slate-500 hover:text-slate-900 border border-transparent'
+                    : 'text-slate-400 hover:text-slate-200 border border-transparent'
               }`}
             >
               {m === 'spot' ? t('chart.spot') : t('chart.futures')}
@@ -164,11 +177,11 @@ export function ChartHeader({ fps = 0, showAnomalies = true, onToggleAnomalies }
         </div>
       </div>
 
-      <div className="w-px h-5 bg-white/10 mx-0.5" />
+      <div className={`w-px h-5 mx-0.5 ${isLight ? 'bg-slate-300' : 'bg-white/10'}`} />
 
       {/* 3. Timeframes */}
       <div className="shrink-0">
-        <span className="text-[10px] uppercase font-mono tracking-widest font-bold block mb-0.5 text-slate-400/80">Interval</span>
+        <span className={`text-[10px] uppercase font-mono tracking-widest font-bold block mb-0.5 ${isLight ? 'text-slate-500' : 'text-slate-400/80'}`}>Interval</span>
         <div className="flex items-center gap-0.5">
           {TIMEFRAMES_BY_MARKET[market].map((tf) => (
             <button
@@ -177,7 +190,9 @@ export function ChartHeader({ fps = 0, showAnomalies = true, onToggleAnomalies }
               className={`px-2 py-1 rounded-lg text-xs font-bold font-mono cursor-pointer transition-all duration-200 h-[30px] ${
                 timeframe === tf
                   ? 'liquid-glass-active text-yellow-400 font-black'
-                  : 'liquid-glass-button text-slate-400 hover:text-slate-100'
+                  : isLight
+                    ? 'liquid-glass-button text-slate-600 hover:text-slate-900'
+                    : 'liquid-glass-button text-slate-400 hover:text-slate-100'
               }`}
             >
               {tf}
@@ -186,11 +201,11 @@ export function ChartHeader({ fps = 0, showAnomalies = true, onToggleAnomalies }
         </div>
       </div>
 
-      <div className="w-px h-5 bg-white/10 mx-0.5" />
+      <div className={`w-px h-5 mx-0.5 ${isLight ? 'bg-slate-300' : 'bg-white/10'}`} />
 
       {/* 4. Candle type */}
       <div className="shrink-0">
-        <span className="text-[10px] uppercase font-mono tracking-widest font-bold block mb-0.5 text-slate-400/80">{t('chart.candleType')}</span>
+        <span className={`text-[10px] uppercase font-mono tracking-widest font-bold block mb-0.5 ${isLight ? 'text-slate-500' : 'text-slate-400/80'}`}>{t('chart.candleType')}</span>
         <div className="flex items-center gap-0.5">
           {CANDLE_MODES.map(({ mode, icon: Icon, labelKey }) => (
             <button
@@ -200,7 +215,9 @@ export function ChartHeader({ fps = 0, showAnomalies = true, onToggleAnomalies }
               className={`flex items-center justify-center px-2 py-0.5 rounded-md text-xs font-bold cursor-pointer transition-all h-[24px] ${
                 candleMode === mode
                   ? 'bg-yellow-500/10 border border-yellow-500/25 text-yellow-500 font-extrabold shadow-inner'
-                  : 'text-slate-400 hover:text-slate-200 border border-transparent'
+                  : isLight
+                    ? 'text-slate-500 hover:text-slate-900 border border-transparent'
+                    : 'text-slate-400 hover:text-slate-200 border border-transparent'
               }`}
             >
               {Icon && <Icon className="w-3.5 h-3.5" />}
@@ -209,11 +226,11 @@ export function ChartHeader({ fps = 0, showAnomalies = true, onToggleAnomalies }
         </div>
       </div>
 
-      <div className="w-px h-5 bg-white/10 mx-0.5" />
+      <div className={`w-px h-5 mx-0.5 ${isLight ? 'bg-slate-300' : 'bg-white/10'}`} />
 
       {/* 4b. Anomalies toggle */}
       <div className="shrink-0">
-        <span className="text-[10px] uppercase font-mono tracking-widest font-bold block mb-0.5 text-slate-400/80">Anomalies</span>
+        <span className={`text-[10px] uppercase font-mono tracking-widest font-bold block mb-0.5 ${isLight ? 'text-slate-500' : 'text-slate-400/80'}`}>Anomalies</span>
         <button
           onClick={limits.anomaliesEnabled ? onToggleAnomalies : undefined}
           disabled={!limits.anomaliesEnabled}
@@ -231,11 +248,11 @@ export function ChartHeader({ fps = 0, showAnomalies = true, onToggleAnomalies }
         </button>
       </div>
 
-      <div className="w-px h-5 bg-white/10 mx-0.5" />
+      <div className={`w-px h-5 mx-0.5 ${isLight ? 'bg-slate-300' : 'bg-white/10'}`} />
 
       {/* 5. Palette dropdown */}
       <div className="shrink-0">
-        <span className="text-[10px] uppercase font-mono tracking-widest font-bold block mb-0.5 text-slate-400/80">{t('chart.palette')}</span>
+        <span className={`text-[10px] uppercase font-mono tracking-widest font-bold block mb-0.5 ${isLight ? 'text-slate-500' : 'text-slate-400/80'}`}>{t('chart.palette')}</span>
         <div className="relative" ref={paletteRef}>
           <button
             onClick={() => paletteDropdownOpen ? setPaletteDropdownOpen(false) : openPaletteDropdown()}
@@ -250,18 +267,22 @@ export function ChartHeader({ fps = 0, showAnomalies = true, onToggleAnomalies }
       {/* 6. Volume mode — visible only for clusters/footprint */}
       {showVolumeMode && (
         <>
-          <div className="w-px h-5 bg-white/10 mx-0.5" />
+          <div className={`w-px h-5 mx-0.5 ${isLight ? 'bg-slate-300' : 'bg-white/10'}`} />
           <div className="shrink-0">
-            <span className="text-[10px] uppercase font-mono tracking-widest font-bold block mb-0.5 text-slate-400/80">{t('chart.volumeData')}</span>
-            <div className="flex items-center p-0.5 rounded-lg bg-slate-950/60 border border-white/5">
+            <span className={`text-[10px] uppercase font-mono tracking-widest font-bold block mb-0.5 ${isLight ? 'text-slate-500' : 'text-slate-400/80'}`}>{t('chart.volumeData')}</span>
+            <div className={`flex items-center p-0.5 rounded-lg border ${isLight ? 'bg-slate-200 border-slate-300' : 'bg-slate-950/60 border-white/5'}`}>
               {VOLUME_MODES.map(({ mode, labelKey }) => (
                 <button
                   key={mode}
                   onClick={() => setVolumeMode(mode)}
                   className={`px-2 py-1 rounded-md text-[10px] font-bold cursor-pointer transition-all ${
                     volumeMode === mode
-                      ? 'bg-yellow-500/10 border border-yellow-500/25 text-yellow-500 font-extrabold shadow-inner'
-                      : 'text-slate-400 hover:text-slate-200 border border-transparent'
+                      ? isLight
+                        ? 'bg-white text-slate-900 font-extrabold border border-slate-300 shadow-sm'
+                        : 'bg-yellow-500/10 border border-yellow-500/25 text-yellow-500 font-extrabold shadow-inner'
+                      : isLight
+                        ? 'text-slate-500 hover:text-slate-900 border border-transparent'
+                        : 'text-slate-400 hover:text-slate-200 border border-transparent'
                   }`}
                 >
                   {t(labelKey)}
@@ -272,11 +293,11 @@ export function ChartHeader({ fps = 0, showAnomalies = true, onToggleAnomalies }
         </>
       )}
 
-      <div className="w-px h-5 bg-white/10 mx-0.5" />
+      <div className={`w-px h-5 mx-0.5 ${isLight ? 'bg-slate-300' : 'bg-white/10'}`} />
 
       {/* 7. Compression */}
       <div className="shrink-0">
-        <span className="text-[10px] uppercase font-mono tracking-widest font-bold block mb-0.5 text-slate-400/80">{t('chart.compression')}</span>
+        <span className={`text-[10px] uppercase font-mono tracking-widest font-bold block mb-0.5 ${isLight ? 'text-slate-500' : 'text-slate-400/80'}`}>{t('chart.compression')}</span>
         <div className="relative" ref={compressionRef}>
         <button
           onClick={() => compressionDropdownOpen ? setCompressionDropdownOpen(false) : openCompressionDropdown()}
@@ -293,11 +314,11 @@ export function ChartHeader({ fps = 0, showAnomalies = true, onToggleAnomalies }
       </div>
       </div>
 
-      <div className="w-px h-5 bg-white/10 mx-0.5" />
+      <div className={`w-px h-5 mx-0.5 ${isLight ? 'bg-slate-300' : 'bg-white/10'}`} />
 
       {/* 8. Indicators button */}
       <div className="shrink-0">
-        <span className="text-[10px] uppercase font-mono tracking-widest font-bold block mb-0.5 text-slate-400/80">Controls</span>
+        <span className={`text-[10px] uppercase font-mono tracking-widest font-bold block mb-0.5 ${isLight ? 'text-slate-500' : 'text-slate-400/80'}`}>Controls</span>
         <button
           onClick={() => setShowIndicatorsModal(!showIndicatorsModal)}
           className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg liquid-glass-button text-xs font-bold cursor-pointer select-none"
@@ -309,7 +330,7 @@ export function ChartHeader({ fps = 0, showAnomalies = true, onToggleAnomalies }
       </div>
 
       {/* FPS counter */}
-      <div className="ml-auto flex items-center gap-1.5 px-2 py-1 text-[10px] font-mono text-slate-500">
+      <div className={`ml-auto flex items-center gap-1.5 px-2 py-1 text-[10px] font-mono ${isLight ? 'text-slate-400' : 'text-slate-500'}`}>
         <Zap className="w-3 h-3 text-emerald-500/60" />
         <span>{fps}</span>
       </div>
@@ -323,7 +344,7 @@ export function ChartHeader({ fps = 0, showAnomalies = true, onToggleAnomalies }
               animate={{ opacity: 1, y: 0, scale: 1 }}
               exit={{ opacity: 0, y: -4, scale: 0.97 }}
               transition={{ duration: 0.12 }}
-              className="muddy-glass-popover rounded-xl p-2 min-w-[200px]"
+              className={`rounded-xl p-2 min-w-[200px] ${isLight ? 'bg-white border border-slate-300 text-slate-900 shadow-2xl' : 'muddy-glass-popover text-slate-100'}`}
               ref={tickerPortalRef}
               style={{
                 position: 'fixed',
@@ -332,7 +353,7 @@ export function ChartHeader({ fps = 0, showAnomalies = true, onToggleAnomalies }
                 zIndex: 99999,
               }}
             >
-              <div className="text-[9px] font-bold px-2 pb-1 border-b border-white/5 mb-1.5 uppercase tracking-widest text-slate-400">
+              <div className={`text-[9px] font-bold px-2 pb-1 border-b mb-1.5 uppercase tracking-widest ${isLight ? 'text-slate-500 border-slate-100' : 'text-slate-400 border-white/5'}`}>
                 Available Pairs
               </div>
               <div className="flex flex-col gap-0.5 max-h-[300px] overflow-y-auto pr-1">
@@ -351,8 +372,12 @@ export function ChartHeader({ fps = 0, showAnomalies = true, onToggleAnomalies }
                       key={ticker.symbol}
                       className={`flex items-center justify-between px-2 py-1 rounded-lg transition-all ${
                         isActive
-                          ? 'bg-yellow-500/10 text-yellow-500 font-extrabold border border-yellow-500/25'
-                          : 'text-slate-300 hover:text-white hover:bg-white/5'
+                          ? isLight
+                            ? 'bg-amber-50 text-amber-700 font-extrabold border border-amber-200/50 shadow-sm'
+                            : 'bg-yellow-500/10 text-yellow-500 font-extrabold border border-yellow-500/25'
+                          : isLight
+                            ? 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+                            : 'text-slate-300 hover:text-white hover:bg-white/5'
                       }`}
                     >
                       <div className="flex items-center gap-1.5 flex-1 min-w-0">
@@ -362,7 +387,9 @@ export function ChartHeader({ fps = 0, showAnomalies = true, onToggleAnomalies }
                           className={`p-0.5 rounded cursor-pointer transition-all duration-100 active:scale-90 ${
                             isFav
                               ? 'text-yellow-400 hover:text-yellow-500'
-                              : 'text-slate-600 hover:text-slate-400'
+                              : isLight
+                                ? 'text-slate-300 hover:text-slate-500'
+                                : 'text-slate-600 hover:text-slate-400'
                           }`}
                           title={isFav ? 'Remove from favorites' : 'Add to favorites'}
                         >
@@ -395,7 +422,7 @@ export function ChartHeader({ fps = 0, showAnomalies = true, onToggleAnomalies }
               animate={{ opacity: 1, y: 0, scale: 1 }}
               exit={{ opacity: 0, y: -4, scale: 0.97 }}
               transition={{ duration: 0.12 }}
-              className="muddy-glass-popover rounded-xl p-1.5 min-w-[160px]"
+              className={`rounded-xl p-1.5 min-w-[160px] ${isLight ? 'bg-white border border-slate-300 text-slate-900 shadow-2xl' : 'muddy-glass-popover text-slate-100'}`}
               ref={compressionPortalRef}
               style={{
                 position: 'fixed',
@@ -422,8 +449,10 @@ export function ChartHeader({ fps = 0, showAnomalies = true, onToggleAnomalies }
                       compression === idx + 1
                         ? 'bg-amber-500/15 text-amber-400'
                         : isDisabled
-                          ? 'text-slate-600 cursor-not-allowed'
-                          : 'text-slate-300 hover:bg-white/5 hover:text-white cursor-pointer'
+                          ? isLight ? 'text-slate-400 cursor-not-allowed' : 'text-slate-600 cursor-not-allowed'
+                          : isLight
+                            ? 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 cursor-pointer'
+                            : 'text-slate-300 hover:bg-white/5 hover:text-white cursor-pointer'
                     }`}
                   >
                     <span className="font-mono text-[11px]">
@@ -452,7 +481,7 @@ export function ChartHeader({ fps = 0, showAnomalies = true, onToggleAnomalies }
               animate={{ opacity: 1, y: 0, scale: 1 }}
               exit={{ opacity: 0, y: -4, scale: 0.97 }}
               transition={{ duration: 0.12 }}
-              className="muddy-glass-popover rounded-xl p-1.5 min-w-[160px]"
+              className={`rounded-xl p-1.5 min-w-[160px] ${isLight ? 'bg-white border border-slate-300 text-slate-900 shadow-2xl' : 'muddy-glass-popover text-slate-100'}`}
               ref={palettePortalRef}
               style={{
                 position: 'fixed',
@@ -473,8 +502,12 @@ export function ChartHeader({ fps = 0, showAnomalies = true, onToggleAnomalies }
                       onClick={() => { handlePaletteChange(id); setPaletteDropdownOpen(false) }}
                       className={`flex items-center justify-between px-2 py-1.5 rounded-lg text-left cursor-pointer transition-all w-full text-xs font-bold ${
                         isSelected
-                          ? 'bg-white/5 text-white font-extrabold'
-                          : 'text-slate-300 hover:text-white hover:bg-white/5'
+                          ? isLight
+                            ? 'bg-slate-100 text-slate-900 font-extrabold'
+                            : 'bg-white/5 text-white font-extrabold'
+                          : isLight
+                            ? 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+                            : 'text-slate-300 hover:text-white hover:bg-white/5'
                       }`}
                     >
                       <div className="flex items-center gap-1.5 select-none">

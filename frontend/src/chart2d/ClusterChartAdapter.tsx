@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import ClusterChart from "./ClusterChart";
-import { adapter, apiRowsToCells, mergeLiveUpdate } from "./adapter";
+import { adapter, apiRowsToCells, mergeLiveUpdate, aggregateLevels, computeValueArea } from "./adapter";
 import type { ClusterCandle } from "./types";
 import type { ApiCandle, ApiClusterRow } from "./adapter";
 import { useLiveChart } from "./useLiveChart";
@@ -40,6 +40,7 @@ export interface ClusterChartAdapterProps {
   workspacesCount?: number;
   showAnomalies?: boolean | undefined;
   onChangeShowAnomalies?: ((show: boolean) => void) | undefined;
+  theme?: "dark" | "light";
 }
 
 function estimatePriceStep(symbol: string): number {
@@ -100,6 +101,7 @@ export default function ClusterChartAdapter({
   workspacesCount,
   showAnomalies,
   onChangeShowAnomalies,
+  theme = "dark",
 }: ClusterChartAdapterProps) {
   const priceStep = computePriceStep(symbol, market, compression);
   const [candles, setCandles] = useState<ClusterCandle[]>([]);
@@ -130,7 +132,23 @@ export default function ClusterChartAdapter({
     accessToken,
     enabled: true,
     onCandleUpdate: (candle) => {
-      setCandles((prev) => mergeLiveUpdate(prev, candle));
+      // Apply user-selected compression to live levels (same as REST SQL floor/group)
+      const rows: ApiClusterRow[] = candle.cells.map(c => ({
+        PriceLevel: c.price,
+        BidVolume: c.bid,
+        AskVolume: c.ask,
+      }));
+      const aggregated = aggregateLevels(rows, priceStep);
+      const aggregatedCells = apiRowsToCells(aggregated);
+      const pocCell = aggregatedCells.find(c => c.isPoc);
+      const { vah, val } = computeValueArea(aggregatedCells);
+      setCandles((prev) => mergeLiveUpdate(prev, {
+        ...candle,
+        cells: aggregatedCells,
+        pocPrice: pocCell ? pocCell.price : (candle.open + candle.close) / 2,
+        vah,
+        val,
+      }));
     },
     onStateChange: setLiveState,
   });
@@ -328,6 +346,7 @@ export default function ClusterChartAdapter({
       prependScrollRef={prependScrollRef}
       showAnomalies={showAnomalies}
       onChangeShowAnomalies={onChangeShowAnomalies}
+      theme={theme}
     />
   );
 

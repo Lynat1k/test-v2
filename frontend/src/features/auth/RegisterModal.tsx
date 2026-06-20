@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { motion, AnimatePresence } from 'motion/react'
 import { X, Mail } from 'lucide-react'
 import { useTranslation } from '@/i18n'
+import { useTheme } from '@/contexts/ThemeContext'
 import { useAuthContext } from './AuthContext'
 import { apiRegister } from './api'
 
@@ -13,6 +14,8 @@ interface RegisterModalProps {
 
 export function RegisterModal({ open, onClose, onSwitchToLogin }: RegisterModalProps) {
   const { t } = useTranslation()
+  const { theme } = useTheme()
+  const isLight = theme === 'light'
   const { setAccessToken, setUser } = useAuthContext()
   const [nickname, setNickname] = useState('')
   const [email, setEmail] = useState('')
@@ -68,25 +71,27 @@ export function RegisterModal({ open, onClose, onSwitchToLogin }: RegisterModalP
             animate={{ scale: 1, opacity: 1 }}
             exit={{ scale: 0.95, opacity: 0 }}
             transition={{ duration: 0.15 }}
-            className="liquid-glass-card rounded-2xl p-6 w-[380px] max-w-[90vw] relative"
+            className={`rounded-2xl p-6 w-[380px] max-w-[90vw] relative ${isLight ? 'bg-white border border-slate-200 shadow-2xl' : 'liquid-glass-card'}`}
             onClick={e => e.stopPropagation()}
           >
-            <button onClick={onClose} className="absolute top-3 right-3 text-slate-400 hover:text-white cursor-pointer">
+            <button onClick={onClose} className={`absolute top-3 right-3 cursor-pointer ${isLight ? 'text-slate-400 hover:text-slate-700' : 'text-slate-400 hover:text-white'}`}>
               <X className="w-4 h-4" />
             </button>
 
             {registered ? (
               <div className="flex flex-col items-center gap-3 py-4">
                 <Mail className="w-10 h-10 text-amber-400" />
-                <h2 className="text-sm font-bold text-white">{t('auth.verifyEmailTitle')}</h2>
-                <p className="text-xs text-slate-400 text-center">{t('auth.verifyEmailMessage')}</p>
-                <button onClick={onClose} className="mt-2 px-4 py-2 rounded-lg bg-white/5 text-slate-300 text-xs font-bold border border-white/10 hover:bg-white/10 cursor-pointer">
+                <h2 className={`text-sm font-bold ${isLight ? 'text-slate-900' : 'text-white'}`}>{t('auth.verifyEmailTitle')}</h2>
+                <p className={`text-xs text-center ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>{t('auth.verifyEmailMessage')}</p>
+                <button onClick={onClose} className={`mt-2 px-4 py-2 rounded-lg text-xs font-bold border cursor-pointer ${
+                  isLight ? 'bg-slate-100 text-slate-700 border-slate-200 hover:bg-slate-200' : 'bg-white/5 text-slate-300 border-white/10 hover:bg-white/10'
+                }`}>
                   {t('common.close')}
                 </button>
               </div>
             ) : (
               <>
-                <h2 className="text-sm font-bold text-white mb-4">{t('auth.registerTitle')}</h2>
+                <h2 className={`text-sm font-bold mb-4 ${isLight ? 'text-slate-900' : 'text-white'}`}>{t('auth.registerTitle')}</h2>
                 {error && <div className="mb-3 px-3 py-2 rounded-lg bg-red-500/10 border border-red-500/20 text-red-400 text-xs">{error}</div>}
                 <form onSubmit={handleSubmit} className="flex flex-col gap-3">
                   <input
@@ -97,7 +102,9 @@ export function RegisterModal({ open, onClose, onSwitchToLogin }: RegisterModalP
                     required
                     minLength={2}
                     maxLength={30}
-                    className="px-3 py-2 rounded-lg bg-black/30 border border-white/10 text-white text-xs outline-none focus:border-amber-500/50"
+                    className={`px-3 py-2 rounded-lg border text-xs outline-none focus:border-amber-500/50 ${
+                      isLight ? 'bg-slate-50 border-slate-300 text-slate-900 placeholder:text-slate-400' : 'bg-black/30 border-white/10 text-white'
+                    }`}
                   />
                   <input
                     type="email"
@@ -105,7 +112,9 @@ export function RegisterModal({ open, onClose, onSwitchToLogin }: RegisterModalP
                     onChange={e => setEmail(e.target.value)}
                     placeholder={t('auth.email')}
                     required
-                    className="px-3 py-2 rounded-lg bg-black/30 border border-white/10 text-white text-xs outline-none focus:border-amber-500/50"
+                    className={`px-3 py-2 rounded-lg border text-xs outline-none focus:border-amber-500/50 ${
+                      isLight ? 'bg-slate-50 border-slate-300 text-slate-900 placeholder:text-slate-400' : 'bg-black/30 border-white/10 text-white'
+                    }`}
                   />
                   <input
                     type="password"
@@ -114,7 +123,9 @@ export function RegisterModal({ open, onClose, onSwitchToLogin }: RegisterModalP
                     placeholder={t('auth.password')}
                     required
                     minLength={8}
-                    className="px-3 py-2 rounded-lg bg-black/30 border border-white/10 text-white text-xs outline-none focus:border-amber-500/50"
+                    className={`px-3 py-2 rounded-lg border text-xs outline-none focus:border-amber-500/50 ${
+                      isLight ? 'bg-slate-50 border-slate-300 text-slate-900 placeholder:text-slate-400' : 'bg-black/30 border-white/10 text-white'
+                    }`}
                   />
                   <input
                     type="password"
@@ -122,17 +133,23 @@ export function RegisterModal({ open, onClose, onSwitchToLogin }: RegisterModalP
                     onChange={e => setConfirm(e.target.value)}
                     placeholder={t('auth.confirmPassword')}
                     required
-                    className="px-3 py-2 rounded-lg bg-black/30 border border-white/10 text-white text-xs outline-none focus:border-amber-500/50"
+                    className={`px-3 py-2 rounded-lg border text-xs outline-none focus:border-amber-500/50 ${
+                      isLight ? 'bg-slate-50 border-slate-300 text-slate-900 placeholder:text-slate-400' : 'bg-black/30 border-white/10 text-white'
+                    }`}
                   />
                   <button
                     type="submit"
                     disabled={loading}
-                    className="px-4 py-2 rounded-lg bg-amber-500/20 text-amber-400 text-xs font-bold border border-amber-500/30 hover:bg-amber-500/30 cursor-pointer disabled:opacity-50"
+                    className={`px-4 py-2 rounded-lg text-xs font-bold border cursor-pointer disabled:opacity-50 ${
+                      isLight
+                        ? 'bg-amber-500 text-white border-amber-600 hover:bg-amber-600'
+                        : 'bg-amber-500/20 text-amber-400 border-amber-500/30 hover:bg-amber-500/30'
+                    }`}
                   >
                     {loading ? t('common.loading') : t('auth.registerTitle')}
                   </button>
                 </form>
-                <div className="mt-4 text-center text-xs text-slate-400">
+                <div className={`mt-4 text-center text-xs ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
                   {t('auth.hasAccount')}{' '}
                   <button onClick={onSwitchToLogin} className="text-amber-400 hover:underline cursor-pointer">{t('header.login')}</button>
                 </div>

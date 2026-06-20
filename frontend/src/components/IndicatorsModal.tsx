@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from "react"
+import { useTheme } from "@/contexts/ThemeContext"
 import type { Indicator, IndicatorSettings } from "@/chart2d/types"
 import { X, Search, Star, Trash2, Eye, EyeOff, Layers, Activity, ChevronDown, ArrowUp, ArrowDown } from "lucide-react"
 import { motion, AnimatePresence } from "motion/react"
@@ -244,7 +245,8 @@ export default function IndicatorsModal({ isOpen, onClose, symbol = "", indicato
 
   const addedIndicators = draft.filter((ind) => ind.isActive)
 
-  const isLight = false
+  const { theme } = useTheme()
+  const isLight = theme === 'light'
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 pointer-events-none bg-transparent">
