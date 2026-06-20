@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useEffect, useCallback, type ReactNode } from 'react'
+import { createContext, useContext, useState, useEffect, useCallback, useRef, type ReactNode } from 'react'
 import type { CandleMode, VolumeMode } from '@/chart-engine'
 
 export type MarketType = 'futures' | 'spot'
@@ -9,11 +9,15 @@ export interface TickerConfig {
   name: string
   baseFutures: number
   baseSpot: number
+  futurePriceTick: number
+  spotPriceTick: number
 }
 
+// TODO: тянуть base/priceTick тикеров из /api/v1/tickers (источник — БД/админка).
+// Значения ниже — fallback-заглушка на случай недоступности API.
 export const AVAILABLE_TICKERS: TickerConfig[] = [
-  { symbol: 'BTCUSDT', name: 'BTC/USDT', baseFutures: 25, baseSpot: 500 },
-  { symbol: 'ETHUSDT', name: 'ETH/USDT', baseFutures: 1, baseSpot: 10 },
+  { symbol: 'BTCUSDT', name: 'BTC/USDT', baseFutures: 25, baseSpot: 500, futurePriceTick: 0.1,  spotPriceTick: 0.01 },
+  { symbol: 'ETHUSDT', name: 'ETH/USDT', baseFutures: 1,  baseSpot: 10,  futurePriceTick: 0.01, spotPriceTick: 0.01 },
 ]
 
 export const TIMEFRAMES_BY_MARKET: Record<MarketType, string[]> = {
@@ -39,6 +43,16 @@ const DEFAULT_SLOT: ChartSlot = {
   palette: 'default',
   volumeMode: 'bidask',
   compression: 1,
+}
+
+// Shape returned by GET /api/v1/tickers — only the fields we care about here.
+interface ServerTicker {
+  symbol: string
+  name?: string
+  futurePriceTick: number
+  spotPriceTick: number
+  compressionFutures: number
+  compressionSpot: number
 }
 
 interface ChartControlsValue {
@@ -121,10 +135,37 @@ export function ChartControlsProvider({ children }: { children: ReactNode }) {
   const [slots, setSlots] = useState<[ChartSlot, ChartSlot]>(saved.slots)
   const [activeSlot, setActiveSlotState] = useState<0 | 1>(saved.activeSlot)
   const [showIndicatorsModal, setShowIndicatorsModal] = useState(false)
+  // Overrides fetched from /api/v1/tickers — keyed by symbol.
+  const [tickerOverrides, setTickerOverrides] = useState<Record<string, Partial<TickerConfig>>>({})
+  const fetchedRef = useRef(false)
 
   useEffect(() => {
     saveToStorage(slots, activeSlot)
   }, [slots, activeSlot])
+
+  // Fetch ticker params from the server once on mount.
+  // Falls back silently to AVAILABLE_TICKERS hardcoded values if the call fails.
+  useEffect(() => {
+    if (fetchedRef.current) return
+    fetchedRef.current = true
+    fetch('/api/v1/tickers')
+      .then(r => r.json())
+      .then((json: { ok: boolean; data?: ServerTicker[] }) => {
+        if (!json.ok || !Array.isArray(json.data)) return
+        const overrides: Record<string, Partial<TickerConfig>> = {}
+        for (const t of json.data) {
+          overrides[t.symbol] = {
+            futurePriceTick: t.futurePriceTick,
+            spotPriceTick: t.spotPriceTick,
+            baseFutures: t.compressionFutures,
+            baseSpot: t.compressionSpot,
+            name: t.name ?? t.symbol,
+          }
+        }
+        setTickerOverrides(overrides)
+      })
+      .catch(() => { /* silent fallback to hardcoded values */ })
+  }, [])
 
   const updateSlot = useCallback((index: 0 | 1, patch: Partial<ChartSlot>) => {
     setSlots(prev => {
@@ -183,9 +224,13 @@ export function ChartControlsProvider({ children }: { children: ReactNode }) {
     updateSlot(activeSlot, { compression: level })
   }, [activeSlot, updateSlot])
 
+  // Returns ticker config for active symbol, merging API overrides on top of hardcoded fallback.
+  // Never returns undefined — falls back to AVAILABLE_TICKERS[0] as last resort.
   const getTickerConfig = useCallback((): TickerConfig => {
-    return AVAILABLE_TICKERS.find(t => t.symbol === active.symbol) ?? AVAILABLE_TICKERS[0]!
-  }, [active.symbol])
+    const base = AVAILABLE_TICKERS.find(t => t.symbol === active.symbol) ?? AVAILABLE_TICKERS[0]!
+    const override = tickerOverrides[active.symbol]
+    return override ? { ...base, ...override } : base
+  }, [active.symbol, tickerOverrides])
 
   const getCompressionLevels = useCallback((): number[] => {
     const ticker = getTickerConfig()
