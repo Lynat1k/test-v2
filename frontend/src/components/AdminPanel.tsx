@@ -950,6 +950,9 @@ function HistoryBlock({ isLight }: { isLight: boolean }) {
   const [startDate, setStartDate] = useState('')
   const [endDate, setEndDate] = useState('')
   const [jobs, setJobs] = useState<DownloadJob[]>([])
+  const jobsRef = useRef(jobs)
+  jobsRef.current = jobs
+  const timeoutRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
   const [submitting, setSubmitting] = useState(false)
   const [startErr, setStartErr] = useState<string | null>(null)
   const [clearing, setClearing] = useState(false)
@@ -973,11 +976,18 @@ function HistoryBlock({ isLight }: { isLight: boolean }) {
   }, [])
 
   useEffect(() => {
-    fetchJobs()
-    const hasActive = jobs.some((j) => isActiveStatus(j.status))
-    const iv = setInterval(fetchJobs, hasActive ? 1500 : 5000)
-    return () => clearInterval(iv)
-  }, [fetchJobs, jobs])
+    const tick = () => {
+      fetchJobs()
+      const hasActive = jobsRef.current.some((j) => isActiveStatus(j.status))
+      timeoutRef.current = setTimeout(tick, hasActive ? 1500 : 5000)
+    }
+
+    tick()
+
+    return () => {
+      if (timeoutRef.current) clearTimeout(timeoutRef.current)
+    }
+  }, [fetchJobs])
 
   const handleStart = async () => {
     if (!symbol || !startDate || !endDate) return
