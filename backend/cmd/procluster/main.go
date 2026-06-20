@@ -186,6 +186,10 @@ func main() {
 			log.Println("[main] no active tickers found, using defaults")
 			symbolConfigs = config.SymbolMap()
 		}
+		if len(dbTickers) > 0 {
+			srv.SetActiveTickers(dbTickers)
+			log.Printf("[main] set active tickers for public API: %d tickers", len(dbTickers))
+		}
 	}
 	orderBooks := make(map[string]*depth.OrderBook)
 	for key, sc := range symbolConfigs {

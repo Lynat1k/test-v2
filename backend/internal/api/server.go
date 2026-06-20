@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/procluster/procluster/internal/admin"
 	"github.com/procluster/procluster/internal/aggregator"
 	"github.com/procluster/procluster/internal/auth"
 	"github.com/procluster/procluster/internal/cache"
@@ -28,6 +29,7 @@ type Server struct {
 	rdb                   *redis.Client
 	tierHistoryLimits     map[string]time.Duration
 	tierCompressionLocked map[string]bool
+	activeTickers         []admin.Ticker
 }
 
 func (s *Server) SetTierHistoryLimits(m map[string]time.Duration) {
@@ -36,6 +38,10 @@ func (s *Server) SetTierHistoryLimits(m map[string]time.Duration) {
 
 func (s *Server) SetTierCompressionLocked(m map[string]bool) {
 	s.tierCompressionLocked = m
+}
+
+func (s *Server) SetActiveTickers(tickers []admin.Ticker) {
+	s.activeTickers = tickers
 }
 
 type ServerConfig struct {
@@ -89,6 +95,7 @@ func NewServer(
 	mux.Handle("GET /api/v1/candles/{symbol}/clusters/{candleOpen}", RateLimitMiddleware(restLimiter, withMiddleware(rdb, authCfg, clusterHandler)))
 	mux.Handle("GET /api/v1/candles/{symbol}/clusters-batch", RateLimitMiddleware(restLimiter, withMiddleware(rdb, authCfg, clustersBatchHandler)))
 	mux.Handle("GET /api/v1/fng", RateLimitMiddleware(restLimiter, withMiddleware(rdb, authCfg, http.HandlerFunc(s.handleFNG))))
+	mux.Handle("GET /api/v1/tickers", withMiddleware(rdb, authCfg, http.HandlerFunc(s.handleGetTickers)))
 	mux.Handle("GET /ws", WSRateLimitMiddleware(wsLimiter, withMiddleware(rdb, authCfg, wsHandler)))
 
 	s.httpServer = &http.Server{
