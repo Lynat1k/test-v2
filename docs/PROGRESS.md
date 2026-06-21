@@ -3,6 +3,48 @@
 > Claude обновляет этот файл в КОНЦЕ каждой задачи. Новые записи — сверху.
 > Формат записи строго по шаблону. Это память между чатами.
 
+### [2026-06-21] perf(chart2d): S3 — scrollLeft в ref + throttled state, удалён мёртвый POC
+- **Цель**: Профилировка перед S3 показала, что 88-98% кадра на скролле — это React re-render монолита, не canvas. Корень — `visibleScrollLeft` в `useState`: каждый scroll-event → setState → full re-render компонента 5300 строк (+пересчёт useMemo с этим деп'ом). Canvas-операции стоили 2.5 мс/кадр, сама draw-замыкание ~12 мс, остальные ~110 мс — React. Цель этапа: расцепить горячий путь скролла от React.
+- **Решение**:
+  1. **`visibleScrollLeftRef`** — горячее зеркало. `onScroll` пишет в ref на каждое событие, зовёт `scheduleDraw()` (S2). React state НЕ обновляется на каждое scroll-event.
+  2. **Throttled state**: новый helper `requestScrollStateSync` — если позиция изменилась на ≥half-candle (`max(8, (candleWidth+12)/2)` px) — `flushScrollState` сразу. Иначе ставится таймер на 100 мс, который пушит state когда скролл остановился. Это кормит существующие эффекты/мемо, которые НЕЛЬЗЯ сломать: `history-on-scroll` (`:629`), `visible-timestamps` (`:648`), `visibleCandlesList` memo (`:1070`), CVD min/max memo (`:2203`).
+  3. **`setVisibleScrollLeftSync` helper** для императивных писалок scrollLeft (zoom-к-курсору, prepend-компенсация, init, container-resize) — обходит throttle и синхронизирует ref+state+lastSynced атомарно. **Anti-jump prepend** (`prependScrollRef`, `:537`) использует именно его — поэтому после догрузки истории state синхронизирован сразу, без рывка.
+  4. **Drag-pan** (`:1551`): больше не зовёт setState на каждый mousemove. Пишет в ref + `scheduleDraw()`. Состояние догонит через native scroll-event handler (throttle).
+  5. **Shadow declarations** в hot-path замыканиях (drawRef, drawOverlay, handleSvgMouseMove, handleMouseDown, handleMouseMove, sync overlay layout effect): `const visibleScrollLeft = visibleScrollLeftRef.current;` в начале — тело не меняется, читает свежее значение из ref.
+  6. **`visibleScrollLeft` удалён из deps главного draw useLayoutEffect** — нет смысла пере-устанавливать closure на каждое state-пушение, ref читается на frame-time.
+  7. **Мёртвый POC-цикл удалён** (`~2829`): `filter` + двойной `reduce` по всем cells каждой свечи каждый кадр → `activePocPrice`, который **нигде не читается** (подтверждено grep'ом до и после). Чистый GC-мусор удалён.
+- **Файлы** (один): `frontend/src/chart2d/ClusterChart.tsx`.
+  - `visibleScrollLeftRef` + throttle инфра: `~497-499`, `~597-625`.
+  - `onScroll` rewire: `~4470-4480`.
+  - `setVisibleScrollLeftSync` распылён на 6 императивных сайтов (prepend, anti-jump, zoom×2, scroll-to-end, resize): `~537, 652, 907, 947, 1060, 2550`.
+  - Drag-pan ref-write: `~1551-1556`.
+  - Shadow declarations: drawRef `~2592`, drawOverlay `~1669`, handleSvgMouseMove `~1846`, handleMouseDown `~1151`, handleMouseMove `~1426`, sync overlay `~3868`.
+  - Удалён `visibleScrollLeft` из deps: `~3852`.
+  - Удалён dead POC block: было `~2829-2838`, стало 2 строки комментария.
+- **Verification**:
+  - `npx tsc --noEmit` ✓
+  - `npx vite build` ✓ (634 ms)
+  - FPS-замер, BTCUSDT futures 1m, японские свечи, локальный backend (WS активен):
+
+    | сценарий | S2 (до) | S3 (после) | target |
+    |----------|--------:|-----------:|-------:|
+    | idle при WS | ~58 | **81-108** (cap 60 с jitter, **закрыта №7**) | 85-90 ✓ |
+    | mousemove | 85 (luck-сэмпл) | 55-109 (медиана ~55) | ≥85 |
+    | **скролл** | **10.8** | **24.5 (2.3×)** | ~60 |
+
+    Longtask на скролле: было 9×179 мс, стало 4×159 мс — число re-render монолита упало с ~один-на-scroll-event до **~4/сек** (только half-candle flush). Цифра «единицы, не десятки» из ТЗ — соблюдена.
+    Main-draw closures per second на mousemove: 2 (только WS-тики), на скролле: 25 — реальные кадры draw'а, не raw scroll-events.
+- **Что закрыто / что нет / компромиссы**:
+  - **Находка №7 (idle-просадка от WS)** — **закрыта**. WS-тик больше не гонит каскад из re-render + sync-draw монолита: draw планируется в rAF, состояние scroll не дёргается.
+  - **Anti-jump preserved**. `prependScrollRef` использует `setVisibleScrollLeftSync` — ref+state+lastSynced атомарно. История подгружается без рывка.
+  - **Scroll до 60 не дотянул (24.5)**. Причина — каждый half-candle move всё ещё триггерит full re-render 5300-строчного монолита, и одна такая re-render стоит ~160 мс. rAF не лечит дорогой одиночный re-render. Чтобы добить до 60 — нужна React-мемоизация поддеревьев (`React.memo` на стакан/индикатор-панели/UI-чипы) или вынос движка из React (S4). Это за рамками S3.
+  - **Mousemove нестабилен 55-109**. Не регрессия относительно реалистичного S2 (там тоже было нестабильно — «85» был лучший сэмпл). Колебание ловит WS-тики, которые раз в 200-500 мс делают синхронный re-render монолита. Тот же бэклог: `React.memo` для поддеревьев.
+- **TODO (бэклог)**:
+  - **R**: `React.memo` стакана/индикатор-панелей/UI-чипов → одиночный re-render монолита удешевится с 160 мс до <16 мс → scroll должен прыгнуть к 60 FPS, mousemove стабилизируется на ~85.
+  - **S1.5**: throttle математики cluster-search в `handleSvgMouseMove` по смене `colIdx`.
+  - **БФ**: guard `canvas.width` realloc (находка №3), offscreen-кэш watermark (№6), удалить `estimatePriceStep` в `ClusterChartAdapter.tsx:46`.
+  - **S4**: вынести движок в класс с собственным render-loop вне React.
+
 ### [2026-06-21] perf(chart2d): S2 — rAF + dirty-flag вокруг главного draw
 - **Цель**: Снять синхронную перерисовку главного canvas на каждый React-commit. CHART_ENGINE.md требует «перерисовка только при изменении (dirty-flag), не каждый кадр». До S2 главный `useLayoutEffect` тяжело рисовал на каждый scroll-event/WS-tick/setState — отсюда idle-просадка от WS-тиков и тяжёлый скролл.
 - **Решение**:

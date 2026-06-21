@@ -489,6 +489,15 @@ export default function ClusterChart({
   const [startY, setStartY] = useState(0);
   const [scrollLeft, setScrollLeft] = useState(0);
   const [visibleScrollLeft, setVisibleScrollLeft] = useState(0);
+  // S3: hot-path mirror of visibleScrollLeft. onScroll writes here every event;
+  // the draw closure reads this ref so canvas culling/translation tracks the
+  // real scroll position at frame time. The React state above is updated only
+  // on half-candle moves or on debounce, so it stops driving the monolith
+  // re-render at 60 Hz — it stays available for effects/memos that need to
+  // know "the viewport changed meaningfully".
+  const visibleScrollLeftRef = useRef<number>(0);
+  const visibleScrollLeftLastSyncedRef = useRef<number>(0);
+  const scrollSyncTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [visibleClientWidth, setVisibleClientWidth] = useState(800);
   const [priceCenterOffset, setPriceCenterOffset] = useState<number>(0);
   const [startPriceOffset, setStartPriceOffset] = useState<number>(0);
@@ -523,7 +532,9 @@ export default function ClusterChart({
       const spacing = Math.max(1, cw < 30 ? Math.floor(cw * 0.35) : 12);
       const addedWidth = addedCount * (cw + spacing);
       container.scrollLeft = beforeScrollLeft + addedWidth;
-      setVisibleScrollLeft(container.scrollLeft);
+      // S3: sync ref + state + lastSynced — anti-jump needs the state to match
+      // the DOM scrollLeft immediately, no throttle.
+      setVisibleScrollLeftSync(container.scrollLeft);
       // Suppress LayoutEffect if within tolerance (5px masks fractional rounding, real clamping is >>50px)
       if (Math.abs(container.scrollLeft - (beforeScrollLeft + addedWidth)) <= 5) {
         prependCompensatedRef.current = true;
@@ -567,7 +578,54 @@ export default function ClusterChart({
       cancelAnimationFrame(rafIdRef.current);
       rafIdRef.current = null;
     }
+    if (scrollSyncTimerRef.current != null) {
+      clearTimeout(scrollSyncTimerRef.current);
+      scrollSyncTimerRef.current = null;
+    }
   }, []);
+
+  // S3: push the throttled scrollLeft into React state. Called from onScroll on
+  // half-candle deltas (immediate) and from a debounce when scrolling stops.
+  // Effects depending on visibleScrollLeft (history-on-scroll, visible timestamps,
+  // visibleCandlesList memo, CVD min/max memo) react on these pushes only.
+  const flushScrollState = (force: boolean) => {
+    const latest = visibleScrollLeftRef.current;
+    if (!force && latest === visibleScrollLeftLastSyncedRef.current) return;
+    visibleScrollLeftLastSyncedRef.current = latest;
+    setVisibleScrollLeft(latest);
+  };
+  // S3: helper for imperative scrollLeft writes that MUST keep ref + state +
+  // lastSynced in lockstep (zoom anchors, history prepend compensation, initial
+  // mount, container-resize reclamp). Bypasses the throttle on purpose.
+  const setVisibleScrollLeftSync = (v: number) => {
+    visibleScrollLeftRef.current = v;
+    visibleScrollLeftLastSyncedRef.current = v;
+    if (scrollSyncTimerRef.current != null) {
+      clearTimeout(scrollSyncTimerRef.current);
+      scrollSyncTimerRef.current = null;
+    }
+    setVisibleScrollLeft(v);
+  };
+  const requestScrollStateSync = (latest: number) => {
+    const last = visibleScrollLeftLastSyncedRef.current;
+    const halfCandle = Math.max(8, Math.floor((candleWidthRef.current + 12) / 2));
+    if (Math.abs(latest - last) >= halfCandle) {
+      // Significant move — push state immediately so effects/memos catch up.
+      if (scrollSyncTimerRef.current != null) {
+        clearTimeout(scrollSyncTimerRef.current);
+        scrollSyncTimerRef.current = null;
+      }
+      flushScrollState(false);
+      return;
+    }
+    // Small move — wait for the user to stop, then flush so effects (e.g. history
+    // request at left edge) still observe the final position.
+    if (scrollSyncTimerRef.current != null) return;
+    scrollSyncTimerRef.current = setTimeout(() => {
+      scrollSyncTimerRef.current = null;
+      flushScrollState(false);
+    }, 100);
+  };
 
   // Adjust scrollLeft after history prepend to prevent viewport jump (sync before paint)
   // Uses timestamp-anchor from the trigger effect to find the candle at the same position in the new array
@@ -591,7 +649,7 @@ export default function ClusterChart({
       const newIdx = candles.findIndex(c => c.timestamp === anchor.ts);
       if (newIdx >= 0) {
         containerRef.current.scrollLeft = margin.left + newIdx * (candleWidth + candleSpacing) + anchor.offset;
-        setVisibleScrollLeft(containerRef.current.scrollLeft);
+        setVisibleScrollLeftSync(containerRef.current.scrollLeft);
       }
       // If after correction we're at the left edge and history isn't exhausted,
       // force another prepend — no more scroll events will fire.
@@ -846,7 +904,7 @@ export default function ClusterChart({
 
           setCandleWidth(nextWidthClamped);
           container.scrollLeft = nextScrollLeft;
-          setVisibleScrollLeft(nextScrollLeft);
+          setVisibleScrollLeftSync(nextScrollLeft);
 
           // Update ref synchronously for any consecutive ticks in the same frame
           candleWidthRef.current = nextWidthClamped;
@@ -886,7 +944,7 @@ export default function ClusterChart({
 
           setCandleWidth(nextWidthClamped);
           container.scrollLeft = nextScrollLeft;
-          setVisibleScrollLeft(nextScrollLeft);
+          setVisibleScrollLeftSync(nextScrollLeft);
 
           // Update ref synchronously for any consecutive ticks in the same frame
           candleWidthRef.current = nextWidthClamped;
@@ -999,7 +1057,7 @@ export default function ClusterChart({
       if (isComboChange || isNearRightEdge) {
         const finalScrollLeft = Math.max(0, Math.min(maxScroll, targetScrollLeft));
         container.scrollLeft = finalScrollLeft;
-        setVisibleScrollLeft(finalScrollLeft);
+        setVisibleScrollLeftSync(finalScrollLeft);
       }
       setVisibleClientWidth(prev => prev === clientWidth ? prev : clientWidth);
     }
@@ -1090,7 +1148,10 @@ export default function ClusterChart({
     if (e.button !== 0) return; // Only left click
     const target = e.target as HTMLElement;
     if (target.closest("button") || target.closest("select")) return; // skip for controls
-    
+    // S3: ref-current scroll so drawing-tool clicks land on the visible canvas
+    // even when state is throttled.
+    const visibleScrollLeft = visibleScrollLeftRef.current;
+
     // If drawing tool is active, handle drawing instead of panning!
     if (activeDrawingTool) {
       const rect = canvasRef.current?.getBoundingClientRect();
@@ -1365,6 +1426,8 @@ export default function ClusterChart({
   };
 
   const handleMouseMove = (e: React.MouseEvent) => {
+    // S3: ref-current scroll for drawing drag and pan logic below.
+    const visibleScrollLeft = visibleScrollLeftRef.current;
     // If we are actively drawing
     if (drawingInProgress && canvasRef.current) {
       e.preventDefault();
@@ -1492,7 +1555,11 @@ export default function ClusterChart({
     const walkX = x - startX; // 1.0 multiplier is mathematically perfect for 1:1 mouse tracking!
     const nextScroll = scrollLeft - walkX;
     containerRef.current.scrollLeft = nextScroll;
-    setVisibleScrollLeft(nextScroll); // Update immediately for instant layout/canvas sync!
+    // S3: drag-pan fires at mousemove rate. The native scroll event will reach
+    // our onScroll handler (which writes the ref + schedules a draw + lazily
+    // updates state). Avoid re-rendering the monolith on every mouse tick here.
+    visibleScrollLeftRef.current = nextScroll;
+    scheduleDraw();
 
     const y = e.pageY - containerRef.current.offsetTop;
     const deltaY = y - startY;
@@ -1605,6 +1672,9 @@ export default function ClusterChart({
     if (!overlay) return;
     const ctx = overlay.getContext("2d");
     if (!ctx) return;
+    // S3: read fresh scroll from the ref so the crosshair / hover-timestamp box
+    // tracks the real scroll position even if state has not yet caught up.
+    const visibleScrollLeft = visibleScrollLeftRef.current;
     const dpr = window.devicePixelRatio || 1;
     const w = visibleClientWidth || 800;
     const h = totalSvgHeight;
@@ -1778,6 +1848,9 @@ export default function ClusterChart({
     const x = e.clientX - rect.left;
     const y = e.clientY - rect.top;
     const viewportWidth = visibleClientWidth || 800;
+    // S3: ref-current scroll so cluster-search hit-testing reflects the real
+    // viewport even when state is throttled.
+    const visibleScrollLeft = visibleScrollLeftRef.current;
 
     // Check if hovered on the timeline strip at the bottom
     if (y >= totalSvgHeight - margin.bottom && y <= totalSvgHeight) {
@@ -2485,7 +2558,7 @@ export default function ClusterChart({
         const maxScroll = Math.max(0, scrollWidthCalculated - (containerRef.current.clientWidth || 800));
         const clampedScrollLeft = Math.max(0, Math.min(maxScroll, nextScrollLeft));
 
-        setVisibleScrollLeft(clampedScrollLeft);
+        setVisibleScrollLeftSync(clampedScrollLeft);
         containerRef.current.scrollLeft = clampedScrollLeft;
       }
     };
@@ -2524,6 +2597,11 @@ export default function ClusterChart({
     if (!canvas) return;
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
+
+    // S3: shadow `visibleScrollLeft` with the ref-current value so the body
+    // (translate, culling, indicator coords) sees the real scroll position at
+    // frame time, not the throttled React state. Body code stays unchanged.
+    const visibleScrollLeft = visibleScrollLeftRef.current;
 
     // Scale canvas for ultra-crisp Retina/High-DPI support using the visible viewport size to avoid exceeding browser canvas limits
     const dpr = window.devicePixelRatio || 1;
@@ -2748,16 +2826,10 @@ export default function ClusterChart({
       const bodyY2 = priceToY(Math.min(candle.open, candle.close));
       const isGreen = candle.close >= candle.open;
 
-      // Determine the dynamic/live POC cell of the candle based on the visible vertical range [minPrice, maxPrice]
       const candleCells = candle.cells || [];
-      const visibleCellsOfCandle = candleCells.filter(cl => cl.price >= minPrice && cl.price <= maxPrice);
-      const activePocCell = visibleCellsOfCandle.length > 0
-        ? visibleCellsOfCandle.reduce((max, c) => c.volume > max.volume ? c : max, visibleCellsOfCandle[0])
-        : (candleCells.length > 0 
-           ? candleCells.reduce((max, c) => c.volume > max.volume ? c : max, candleCells[0])
-           : null);
-
-      const activePocPrice = activePocCell ? activePocCell.price : candle.pocPrice;
+      // S3: dead POC block removed — `activePocPrice` was computed every frame
+      // for every visible candle (filter + reduce over ALL cells) and never read
+      // anywhere. Pure GC pressure. Verified by repo-wide grep before removal.
 
       // S1: hovered-column derivation removed from main draw — was only computed,
       // never consumed. Column highlight now lives on overlay canvas (drawOverlay).
@@ -2797,24 +2869,24 @@ export default function ClusterChart({
       // Determine colors based on palette
       const useAltPalette = candlePalette === "alternative";
       const bullFill = useAltPalette 
-        ? (isLight ? "#E3E3E3" : "#B6B2B2") 
+        ? "#E3E3E3" 
         : "#10b981";
       const bullBorder = useAltPalette 
-        ? (isLight ? "#2F2F2F" : "#D5D5D5") 
+        ? "#909090" 
         : "#10b981";
       const bullWick = useAltPalette 
-        ? (isLight ? "#2F2F2F" : "#9D9D9D") 
+        ? "#9D9D9D" 
         : "#10b981";
 
       const bearFill = useAltPalette 
-        ? (isLight ? "#292929" : "#5E5E5E") 
-        : "#f43f5e";
+        ? "#665D5D" 
+        : "#de3538";
       const bearBorder = useAltPalette 
-        ? (isLight ? "#3A3A3A" : "#AEA7A7") 
-        : "#f43f5e";
+        ? "#858585" 
+        : "#de3538";
       const bearWick = useAltPalette 
-        ? (isLight ? "#3C3C3C" : "#7F7F7F") 
-        : "#f43f5e";
+        ? "#9B9B9B" 
+        : "#de3538";
 
       const candleFillColor = isGreen ? bullFill : bearFill;
       const candleBorderColor = isGreen ? bullBorder : bearBorder;
@@ -3004,9 +3076,11 @@ export default function ClusterChart({
             const deltaOpacity = 0.04 + deltaRatio * 0.45;
             const isBuyDelta = cellDeltaVal > 0;
 
-            ctx.fillStyle = isBuyDelta
-              ? (isLight ? `rgba(34, 197, 94, ${deltaOpacity * 0.70})` : `rgba(4, 120, 87, ${deltaOpacity})`)
-              : (isLight ? `rgba(239, 68, 68, ${deltaOpacity * 0.70})` : `rgba(220, 38, 38, ${deltaOpacity})`);
+            ctx.fillStyle = useAltPalette
+              ? (isBuyDelta ? "#C7C7C7" : "#7F7F7F")
+              : isBuyDelta
+                ? (isLight ? `rgba(34, 197, 94, ${deltaOpacity * 0.70})` : `rgba(4, 120, 87, ${deltaOpacity})`)
+                : (isLight ? `rgba(239, 68, 68, ${deltaOpacity * 0.70})` : `rgba(220, 38, 38, ${deltaOpacity})`);
             ctx.fillRect(x + 0.5, cellY + 0.5, candleWidth - 1, drawHeight);
 
             ctx.strokeStyle = isLight ? "rgba(0, 0, 0, 0.04)" : "rgba(255, 255, 255, 0.03)";
@@ -3038,14 +3112,18 @@ export default function ClusterChart({
               const op = isLight 
                 ? (0.06 + bidRatioClamped * 0.68) 
                 : (0.10 + bidRatioClamped * 0.85);
-              ctx.fillStyle = isLight ? `rgba(220, 38, 38, ${op})` : `rgba(239, 68, 68, ${op})`;
+              ctx.fillStyle = useAltPalette
+                ? `rgba(127, 127, 127, ${op})`
+                : (isLight ? `rgba(220, 38, 38, ${op})` : `rgba(239, 68, 68, ${op})`);
               ctx.fillRect(sepX - bidBarWidth, cellY + 0.5, bidBarWidth, drawHeight);
             }
             if (askBarWidth > 0) {
               const op = isLight 
                 ? (0.06 + askRatioClamped * 0.68) 
                 : (0.10 + askRatioClamped * 0.85);
-              ctx.fillStyle = isLight ? `rgba(22, 163, 74, ${op})` : `rgba(16, 185, 129, ${op})`;
+              ctx.fillStyle = useAltPalette
+                ? `rgba(199, 199, 199, ${op})`
+                : (isLight ? `rgba(22, 163, 74, ${op})` : `rgba(16, 185, 129, ${op})`);
               ctx.fillRect(sepX, cellY + 0.5, askBarWidth, drawHeight);
             }
           } else {
@@ -3053,9 +3131,11 @@ export default function ClusterChart({
             const barWidth = cell.volume > 0 ? (cell.volume / visibleMaxCellVol) * maxBarWidth : 0;
             if (barWidth > 0) {
               const barIsBuy = cell.ask > cell.bid;
-              ctx.fillStyle = barIsBuy
-                ? (isLight ? "rgba(22, 163, 74, 0.35)" : "rgba(16, 185, 129, 0.45)")
-                : (isLight ? "rgba(220, 38, 38, 0.35)" : "rgba(239, 68, 68, 0.45)");
+              ctx.fillStyle = useAltPalette
+                ? (barIsBuy ? "#C7C7C7" : "#7F7F7F")
+                : barIsBuy
+                  ? (isLight ? "rgba(22, 163, 74, 0.35)" : "rgba(16, 185, 129, 0.45)")
+                  : (isLight ? "rgba(220, 38, 38, 0.35)" : "rgba(239, 68, 68, 0.45)");
               ctx.fillRect(x + 1, cellY + 0.5, barWidth, drawHeight);
             }
           }
@@ -3763,7 +3843,9 @@ export default function ClusterChart({
     isLight,
     activePair.price,
     activePair.priceStep,
-    visibleScrollLeft,
+    // S3: visibleScrollLeft REMOVED from deps. Scroll now drives the draw via
+    // visibleScrollLeftRef + scheduleDraw() from onScroll. The closure reads the
+    // ref at frame time, so re-closing on every state push would just churn.
     visibleClientWidth,
     selectedTimezone,
     areDrawingsVisible,
@@ -3780,7 +3862,10 @@ export default function ClusterChart({
   useLayoutEffect(() => {
     const ch = crosshairRef.current;
     if (ch) {
-      const colIdx = Math.floor((ch.x + visibleScrollLeft - margin.left) / (candleWidth + candleSpacing));
+      // S3: ref-current scroll keeps the resolved colIdx accurate even when the
+      // commit was triggered by something other than a state-flushed scroll.
+      const vsl = visibleScrollLeftRef.current;
+      const colIdx = Math.floor((ch.x + vsl - margin.left) / (candleWidth + candleSpacing));
       const hoveredCandle = (colIdx >= 0 && colIdx < candles.length) ? candles[colIdx] : null;
       const cvdPoint = (colIdx >= 0 && colIdx < cumulativeDeltaPoints.length) ? cumulativeDeltaPoints[colIdx] : null;
       updateCrosshairDom(ch, hoveredCandle, cvdPoint);
@@ -4394,8 +4479,17 @@ export default function ClusterChart({
           onMouseLeave={handleMouseUpOrLeave}
           onDoubleClick={handleDoubleClick}
           onScroll={(e) => {
-            setVisibleScrollLeft(e.currentTarget.scrollLeft);
-            setVisibleClientWidth(e.currentTarget.clientWidth);
+            // S3: hot path — write to ref + schedule one rAF draw. NO setState here
+            // (used to fire on every scroll-event and re-render the whole monolith
+            // ~90 ms/frame; see profiling). State is pushed lazily via
+            // requestScrollStateSync — half-candle moves immediately, micro-moves
+            // after a 100 ms debounce.
+            const sl = e.currentTarget.scrollLeft;
+            visibleScrollLeftRef.current = sl;
+            scheduleDraw();
+            requestScrollStateSync(sl);
+            const cw = e.currentTarget.clientWidth;
+            if (cw !== visibleClientWidth) setVisibleClientWidth(cw);
           }}
           className={`flex-1 overflow-x-auto overflow-y-hidden select-none terminal-grid relative transition-all duration-300 chart-scroll-container ${
             isLight ? "bg-[#f8fafc]" : "bg-[#06080f]"
