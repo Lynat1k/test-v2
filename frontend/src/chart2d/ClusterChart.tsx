@@ -607,10 +607,16 @@ export default function ClusterChart({
     setVisibleScrollLeft(v);
   };
   const requestScrollStateSync = (latest: number) => {
-    const last = visibleScrollLeftLastSyncedRef.current;
-    const halfCandle = Math.max(8, Math.floor((candleWidthRef.current + 12) / 2));
-    if (Math.abs(latest - last) >= halfCandle) {
-      // Significant move — push state immediately so effects/memos catch up.
+    // R: pure debounce. The earlier "half-candle immediate flush" branch was
+    // pushing ~3 setState/sec during continuous scroll, each costing a ~160 ms
+    // monolith re-render (Branch A would require subtree extraction; out of
+    // scope). With debounce-only we get zero React commits during active
+    // scroll — state catches up 100 ms after the user stops. History-loading
+    // and timestamp-tracking effects still see the final position. The
+    // near-left-edge case is force-flushed below so onNeedHistory still fires
+    // mid-scroll when the user actually needs more data.
+    if (latest < 200) {
+      // Approaching the historic edge — flush now so the parent can prefetch.
       if (scrollSyncTimerRef.current != null) {
         clearTimeout(scrollSyncTimerRef.current);
         scrollSyncTimerRef.current = null;
@@ -618,9 +624,9 @@ export default function ClusterChart({
       flushScrollState(false);
       return;
     }
-    // Small move — wait for the user to stop, then flush so effects (e.g. history
-    // request at left edge) still observe the final position.
-    if (scrollSyncTimerRef.current != null) return;
+    if (scrollSyncTimerRef.current != null) {
+      clearTimeout(scrollSyncTimerRef.current);
+    }
     scrollSyncTimerRef.current = setTimeout(() => {
       scrollSyncTimerRef.current = null;
       flushScrollState(false);
@@ -1119,13 +1125,12 @@ export default function ClusterChart({
     setPriceCenterOffset(centerL40 - basePriceCenter);
   };
 
-  // Find min/max price boundaries for mapping coordinates based on VISIBLE candles! (memoized)
-  const visibleCandlesList = useMemo(() => {
-    return candles.filter((_, cIdx) => {
-      const x = margin.left + cIdx * (candleWidth + candleSpacing);
-      return x + candleWidth >= visibleScrollLeft && x <= visibleScrollLeft + visibleClientWidth;
-    });
-  }, [candles, visibleScrollLeft, visibleClientWidth, candleWidth, candleSpacing]);
+  // R: visibleCandlesList useMemo deleted. It only fed visibleMaxCellVol /
+  // visibleMaxSingleVol below, both of which are consumed only inside drawRef.
+  // Those two are now computed inline in drawRef.current from startIdx/endIdx,
+  // so this whole chain no longer participates in React render. Removing
+  // visibleScrollLeft from React-tracked state for these computations cuts
+  // ~half of the ~160 ms commit on every throttled scroll-state push.
 
 
 
@@ -2284,32 +2289,11 @@ export default function ClusterChart({
     return panelH - ((val - zoomedCvdMin) / zoomedCvdDeltaRange) * (panelH * 0.8) - (panelH * 0.1);
   };
 
-  // Find dynamic maximum volume on visible part of the chart (memoized)
-  const visibleMaxCellVol = useMemo(() => {
-    let max = 1;
-    for (let c = 0; c < visibleCandlesList.length; c++) {
-      const cells = visibleCandlesList[c].cells || [];
-      for (let i = 0; i < cells.length; i++) {
-        if (cells[i].volume > max) {
-          max = cells[i].volume;
-        }
-      }
-    }
-    return max;
-  }, [visibleCandlesList]);
-
-  const visibleMaxSingleVol = useMemo(() => {
-    let max = 1;
-    for (let c = 0; c < visibleCandlesList.length; c++) {
-      const cells = visibleCandlesList[c].cells || [];
-      for (let i = 0; i < cells.length; i++) {
-        const cell = cells[i];
-        if (cell.bid > max) max = cell.bid;
-        if (cell.ask > max) max = cell.ask;
-      }
-    }
-    return max;
-  }, [visibleCandlesList]);
+  // R: visibleMaxCellVol / visibleMaxSingleVol useMemos deleted — both consumed
+  // only inside drawRef closure (cell normalization for detailed/cluster mode).
+  // They are now computed inline in drawRef.current with the same single-pass
+  // loop over the visible candle range, so they no longer cost a React commit
+  // recomputation on every throttled scroll-state push.
 
   // --- ATAS STACKED IMBALANCE CALCULATION ENGINE ---
   const stackedImbalanceLines = useMemo(() => {
@@ -2741,6 +2725,25 @@ export default function ClusterChart({
     const endIdx = Math.min(candles.length - 1, Math.ceil((visibleScrollLeft + viewportWidth - margin.left) / (candleWidth + candleSpacing)));
     const visibleCandlesCount = endIdx - startIdx + 1;
     const hideFootprintNumbers = visibleCandlesCount > 70;
+
+    // R: visibleMaxCellVol / visibleMaxSingleVol were three chained useMemos that
+    // refired every throttled scroll-state push. They are consumed only here —
+    // computed inline in one pass over the visible range, skipped entirely when
+    // not in detailed/cluster/footprint mode (japanese / bars don't read them).
+    let visibleMaxCellVol = 1;
+    let visibleMaxSingleVol = 1;
+    if (isDetailedMode) {
+      for (let cIdx = startIdx; cIdx <= endIdx; cIdx++) {
+        const cells = candles[cIdx]?.cells;
+        if (!cells) continue;
+        for (let i = 0; i < cells.length; i++) {
+          const cell = cells[i];
+          if (cell.volume > visibleMaxCellVol) visibleMaxCellVol = cell.volume;
+          if (cell.bid > visibleMaxSingleVol) visibleMaxSingleVol = cell.bid;
+          if (cell.ask > visibleMaxSingleVol) visibleMaxSingleVol = cell.ask;
+        }
+      }
+    }
 
     // 3.5 Draw Vertical Daily Session Separators (Vertical grid of daily session boundary)
     const tzOpt = selectedTimezone === "local" ? undefined : selectedTimezone;

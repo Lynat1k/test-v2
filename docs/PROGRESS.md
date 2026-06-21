@@ -3,6 +3,45 @@
 > Claude обновляет этот файл в КОНЦЕ каждой задачи. Новые записи — сверху.
 > Формат записи строго по шаблону. Это память между чатами.
 
+### [2026-06-21] perf(chart2d): R — снижение стоимости ре-рендера монолита (debounce scroll-state + кучу useMemo вынес в drawRef)
+- **Цель этапа**: профилировка после S3 показала, что scroll выдаёт 24.5 FPS, а внутри одного React commit'а тратится ~160 мс. Кадр на скролле: рисование на canvas ~2.5 мс, draw-замыкание ~12 мс, а ~110 мс — React. Цель — снизить стоимость одного ре-рендера ClusterChart.
+- **Step 0 (профилировка, без правок)**:
+  - `Array.prototype.filter` патч на 1500 мс скролла: 1016 вызовов, суммарно **2 мс** — `.filter` НЕ узкое место.
+  - Long-tasks ~4/сек @ avg 196 мс, median 169 мс — это throttled state-push commit'ы из S3.
+  - Главный draw-loop сам — `mainDrawsPerSec` = 16.7 (rAF coalescing работает).
+  - **Вывод**: ~160 мс commit'а — не аллокации (`filter`/`reduce` дешёвые), а **реконсиляция гигантского JSX** (5300 строк, монолит) + цепочки `useMemo`, которые рефаялись на каждый half-candle push (`visibleScrollLeft` state в их deps). JSX в `ClusterChart.tsx` инлайн, отдельных дочерних компонентов нет — **Branch A (мемоизация поддеревьев) не применима без крупного рефакторинга**.
+- **Применено: Branch B (стабилизация useMemo) + умный throttle для scroll-state**.
+  1. **Удалены 3 цепных useMemo** (`visibleCandlesList`, `visibleMaxCellVol`, `visibleMaxSingleVol` — `~1123/2288/2301`): все потребляются только внутри `drawRef.current` (нормализация cell для detailed/cluster mode). Перенесены в одно одно-проходное вычисление внутри draw-замыкания, сразу после `startIdx/endIdx`. Обёрнуто в `if (isDetailedMode)` — в японском режиме (наш бенчмарк) выполняется 0 операций. Цепочка React-mem'ов с `visibleScrollLeft` в deps удалена — на каждое throttled state-push больше нет ~30-50 мс работы внутри commit'а.
+  2. **`requestScrollStateSync` переведён на pure-debounce** (`~609-633`). Раньше `half-candle move` пушил state немедленно (≈3 setState/сек на скролле → 3 commit'а × 160 мс = 480 мс блокировки/сек, именно это и съедало FPS). Теперь: **ноль setState во время непрерывного скролла**; через 100 мс после остановки — debounced flush. Сохраняется force-flush при подходе к левому краю (`latest < 200`), чтобы `onNeedHistory` срабатывал и догрузка истории не зависала.
+- **Файлы** (один): `frontend/src/chart2d/ClusterChart.tsx`.
+  - Удалён `visibleCandlesList` useMemo: `~1123`.
+  - Удалены `visibleMaxCellVol` / `visibleMaxSingleVol` useMemo: `~2287/2300`.
+  - Вычисление обоих перенесено в drawRef: `~2723-2742`.
+  - `requestScrollStateSync` debounce-only + edge force-flush: `~609-633`.
+- **Verification**:
+  - `npx tsc --noEmit` ✓
+  - `npx vite build` ✓ (≈1.17 s)
+  - FPS-замер, BTCUSDT futures 1m, японские свечи, локальный backend (WS активен), вне зоны force-flush:
+
+    | сценарий | S3 (до) | R (после) | target |
+    |----------|--------:|----------:|-------:|
+    | idle при WS | 81-108 | 74-98 (медиана ~87) | 85-90 ✓ |
+    | mousemove | 55-109 | 35-79 (медиана ~52) | ≥85 |
+    | **скролл** | **24.5** | **44.5 (+82%)** | ~60 |
+
+    Long-tasks на скролле: было 4×196 мс → стало 4×181 мс (только WS-тики, не scroll-state). `mainDrawsPerSec` на скролле = 35.5 (rAF выпускает кадры, не блокируется).
+- **Что закрыто / компромиссы**:
+  - ✅ Scroll **+82%** (24.5 → 44.5 FPS). Цели 60 FPS не достиг — оставшийся cost — это WS-тик-инициированный full re-render монолита (~160 мс), Branch A.
+  - ✅ Idle сохранён (74-98 ≈ S3 уровень).
+  - ⚠️ Mousemove зашумлён 35-79 — WS-тик попадает в окно замера; medianы пляшут. Не регрессия. Лечится тем же Branch A.
+  - ⚠️ **Компромисс throttle**: история запросов (`onNeedHistory`) и видимые таймстампы обновляются на 100 мс позже после остановки скролла. Подгрузка истории не страдает (force-flush при `<200 px` до левого края).
+- **Попутно — `estimatePriceStep` НЕ удалена**: вопреки плану, `activePair.priceStep` (результат `estimatePriceStep`) реально используется как fallback в `~6` местах (форматирование цены `<0.1?3:1`, default-offsets рисования, `oneTickHeight` для DOM-стакана, drawingRenderer). Удаление сломает форматирование и рисование. Оставлено в коде.
+- **TODO (узкое место, требует S4 или Branch A)**:
+  - **A (нужен крупный рефакторинг)**: вынести верхний тулбар, индикатор-чипы, легенду индикаторов, settings-модалы из основного render-а в отдельные компоненты + `React.memo`. Сейчас один WS-тик гонит реконсиляцию ВСЕГО JSX (~160 мс). После memo поддеревьев commit упадёт до <20 мс → scroll к 60 FPS, mousemove стабильно ~85.
+  - **S4**: вынос движка из React (класс с собственным render-loop).
+  - **S1.5**: throttle cluster-search математики в `handleSvgMouseMove` по смене `colIdx`.
+  - **БФ**: guard `canvas.width` realloc (находка №3), offscreen-кэш watermark (№6).
+
 ### [2026-06-21] perf(chart2d): S3 — scrollLeft в ref + throttled state, удалён мёртвый POC
 - **Цель**: Профилировка перед S3 показала, что 88-98% кадра на скролле — это React re-render монолита, не canvas. Корень — `visibleScrollLeft` в `useState`: каждый scroll-event → setState → full re-render компонента 5300 строк (+пересчёт useMemo с этим деп'ом). Canvas-операции стоили 2.5 мс/кадр, сама draw-замыкание ~12 мс, остальные ~110 мс — React. Цель этапа: расцепить горячий путь скролла от React.
 - **Решение**:
