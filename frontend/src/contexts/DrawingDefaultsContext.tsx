@@ -28,9 +28,13 @@ const POSITION_DEFAULTS: Record<string, unknown> = {
 
 const VOLUME_DEFAULTS: Record<string, unknown> = {
   extendPoc: false,
-  opacity: 0.28,
   volColor: "#3b82f6",
-  pocColor: "#3b82f6"
+  pocColor: "#3b82f6",
+  vpVaOpacity: 0.28,
+  vpOutVaOpacity: 0.28 * 0.3,
+  vpPocOpacity: 1.0,
+  vpBgOpacity: 0.03,
+  vpBorderOpacity: 0.8
 }
 
 export function getClientDefaults(drawingType: string): Record<string, unknown> {

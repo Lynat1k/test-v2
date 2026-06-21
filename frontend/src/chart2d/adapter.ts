@@ -133,6 +133,31 @@ export function adapter(
     .sort((a, b) => a.timestamp - b.timestamp);
 }
 
+/**
+ * Aggregates cluster rows into wider price buckets, replicating ClickHouse SQL:
+ *   floor(price_level / priceStep) * priceStep AS price_bucket, sum(bid_volume), sum(ask_volume)
+ * Used to apply user-selected compression to live WS levels.
+ */
+export function aggregateLevels(rows: ApiClusterRow[], priceStep: number): ApiClusterRow[] {
+  if (!rows || rows.length === 0 || priceStep <= 0) return rows;
+  const map = new Map<number, { bid: number; ask: number }>();
+  for (const r of rows) {
+    const bucket = Math.floor(r.PriceLevel / priceStep) * priceStep;
+    const existing = map.get(bucket);
+    if (existing) {
+      existing.bid += r.BidVolume;
+      existing.ask += r.AskVolume;
+    } else {
+      map.set(bucket, { bid: r.BidVolume, ask: r.AskVolume });
+    }
+  }
+  return Array.from(map.entries()).map(([price, v]) => ({
+    PriceLevel: price,
+    BidVolume: v.bid,
+    AskVolume: v.ask,
+  }));
+}
+
 export function mergeLiveUpdate(
   existing: ClusterCandle[],
   updated: ClusterCandle

@@ -3,6 +3,23 @@
 > Claude обновляет этот файл в КОНЦЕ каждой задачи. Новые записи — сверху.
 > Формат записи строго по шаблону. Это память между чатами.
 
+### [2026-06-21] Volume Profile fix: clusterStep вместо activePair.priceStep, убраны пропуски баров
+- **Root cause**: `drawingRenderer.ts` использовал `activePair.priceStep` (= estimatePriceStep, хардкод 2.5), а клетки candle.cells агрегированы `computePriceStep` (= базовый шаг × compression). Из-за этого VA 70% / POC смещались, а между барами гистограммы были вертикальные пропуски.
+- **Fix 1** (`drawingRenderer.ts:54`): добавлено поле `clusterStep?: number` в `RenderContext`.
+- **Fix 2** (`drawingRenderer.ts:81`): `clusterStep` деструктурирован из params.
+- **Fix 3** (`drawingRenderer.ts:335`, `:501`): `activePair.priceStep` → `clusterStep || activePair.priceStep || fallback` — приоритет у реального шага агрегации.
+- **Fix 4** (`drawingRenderer.ts:615`): `bHeightStep + 0.25` → `bHeightStep` — удалён зазор, бары теперь слитные.
+- **Fix 5** (`ClusterChart.tsx:2402`, `:3330`): проброшен `clusterStep: effectiveStep` в оба вызова `drawDrawingObjects`.
+- **Verification**: tsc --noEmit ✓, vite build ✓.
+
+### [2026-06-21] 3 правки UI из PROCLUSTER3: ClustersIcon, палитра, Pan tooltip
+- **ClustersIcon** (`frontend/src/components/icons/ClustersIcon.tsx`): заменён на три rect-плитки с `fillOpacity` 0.1 / 0.8 / 0.3 и `strokeWidth="1.5"`.
+- **Palette button** (`frontend/src/components/ChartHeader.tsx`): удалена текстовая подпись "COLOR"/"ЦВЕТ" над кнопкой, удалён `min-w-[40px]` — только иконка свечи + стрелка.
+- **Pan tooltip** (`frontend/src/chart2d/ClusterChart.tsx`): при hover на "Click & Drag to Pan (2D)" — всплывающий блок с заголовком "Управление масштабом" и подсказками SHIFT+SCROLL / CTRL+SCROLL. Move icon — `animate-pulse`. Позиционирован ниже плашки (top-full), чтобы не обрезался `overflow-hidden` на родителе.
+- **i18n**: добавлены ключи `zoomControlsTitle`, `zoomVertical`, `zoomHorizontal` в RU/EN/KZ.
+- **fix (tooltip clipping)**: `right-0` вместо `left-0`, ширина `w-56`, `whitespace-nowrap` на строках описаний.
+- **fix (palette btn layout)**: `justify-center` вместо `justify-between`, `min-w-[40px]` и `whitespace-nowrap`.
+
 ### [2026-06-19] Fix v3: follow-mode — live-append не кидает в историю, prepend без дёрганья (удалён prependHandledRef)
 - **Баг 2 (prepend дёргает масштаб)**: setVisibleClientWidth после prepend давал второй прогон эффекта, где prependHandledRef уже был consumed → scroll к правому краю.
 - **Баг 3 (live-append кидает на конец)**: при появлении новой свечи candles.length рос → авто-скролл ехал к правому краю, даже если пользователь в истории.

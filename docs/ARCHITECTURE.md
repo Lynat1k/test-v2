@@ -21,7 +21,8 @@ Binance Futures/Spot WS (trades stream)
 [api] REST (история свечей, N последних) + WS hub (live кластер каждые 100-500ms)
         │
         ▼
-Frontend (React) → chart-engine (PixiJS/WebGL) + DOM + indicators
+Frontend (React) → chart2d (Canvas2D) + DOM + indicators   [PixiJS/WebGL отложен, см. DECISIONS.md]
+
 
 Параллельно:
 - data.binance.vision loader: ручной запуск из админки/CLI, грузит тики

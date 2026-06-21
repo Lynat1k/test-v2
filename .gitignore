@@ -54,3 +54,5 @@ docker-compose.override.yml
 /bin/
 /build/
 /out/
+
+_archive_mimo/

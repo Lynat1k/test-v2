@@ -1,0 +1,5 @@
+2026/06/20 09:21:08 [download] direct connection (no proxy)
+2026/06/20 09:21:08 [env] .env not loaded (using system env)
+2026/06/20 09:21:08 [config] effective settings: CLICKHOUSE_ADDR=localhost:9000 CLICKHOUSE_DB=default REDIS_ADDR=192.168.0.17:6379 SQLITE_PATH=./data/procluster.db APP_PORT=8080
+2026/06/20 09:21:08 procluster up
+redis: 2026/06/20 09:21:33 pool.go:715: redis: connection pool: failed to dial after 5 attempts: dial tcp 192.168.0.17:6379: i/o timeout

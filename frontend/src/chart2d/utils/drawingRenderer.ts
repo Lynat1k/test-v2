@@ -37,6 +37,11 @@ export interface DrawingItem {
   volColor?: string;
   pocColor?: string;
   extendPoc?: boolean;
+  vpVaOpacity?: number;
+  vpOutVaOpacity?: number;
+  vpPocOpacity?: number;
+  vpBgOpacity?: number;
+  vpBorderOpacity?: number;
 }
 
 interface RenderContext {
@@ -51,6 +56,7 @@ interface RenderContext {
   isLight: boolean;
   priceToY: (price: number) => number;
   activePair: { price: number; priceStep?: number };
+  clusterStep?: number;
   candles: Array<{
     open: number;
     close: number;
@@ -77,6 +83,7 @@ export function drawDrawingObjects(ctx: CanvasRenderingContext2D, renderParams: 
     isLight,
     priceToY,
     activePair,
+    clusterStep,
     candles,
     candleWidth,
     candleSpacing,
@@ -330,7 +337,7 @@ export function drawDrawingObjects(ctx: CanvasRenderingContext2D, renderParams: 
       ctx.lineTo(xRight, yEntry);
       ctx.stroke();
 
-      const priceStep = activePair.priceStep || 0.01;
+      const priceStep = clusterStep || activePair.priceStep || 0.01;
       const stepStr = priceStep.toString();
       const dotIdx = stepStr.indexOf(".");
       const priceStepDecimals = dotIdx === -1 ? 0 : Math.min(8, stepStr.length - dotIdx - 1);
@@ -477,15 +484,29 @@ export function drawDrawingObjects(ctx: CanvasRenderingContext2D, renderParams: 
       ctx.restore();
     }
     else if (d.type === "volume") {
+      const hexToRgba = (hexColor: string, alpha: number) => {
+        if (hexColor.startsWith("rgba")) return hexColor;
+        const cleanHex = hexColor.replace("#", "");
+        const r = parseInt(cleanHex.substring(0, 2), 16) || 59;
+        const g = parseInt(cleanHex.substring(2, 4), 16) || 130;
+        const b = parseInt(cleanHex.substring(4, 6), 16) || 246;
+        return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+      };
+
+      const baseColor = d.volColor || (isLight ? "#2563eb" : "#3b82f6");
+      const vaAlpha = d.vpVaOpacity ?? d.opacity ?? 0.28;
+      const outVaAlpha = d.vpOutVaOpacity ?? ((d.opacity ?? 0.28) * 0.3);
+      const pocAlpha = d.vpPocOpacity ?? 1.0;
+      const bgAlpha = d.vpBgOpacity ?? 0.03;
+      const borderAlpha = d.vpBorderOpacity ?? 0.8;
+
       ctx.beginPath();
-      ctx.strokeStyle = "rgba(168, 85, 247, 0.8)";
+      ctx.strokeStyle = hexToRgba(baseColor, borderAlpha);
       ctx.lineWidth = 1;
       ctx.setLineDash([3, 3]);
       ctx.rect(Math.min(x1, x2), Math.min(y1, y2), Math.abs(x2 - x1), Math.abs(y2 - y1));
       ctx.stroke();
       ctx.setLineDash([]);
-      ctx.fillStyle = "rgba(168, 85, 247, 0.03)";
-      ctx.fill();
 
       const minX = Math.min(x1, x2);
       const maxX = Math.max(x1, x2);
@@ -496,7 +517,7 @@ export function drawDrawingObjects(ctx: CanvasRenderingContext2D, renderParams: 
         const minPrice = Math.min(d.startPrice, d.endPrice);
         const maxPrice = Math.max(d.startPrice, d.endPrice);
         const priceDiff = maxPrice - minPrice;
-        const priceStep = activePair.priceStep || 1;
+        const priceStep = clusterStep || activePair.priceStep || 1;
         const bucketCount = Math.max(1, Math.round(priceDiff / priceStep));
 
         const bMinY = Math.min(y1, y2);
@@ -579,21 +600,9 @@ export function drawDrawingObjects(ctx: CanvasRenderingContext2D, renderParams: 
 
         ctx.save();
 
-        const hexToRgba = (hexColor: string, alpha: number) => {
-          if (hexColor.startsWith("rgba")) return hexColor;
-          const cleanHex = hexColor.replace("#", "");
-          const r = parseInt(cleanHex.substring(0, 2), 16) || 59;
-          const g = parseInt(cleanHex.substring(2, 4), 16) || 130;
-          const b = parseInt(cleanHex.substring(4, 6), 16) || 246;
-          return `rgba(${r}, ${g}, ${b}, ${alpha})`;
-        };
-
-        const baseColor = d.volColor || (isLight ? "#2563eb" : "#3b82f6");
-        const customOpacity = d.opacity !== undefined ? d.opacity : (isLight ? 0.18 : 0.28);
-
         const vaY1 = bMinY + lowIdx * bHeightStep;
         const vaY2 = bMinY + (highIdx + 1) * bHeightStep;
-        ctx.fillStyle = isLight ? "rgba(59, 130, 246, 0.02)" : "rgba(59, 130, 246, 0.03)";
+        ctx.fillStyle = hexToRgba(baseColor, bgAlpha);
         ctx.fillRect(minX, vaY1, Math.abs(x2 - x1), vaY2 - vaY1);
 
         for (let b = 0; b < bucketCount; b++) {
@@ -604,13 +613,8 @@ export function drawDrawingObjects(ctx: CanvasRenderingContext2D, renderParams: 
           const binY = bMinY + b * bHeightStep;
           const isInValueArea = b >= lowIdx && b <= highIdx;
 
-          if (isInValueArea) {
-            ctx.fillStyle = hexToRgba(baseColor, customOpacity);
-          } else {
-            ctx.fillStyle = hexToRgba(baseColor, customOpacity * 0.3);
-          }
-
-          ctx.fillRect(minX, binY, drawW, bHeightStep + 0.25);
+          ctx.fillStyle = hexToRgba(baseColor, isInValueArea ? vaAlpha : outVaAlpha);
+          ctx.fillRect(minX, binY, drawW, bHeightStep);
         }
 
         ctx.lineWidth = 1;
@@ -652,14 +656,16 @@ export function drawDrawingObjects(ctx: CanvasRenderingContext2D, renderParams: 
           }
         }
 
-        ctx.strokeStyle = d.pocColor || (isLight ? "#2563eb" : "#3b82f6");
+        const pocBase = d.pocColor || (isLight ? "#2563eb" : "#3b82f6");
+        ctx.strokeStyle = hexToRgba(pocBase, pocAlpha);
         ctx.lineWidth = 2.2;
         ctx.beginPath();
         ctx.moveTo(minX, pocY);
         ctx.lineTo(extendEndX, pocY);
         ctx.stroke();
 
-        ctx.fillStyle = d.pocColor || (isLight ? "#1d4ed8" : "#60a5fa");
+        const pocTextBase = d.pocColor || (isLight ? "#1d4ed8" : "#60a5fa");
+        ctx.fillStyle = hexToRgba(pocTextBase, pocAlpha);
         ctx.font = "bold 9px 'JetBrains Mono', monospace";
         ctx.fillText("POC", minX + 5, pocY - 4);
 

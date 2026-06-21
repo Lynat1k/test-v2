@@ -90,11 +90,20 @@ TTL candle_open + INTERVAL 1 YEAR    -- BTCUSDT futures: 1 год
 clusters_spot: то же, TTL 3 года, compression base 500.
 
 ## Агрегация по таймфреймам
-- Сырьё агрегируем согласно ТФ: для 1m — раз в минуту, для 1h — раз в час и т.д.
-- Старшие ТФ можно строить из младших (rollup) либо из сырья — выбрать один путь,
-  записать в DECISIONS.md. Рекомендация: хранить минимальный ТФ детально,
-  старшие — materialized views / rollup, чтобы не дублировать объём.
-- Объединение уровней сжатия (base*k) — на лету из base или из Redis-кэша.
+- Минимальный ТФ (1m) агрегируется детально из трейдов и пишется в ClickHouse при закрытии минуты.
+- Старшие ТФ (5m/15m/30m/1h/4h/1d) в LIVE собираются из in-memory tfStates и пишутся ОДНОЙ
+  записью на закрытии бакета (детект по смене AlignToTimeframe). НЕ per-1m rollup.
+  open = первой 1m свечи периода, close = последней, объёмы — сумма за весь период.
+- Guard от двойного flush: timer флашит только завершённую минуту; поздние трейды закрытой
+  минуты отбрасываются (см. DECISIONS.md).
+- BACKFILL (история) строит старшие ТФ через aggregation.Rollup из 1m — отдельный путь.
+- Объединение уровней сжатия (base*k) — формула floor(price_level/priceStep)*priceStep,
+  идентична на фронте и в REST.
+
+### bid/ask на выходе (ATAS)
+В памяти pl.bid=BUY, pl.ask=SELL. При записи в CH и отправке в WS переворачивается:
+BidVolume=SELL, AskVolume=BUY. Точки: tfStateToRows, pushTFUpdates, readLevelsFromRedis.
+
 
 ## Кэш последних свечей
 - Redis: по ключу (symbol, market, timeframe) хранить последние 700 свечей готовыми к отдаче.
