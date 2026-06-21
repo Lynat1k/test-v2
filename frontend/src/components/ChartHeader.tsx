@@ -251,7 +251,7 @@ export function ChartHeader({ fps = 0, showAnomalies = true, onToggleAnomalies }
       <div className={`w-px h-5 mx-0.5 ${isLight ? 'bg-slate-300' : 'bg-white/10'}`} />
 
       {/* 5. Palette dropdown */}
-      <div className="shrink-0">
+      <div className="shrink-0 pt-[17px]">
         <div className="relative" ref={paletteRef}>
           <button
             onClick={() => paletteDropdownOpen ? setPaletteDropdownOpen(false) : openPaletteDropdown()}
