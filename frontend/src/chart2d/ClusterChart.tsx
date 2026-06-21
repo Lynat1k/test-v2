@@ -2342,22 +2342,25 @@ export default function ClusterChart({
     }
 
     // 2. Real-time active price tracker tag on chart grid
-    const activePriceY = priceToY(activePair.price);
-    if (activePriceY >= margin.top && activePriceY <= margin.top + chartHeight) {
-      ctx.beginPath();
-      ctx.strokeStyle = "rgba(245, 158, 11, 0.6)";
-      ctx.lineWidth = 1.2;
-      ctx.setLineDash([2, 2]);
+    const currentPrice = candles.length > 0 ? candles[candles.length - 1]!.close : undefined;
+    if (currentPrice !== undefined) {
+      const activePriceY = priceToY(currentPrice);
+      if (activePriceY >= margin.top && activePriceY <= margin.top + chartHeight) {
+        ctx.beginPath();
+        ctx.strokeStyle = "rgba(245, 158, 11, 0.6)";
+        ctx.lineWidth = 1.2;
+        ctx.setLineDash([2, 2]);
 
-      // Draw starting only from the current (latest) candle to the end of the chart scroll width
-      const latestCandleIdx = Math.max(0, candles.length - 1);
-      const latestCandleX = margin.left + latestCandleIdx * (candleWidth + candleSpacing);
-      const startX = latestCandleX + candleWidth / 2;
+        // Draw starting only from the current (latest) candle to the end of the chart scroll width
+        const latestCandleIdx = Math.max(0, candles.length - 1);
+        const latestCandleX = margin.left + latestCandleIdx * (candleWidth + candleSpacing);
+        const startX = latestCandleX + candleWidth / 2;
 
-      ctx.moveTo(startX, activePriceY);
-      ctx.lineTo(scrollWidth, activePriceY);
-      ctx.stroke();
-      ctx.setLineDash([]);
+        ctx.moveTo(startX, activePriceY);
+        ctx.lineTo(scrollWidth, activePriceY);
+        ctx.stroke();
+        ctx.setLineDash([]);
+      }
     }
 
     // 3. Draw Aggregated Session Profile on the left side of the chart (fixed on screen, so translate-invariant)
@@ -4283,30 +4286,33 @@ export default function ClusterChart({
 
               {/* Live Active Price level label */}
               {(() => {
-                const activePriceY = priceToY(activePair.price);
+                if (currentPrice === undefined) return null;
+                const activePriceY = priceToY(currentPrice);
                 if (activePriceY >= margin.top && activePriceY <= margin.top + chartHeight) {
+                  const badgeH = isMobile ? 18 : 22;
                   return (
                     <g key="fixed-active-price">
                       <rect
-                        x={3}
-                        y={activePriceY - 8}
-                        width={badgeWidth}
-                        height={16}
-                        fill={isLight ? "#1e293b" : "#eab308"}
-                        rx="2"
-                        stroke={isLight ? "#1e293b" : "#f59e0b"}
-                        strokeWidth="1"
+                        x={2}
+                        y={activePriceY - badgeH / 2}
+                        width={scaleWidth - 4}
+                        height={badgeH}
+                        fill={isLight ? "rgba(15, 23, 42, 0.12)" : "rgba(245, 158, 11, 0.22)"}
+                        rx="3.5"
+                        stroke={isLight ? "rgba(15, 23, 42, 0.25)" : "rgba(245, 158, 11, 0.55)"}
+                        strokeWidth="1.2"
                       />
                       <text
-                        x={labelX}
-                        y={activePriceY + 4}
-                        fill={isLight ? "#ffffff" : "#010409"}
-                        fontSize={isMobile ? "8" : "9.5"}
+                        x={labelX + 1}
+                        y={activePriceY}
+                        fill={isLight ? "#0f172a" : "#facc15"}
+                        fontSize={isMobile ? "10" : "12.5"}
                         fontFamily="'Inter', -apple-system, sans-serif"
-                        fontWeight="bold"
+                        fontWeight="900"
                         textAnchor="start"
+                        dominantBaseline="central"
                       >
-                        {formatPrice(activePair.price)}
+                        {formatPrice(currentPrice)}
                       </text>
                     </g>
                   );
