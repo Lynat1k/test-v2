@@ -923,9 +923,16 @@ export default function ClusterChart({
             void spacer.offsetWidth;
           }
 
+          // Upper-clamp against the NEW spacer width so DOM can't silently clamp
+          // below what we store in ref/state — that desync caused jerk-and-return
+          // and full drift on strong zoom-out.
+          const containerClientWidth = container.clientWidth || 800;
+          const maxScroll = Math.max(0, nextScrollWidth - containerClientWidth);
+          const clampedScrollLeft = Math.min(maxScroll, nextScrollLeft);
+
           setCandleWidth(nextWidthClamped);
-          container.scrollLeft = nextScrollLeft;
-          setVisibleScrollLeftSync(nextScrollLeft);
+          container.scrollLeft = clampedScrollLeft;
+          setVisibleScrollLeftSync(clampedScrollLeft);
 
           // Update ref synchronously for any consecutive ticks in the same frame
           candleWidthRef.current = nextWidthClamped;
@@ -963,9 +970,14 @@ export default function ClusterChart({
             void spacer.offsetWidth;
           }
 
+          // Upper-clamp against the NEW spacer width (see ctrl branch above).
+          const containerClientWidth = container.clientWidth || 800;
+          const maxScroll = Math.max(0, nextScrollWidth - containerClientWidth);
+          const clampedScrollLeft = Math.min(maxScroll, nextScrollLeft);
+
           setCandleWidth(nextWidthClamped);
-          container.scrollLeft = nextScrollLeft;
-          setVisibleScrollLeftSync(nextScrollLeft);
+          container.scrollLeft = clampedScrollLeft;
+          setVisibleScrollLeftSync(clampedScrollLeft);
 
           // Update ref synchronously for any consecutive ticks in the same frame
           candleWidthRef.current = nextWidthClamped;
@@ -994,6 +1006,12 @@ export default function ClusterChart({
           }
         }
       }
+
+      // Paint canvas once with NEW candleWidth + NEW scrollLeft in the same frame
+      // as this wheel event. Without this, paint depends on React's useLayoutEffect
+      // or the async native scroll event — either can land after the browser already
+      // repainted the old canvas at the new container scroll position.
+      scheduleDraw();
     };
 
     container.addEventListener("wheel", handleWheel, { passive: false });

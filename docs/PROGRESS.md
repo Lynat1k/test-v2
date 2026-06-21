@@ -1888,3 +1888,45 @@ Note: ошибся в прошлой верификации — судил по 
 `range`. Замёрзший snapshot выглядел как "стабильная книга" потому что
 центр (lastPrice) обновлялся отдельно через `aggregator`. Урок: смотреть на
 динамику `range=[X..Y]`, не только на coverage%.
+
+## 2026-06-22 — Bug-fix: ctrl+wheel horizontal-zoom anchor (рывок + смещение)
+
+Юзер: при ctrl+колесо график (а) слабо дёргается и возвращается; (б) при сильном
+зуме уезжает и якорь под курсором не держится. Shift+колесо (vertical) корректен —
+эталон.
+
+**Диагностика** (вся — без правок репо, поверх runtime):
+- Wheel-handler [ClusterChart.tsx:848-996](frontend/src/chart2d/ClusterChart.tsx:848).
+- Чтения формулы якоря уже атомарны и из refs (`candleWidthRef.current`,
+  `container.scrollLeft`) — throttled state в hot-path не читался.
+- ОДНА корневая причина для обоих симптомов: в wheel-ветках (ctrl + combo) был
+  только нижний кламп `nextScrollLeft = Math.max(0, ...)`, без верхнего. При
+  zoom-out новый `scrollWidth` сжимается, расчётное `nextScrollLeft` превышает
+  `(newScrollWidth - clientWidth)`. DOM при `container.scrollLeft = X` молча
+  кламп-ает значение, а наш `setVisibleScrollLeftSync(X)` пишет в ref/state
+  НЕЗАКЛАМПЛЕННОЕ значение. ε-расхождение → следующий tick onScroll re-syncит
+  ref с зажатого DOM → видимый «возврат». На сильном зуме разница большая →
+  визуально полное смещение.
+- Вторичный фактор: wheel-handler не звал `scheduleDraw()` сразу — рассчитывал
+  на React-commit useLayoutEffect или на async scroll-event. Между этими точками
+  браузер мог запейнтить старый canvas на новой scroll-позиции контейнера → вспышка.
+
+**Фикс** (commit на procluster sub-modulей, файл `frontend/src/chart2d/ClusterChart.tsx`):
+- Ctrl-ветка (~917-928): добавлен `containerClientWidth` + `maxScroll` + `clampedScrollLeft`
+  по реальной ширине нового спейсера. В DOM/ref/state пишется ОДНО зажатое значение.
+- Combo-ветка (~957-968): идентичная правка.
+- Конец `handleWheel` (~999): добавлен явный `scheduleDraw()` — paint в том же
+  кадре что и wheel-event.
+
+Образец клампа взят из time-scale-drag [ClusterChart.tsx:2556-2558](frontend/src/chart2d/ClusterChart.tsx:2556),
+где эта же модель уже работает корректно.
+
+**Verify**:
+- `npx tsc --noEmit` ✓
+- `npx vite build` ✓ (593 мс)
+- Юзеру проверить руками: слабый/сильный ctrl-зум, точка под курсором держится,
+  нет рывка-возврата; shift и combo wheel — без регрессий; обычный скролл, drag-pan,
+  crosshair, дозагрузка истории, live-WS-тик — без регрессий; FPS scroll держит ~77.
+
+Не тронуто: rAF/dirty-flag (S2), crosshair/overlay (S1), anti-jump prependScrollRef,
+shift-зум, onScroll, drag-pan, time-scale-drag.
