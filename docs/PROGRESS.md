@@ -3,6 +3,24 @@
 > Claude обновляет этот файл в КОНЦЕ каждой задачи. Новые записи — сверху.
 > Формат записи строго по шаблону. Это память между чатами.
 
+### [2026-06-21] Volume Profile: 5 раздельных прозрачностей + color-picker палитра
+- **Цель**: 5 отдельных alpha-слайдеров (VA / out-VA / POC / фон / обводка) вместо одного `opacity`. Цвета профиля и POC — только через `<input type="color">` (системная палитра), без 5 круглых пресетов. Hard-coded фиолетовая обводка убрана — теперь обводка/фон красятся `volColor`.
+- **Тип** (`frontend/src/chart2d/utils/drawingRenderer.ts`): в `DrawingItem` добавлены `vpVaOpacity?`, `vpOutVaOpacity?`, `vpPocOpacity?`, `vpBgOpacity?`, `vpBorderOpacity?`. Поле `opacity?` оставлено для fallback на старых сохранениях.
+- **Рендер** (ветка `d.type === "volume"`):
+  - `hexToRgba` поднят в начало ветки (для обводки).
+  - Обводка (stroke): `hexToRgba(baseColor, vpBorderOpacity ?? 0.8)`. Внутренний fill прямоугольника обводки удалён.
+  - Фон VA rect: `hexToRgba(baseColor, vpBgOpacity ?? 0.03)` вместо hard-coded синего.
+  - VA bars: `hexToRgba(baseColor, vpVaOpacity ?? opacity ?? 0.28)`.
+  - Out-VA bars: `hexToRgba(baseColor, vpOutVaOpacity ?? (opacity * 0.3) ?? 0.084)`.
+  - POC stroke + текст: `hexToRgba(pocColor, vpPocOpacity ?? 1.0)`.
+  - VAH/VAL пунктир и подписи — не трогали.
+- **Дефолты** (`frontend/src/contexts/DrawingDefaultsContext.tsx` → `VOLUME_DEFAULTS`): `{ extendPoc:false, volColor:"#3b82f6", pocColor:"#3b82f6", vpVaOpacity:0.28, vpOutVaOpacity:0.084, vpPocOpacity:1.0, vpBgOpacity:0.03, vpBorderOpacity:0.8 }`. При дефолтах картинка идентична прежней.
+- **Init-state + миграция** (`frontend/src/chart2d/ClusterChart.tsx` ~208): init локального state расширен 5 новыми полями. Миграция: если из localStorage пришёл `opacity` без `vpVaOpacity` → `vpVaOpacity = opacity`, `vpOutVaOpacity = opacity * 0.3`, остальные = дефолты, persist.
+- **Окно настроек** (`frontend/src/chart2d/ClusterChart.tsx` ~4831-4950): 5 круглых пресет-кнопок удалены в обоих блоках цвета. Остался только `<input type="color">` с классом `vp-color-swatch` (чистый круг w-7 h-7). Один слайдер "Histogram Opacity" заменён на 5 слайдеров в секции "Прозрачности" (range 0.05..1.0 step 0.01). Чекбокс "Extend POC" оставлен. Стилистика карточки прежняя.
+- **CSS** (`frontend/src/styles/index.css`): класс `.vp-color-swatch` — `appearance-none` + сброс webkit/moz color-swatch до чистого круга.
+- **Backend / БД**: не трогали. `settings` — JSON-строка, "volume" уже в allowlist.
+- **Verification**: `npx tsc --noEmit` ✓, `npx vite build` ✓. UI-проверка вручную: гость → localStorage, авторизованный → PUT `/api/v1/user/drawing-defaults`, fallback на старый `opacity` через миграцию, клик по `<input type="color">` открывает системную палитру, каждый из 5 слайдеров влияет на свой слой.
+
 ### [2026-06-21] Volume Profile fix: clusterStep вместо activePair.priceStep, убраны пропуски баров
 - **Root cause**: `drawingRenderer.ts` использовал `activePair.priceStep` (= estimatePriceStep, хардкод 2.5), а клетки candle.cells агрегированы `computePriceStep` (= базовый шаг × compression). Из-за этого VA 70% / POC смещались, а между барами гистограммы были вертикальные пропуски.
 - **Fix 1** (`drawingRenderer.ts:54`): добавлено поле `clusterStep?: number` в `RenderContext`.
