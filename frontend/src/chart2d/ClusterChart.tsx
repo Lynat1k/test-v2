@@ -3884,7 +3884,7 @@ export default function ClusterChart({
             }`}>
               <Move className="w-3 h-3 text-slate-500 animate-pulse" /> Click & Drag to Pan (2D)
             </div>
-            <div className={`absolute top-full mt-2 z-50 hidden group-hover:block w-64 p-3 rounded-xl shadow-2xl border backdrop-blur-md pointer-events-none ${
+            <div className={`absolute top-full mt-2 z-50 hidden group-hover:block right-0 w-56 p-3 rounded-xl shadow-2xl border backdrop-blur-md pointer-events-none ${
               isLight ? "bg-white border-slate-300" : "bg-[#090d16]/98 border-white/10"
             }`}>
               <div className={`text-[9px] font-mono font-bold tracking-widest uppercase mb-2 ${
@@ -3892,7 +3892,7 @@ export default function ClusterChart({
               }`}>
                 {language === "RU" ? "Управление масштабом" : language === "KZ" ? "Масштабты басқару" : "Zoom Controls"}
               </div>
-              <div className="flex items-center gap-2 mb-1.5">
+              <div className="flex items-center gap-2 mb-1.5 whitespace-nowrap">
                 <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold font-mono ${
                   isLight ? "bg-blue-100 text-blue-700" : "bg-blue-900/40 text-blue-400"
                 }`}>SHIFT + SCROLL</span>
@@ -3900,7 +3900,7 @@ export default function ClusterChart({
                   {language === "RU" ? "зум по вертикали" : language === "KZ" ? "тік масштаб" : "vertical zoom"}
                 </span>
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 whitespace-nowrap">
                 <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold font-mono ${
                   isLight ? "bg-blue-100 text-blue-700" : "bg-blue-900/40 text-blue-400"
                 }`}>CTRL + SCROLL</span>
