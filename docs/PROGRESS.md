@@ -1599,3 +1599,37 @@
   - Через 30+ минут проверить рост coverage в логе `[depth-stats]`. Критерий: для
     futures coverage стабильно растёт от ~0.1% и достигает ≥1.5% за час.
   - При наблюдении регулярных `sequence mismatch` (>5/час) откатить sync.go и копать дальше.
+
+## 2026-06-21 (continued) — DOM regression: книга замёрзшая на snapshot
+
+После прошлой записи юзер запустил `procluster.exe` у себя и увидел: futures
+bids/asks=1000 (ровно REST limit), range замёрз 4+ замера подряд. Spot тоже
+держался на snapshot (range=[63018..65129] весь час — я этого не заметил в
+прошлой верификации). Два независимых бага в `depth/sync.go`:
+
+1. **Spot WS payload дропался 100%**: single-stream URL `/ws/<stream>` шлёт
+   `depthUpdate` плоско, а `sync.go` парсил в `WSMessage{stream, data}`. `Unmarshal`
+   успешно с `Data` zero-value (`Symbol=""`), все ивенты дропались symbol-фильтром.
+2. **Futures first event после snapshot не обрабатывался**: когда `drainPending` не
+   находил first в `pending` (например все 4 буферных события stale), сразу шёл в
+   streaming, и первое streaming event попадало в `processEvent` → `ApplyFuturesUpdate`
+   валидирует `pu == lastUpd`, что невозможно для первого ивента после snapshot →
+   `sequence mismatch` → reconnect → новый snapshot → та же история. Backoff в `Run`
+   глушил лог `session ended` визуально.
+
+Фикс (commit cd606fb):
+- `parseDepthMessage` пробует wrapper, потом flat — обе формы.
+- Futures WS URL → single-stream (`/ws/<stream>`) для единообразия со spot.
+- Флаг `needsFirstApply` после snapshot: первое streaming event через
+  `ApplyFirstEvent` если drain не нашёл first.
+- `[depth-debug]` логи и step-trace под env `DEPTH_DEBUG=1` (off в проде).
+
+Verified live (90с после рестарта у юзера):
+- futures `applied=485, drop_sym=0, range=[63340..65319]`, coverage=±1.54%.
+- spot `applied=490, drop_sym=0, range=[63333..65238]`, coverage=±1.60%.
+- Оба растут в направлении ±10% prune window.
+
+Note: ошибся в прошлой верификации — судил по coverage% не глядя на эволюцию
+`range`. Замёрзший snapshot выглядел как "стабильная книга" потому что
+центр (lastPrice) обновлялся отдельно через `aggregator`. Урок: смотреть на
+динамику `range=[X..Y]`, не только на coverage%.

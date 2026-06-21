@@ -7,6 +7,17 @@
 
 ### ✅ ЗАКОММИЧЕНО
 
+- fix(depth): два бага sync — книга была замёрзшей на snapshot (cd606fb):
+  - Spot single-stream payload плоский, парсился в WSMessage{stream,data}
+    → Symbol="" → 100% событий дропалось symbol-фильтром.
+  - Futures first event после snapshot шёл в processEvent (требует pu==lastUpd,
+    что для first невозможно) → mismatch → reconnect → бесконечный цикл.
+  - Fix: parseDepthMessage пробует wrapper+flat; futures URL переведён на
+    single-stream; needsFirstApply флаг направляет первое streaming event
+    в ApplyFirstEvent если drain не нашёл first.
+  - Логи [depth-debug] под env DEPTH_DEBUG=1 (off в проде).
+  - Проверено: futures applied=485, spot applied=490 за 90с; обе книги растут.
+
 - feat(depth): полная книга через diff-stream, реальная глубина ±5%:
   - sync.go — переписан connectAndSync по протоколу Binance (dial WS → buffer → snapshot
     → drain stale-drop → ApplyFirstEvent → streaming). Spot REST limit 1000→5000.
