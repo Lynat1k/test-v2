@@ -108,6 +108,7 @@ export default function ClusterChart({
   
   const isLight = theme === "light";
   const effectiveStep = (clusterStep && clusterStep > 0) ? clusterStep : activePair.priceStep;
+  const currentPrice = candles.length > 0 ? candles[candles.length - 1]!.close : undefined;
   const { drawingDefaults, updateDrawingDefault } = useDrawingDefaults();
   const { accessToken } = useAuthContext();
   const comboKey = `${activePair.symbol}_${timeframe}_${marketType}`;
@@ -2342,7 +2343,6 @@ export default function ClusterChart({
     }
 
     // 2. Real-time active price tracker tag on chart grid
-    const currentPrice = candles.length > 0 ? candles[candles.length - 1]!.close : undefined;
     if (currentPrice !== undefined) {
       const activePriceY = priceToY(currentPrice);
       if (activePriceY >= margin.top && activePriceY <= margin.top + chartHeight) {
