@@ -3,6 +3,47 @@
 > Claude обновляет этот файл в КОНЦЕ каждой задачи. Новые записи — сверху.
 > Формат записи строго по шаблону. Это память между чатами.
 
+### [2026-06-21] perf(chart2d): S1 — crosshair/hover вынесены на отдельный canvas-слой
+- **Проблема**: В режиме «Японские свечи» без кластеров FPS при движении мыши падал с ~90 до ~11. Замер: каждый mousemove блокировал главный поток ~90 мс (медиана 54, макс 226). За 1.5с движения поток занят ~1356 мс (90%). Причина — `crosshair`/`hoveredCell` в `useState`, прописаны в зависимостях главного draw-эффекта → каждое движение мыши форсирует полную перерисовку всех видимых свечей, осей, watermark, текста.
+- **Решение (S1 из плана `plan-chart2d-piped-hare.md`)**:
+  1. Второй прозрачный `<canvas>` поверх основного (`overlayCanvasRef`), `pointer-events:none`, `z-index:1`. Сайз/DPR синхронизируются с основным; буфер пересоздаётся только при реальной смене размеров (`overlaySizeRef`).
+  2. `crosshair`/`hoveredCell`/`hoveredClusterSearch` переведены с `useState` на `useRef`. `handleSvgMouseMove`/`handleSvgMouseLeave` пишут в refs и не вызывают setState.
+  3. Новая функция `drawOverlay()` перерисовывает только верхний слой: crosshair-линии + бокс с подписью времени под курсором. Вызывается из mousemove/mouseleave и из пост-render layout-эффекта (синхронизация после рендеров по другим причинам).
+  4. DOM-подписи у курсора обновляются императивно через refs (`updateCrosshairDom`, `updateClusterTooltipDom`): подпись цены на шкале (SVG `<g>` всегда смонтирован, видимость через `display`), значения Delta/CVD (`<span>` с classname/style через ref), тултип Cluster Search (всегда смонтирован, все 6 полей + цвета + позиция через refs). Никакого setState на mousemove.
+  5. Из основного draw-эффекта удалены: рисование crosshair-линий, мёртвый `isHoveredCol`, hover-бокс таймстампа (перенесён в overlay), зависимости `crosshair` и `hoveredCell`. Логика «скрывать соседние таймстампы рядом с hover» снята — фоновая заливка overlay-бокса сама маскирует подписи под собой.
+  6. Sticky-обёртка над двумя canvas-ами: `<div sticky left-0 top-0>` с фиксированным размером, оба canvas-а `absolute left-0 top-0` поверх друг друга — overlay не нарушает скролл-математику основного.
+- **Файлы** (один): `frontend/src/chart2d/ClusterChart.tsx`.
+  - State → refs: ~448–463 (+ 16 новых DOM/canvas refs).
+  - `formatPriceForOverlay`, `drawOverlay`, `updateCrosshairDom`, `updateClusterTooltipDom` — ~1568–1768.
+  - `handleSvgMouseMove`/`handleSvgMouseLeave` переписаны на refs + императивный DOM — ~1770–2030.
+  - Удалена деривация `hoveredCandle`/`deltaValueText`/`cvdValueText` (~2486).
+  - Удалён `isHoveredCol` (~2530).
+  - Упрощены time-labels (3476-): теперь только «стандартные» подписи, без зависимости от crosshair.
+  - Удалены `crosshair`-lines + `crosshair`/`hoveredCell` из deps главного `useLayoutEffect` (~3531–3739).
+  - Sync `useLayoutEffect(() => { ... })` без deps — выставляет DOM/overlay из refs после каждого commit (~3741–3760).
+  - JSX: sticky-обёртка с двумя canvas (~4361–4380), crosshair price label всегда смонтирован (~4677–4709), Delta span с ref (~4724), CVD span с ref (~4788), Cluster Search tooltip всегда смонтирован (~4935–5005).
+- **Verification**:
+  - `npx tsc --noEmit` ✓
+  - `npx vite build` ✓ (576 ms, 2923 модулей)
+  - Замер FPS в Chrome DevTools, BTCUSDT futures 1m, Японские свечи, локальный backend:
+
+    | сценарий | FPS до | FPS после |
+    |----------|--------|-----------|
+    | idle (мышь стоит) | 89.7 | 58–98 (зашумлено WS live-тиками; не задача S1) |
+    | **движение мыши** | **11.5** | **53.1 (4.6×)** |
+    | скролл | 14.0 | 12.6 (S2: dirty-flag + rAF, не S1) |
+
+    Longtask-блокировка во время движения мыши: до — 15 движений = 15 longtasks (~90% потока). После — 104 движений = 9 longtasks (~9%). Подавляющее большинство mousemove теперь не блокирует поток.
+  - Визуально (скриншот): crosshair-линии следуют, подпись цены `$64,214.6` на правой шкале, hover-бокс таймстампа «13:19 21.06.2026», Delta `-7.7K` (красный), CVD `+230.5K` (фиолетовый). Никаких визуальных регрессий.
+- **Что не делалось (по плану — этапы S2/БФ)**:
+  - rAF + dirty-flag вокруг основного draw (это даст выигрыш на скролле и склеит несколько setState в один кадр).
+  - guard `canvas.width` — не пересоздавать буфер основного canvas, если размер не поменялся.
+  - кэш watermark в offscreen.
+  - удаление мёртвой `estimatePriceStep` в `ClusterChartAdapter.tsx`.
+- **TODO (S2, следующий шаг)**:
+  - Дотянуть mousemove FPS с 53 до ~85: throttle cluster-search математики на каждый mousemove (запускать только при смене `colIdx`).
+  - rAF + dirty-flag для скролла.
+
 ### [2026-06-21] Volume Profile: 5 раздельных прозрачностей + color-picker палитра
 - **Цель**: 5 отдельных alpha-слайдеров (VA / out-VA / POC / фон / обводка) вместо одного `opacity`. Цвета профиля и POC — только через `<input type="color">` (системная палитра), без 5 круглых пресетов. Hard-coded фиолетовая обводка убрана — теперь обводка/фон красятся `volColor`.
 - **Тип** (`frontend/src/chart2d/utils/drawingRenderer.ts`): в `DrawingItem` добавлены `vpVaOpacity?`, `vpOutVaOpacity?`, `vpPocOpacity?`, `vpBgOpacity?`, `vpBorderOpacity?`. Поле `opacity?` оставлено для fallback на старых сохранениях.

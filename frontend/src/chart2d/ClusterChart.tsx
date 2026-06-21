@@ -445,8 +445,10 @@ export default function ClusterChart({
 
   const totalSvgHeight = margin.top + chartHeight + deltaHeightTotal + cvdHeightTotal + margin.bottom;
 
-  const [hoveredCell, setHoveredCell] = useState<{ candleIndex: number; cell: ClusterCell } | null>(null);
-  const [hoveredClusterSearch, setHoveredClusterSearch] = useState<{
+  // S1: crosshair/hover state moved from useState to useRef so mousemove does not
+  // re-render the chart. Consumers updated to read refs / be updated imperatively.
+  const hoveredCellRef = useRef<{ candleIndex: number; cell: ClusterCell } | null>(null);
+  const hoveredClusterSearchRef = useRef<{
     x: number;
     y: number;
     sumVolume: number;
@@ -460,7 +462,26 @@ export default function ClusterChart({
     color: string;
     filterType: "medium" | "large";
   } | null>(null);
-  const [crosshair, setCrosshair] = useState<{ x: number; y: number; price: number } | null>(null);
+  const crosshairRef = useRef<{ x: number; y: number; price: number } | null>(null);
+
+  // S1: dedicated overlay canvas — crosshair, hovered timestamp box, column highlights.
+  // Sized to match main canvas, pointer-events:none, z-index above main.
+  const overlayCanvasRef = useRef<HTMLCanvasElement>(null);
+  const overlaySizeRef = useRef<{ w: number; h: number; dpr: number }>({ w: 0, h: 0, dpr: 0 });
+
+  // S1: imperative DOM refs for overlay UI that used to re-render with crosshair state.
+  const crosshairPriceGroupRef = useRef<SVGGElement>(null);
+  const crosshairPriceRectRef = useRef<SVGRectElement>(null);
+  const crosshairPriceTextRef = useRef<SVGTextElement>(null);
+  const deltaValueSpanRef = useRef<HTMLSpanElement>(null);
+  const cvdValueSpanRef = useRef<HTMLSpanElement>(null);
+  const clusterTooltipRef = useRef<HTMLDivElement>(null);
+  const clusterTooltipTitleWrapRef = useRef<HTMLSpanElement>(null);
+  const clusterTooltipTitleTextRef = useRef<HTMLSpanElement>(null);
+  const clusterTooltipBadgeRef = useRef<HTMLSpanElement>(null);
+  const clusterTooltipVolumeCoinsRef = useRef<HTMLSpanElement>(null);
+  const clusterTooltipVolumeUsdtRef = useRef<HTMLSpanElement>(null);
+  const clusterTooltipImbalanceRef = useRef<HTMLSpanElement>(null);
 
   // Drag-to-scroll panning variables supporting full vertical + horizontal scrolling
   const [isDragging, setIsDragging] = useState(false);
@@ -1544,6 +1565,186 @@ export default function ClusterChart({
     }
   };
 
+  // S1: light formatter for crosshair price label — mirrors the IIFE one in the price scale.
+  const formatPriceForOverlay = (p: number) => {
+    const fd = isMobile ? 0 : (activePair.priceStep < 0.1 ? 3 : 1);
+    return "$" + p.toLocaleString(undefined, { minimumFractionDigits: fd, maximumFractionDigits: fd });
+  };
+
+  // S1: redraws only the overlay canvas — crosshair + hovered timestamp box.
+  // Reads from crosshairRef / hoveredCellRef; never triggers a React render.
+  const drawOverlay = () => {
+    const overlay = overlayCanvasRef.current;
+    if (!overlay) return;
+    const ctx = overlay.getContext("2d");
+    if (!ctx) return;
+    const dpr = window.devicePixelRatio || 1;
+    const w = visibleClientWidth || 800;
+    const h = totalSvgHeight;
+
+    // Size overlay only when geometry actually changed — avoids buffer realloc per mousemove.
+    const prev = overlaySizeRef.current;
+    if (prev.w !== w || prev.h !== h || prev.dpr !== dpr) {
+      overlay.width = w * dpr;
+      overlay.height = h * dpr;
+      overlay.style.width = `${w}px`;
+      overlay.style.height = `${h}px`;
+      overlaySizeRef.current = { w, h, dpr };
+    }
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, w, h);
+
+    const ch = crosshairRef.current;
+    if (!ch) return;
+
+    // Crosshair lines (was previously on the main canvas; see S1 in main draw).
+    ctx.save();
+    ctx.beginPath();
+    ctx.strokeStyle = isLight ? "rgba(100, 116, 139, 0.6)" : "rgba(148, 163, 184, 0.4)";
+    ctx.lineWidth = 0.8;
+    ctx.setLineDash([3, 3]);
+    ctx.moveTo(margin.left, ch.y);
+    ctx.lineTo(w, ch.y);
+    ctx.moveTo(ch.x, margin.top);
+    ctx.lineTo(ch.x, h - margin.bottom);
+    ctx.stroke();
+    ctx.restore();
+
+    // Hovered candle's timestamp box (was previously emitted inside the main draw label loop).
+    const candleSpacingTotal = candleWidth + candleSpacing;
+    const hoveredIdx = Math.floor(((ch.x + visibleScrollLeft) - margin.left) / candleSpacingTotal);
+    if (hoveredIdx >= 0 && hoveredIdx < candles.length) {
+      const candle = candles[hoveredIdx];
+      if (candle) {
+        const candleAbsX = margin.left + hoveredIdx * candleSpacingTotal;
+        const labelX = candleAbsX + candleWidth / 2 - visibleScrollLeft;
+        const labelY = h - margin.bottom + 16;
+        const timeStr = formatTimezoneString(candle.timestamp, true);
+
+        ctx.save();
+        ctx.font = "bold 11.5px 'Inter', sans-serif";
+        const textWidth = ctx.measureText(timeStr).width;
+        const padX = 8;
+        const rectW = textWidth + padX * 2;
+        const rectH = 19;
+        const rectX = labelX - rectW / 2;
+        const rectY = labelY - rectH / 2;
+
+        ctx.beginPath();
+        if ((ctx as any).roundRect) {
+          (ctx as any).roundRect(rectX, rectY, rectW, rectH, 4);
+        } else {
+          ctx.rect(rectX, rectY, rectW, rectH);
+        }
+        ctx.fillStyle = isLight ? "rgba(15, 23, 42, 0.12)" : "rgba(245, 158, 11, 0.22)";
+        ctx.fill();
+        ctx.strokeStyle = isLight ? "rgba(15, 23, 42, 0.25)" : "rgba(245, 158, 11, 0.55)";
+        ctx.lineWidth = 1.2;
+        ctx.stroke();
+
+        ctx.fillStyle = isLight ? "#0f172a" : "#facc15";
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillText(timeStr, labelX, labelY);
+        ctx.restore();
+      }
+    }
+  };
+
+  // S1: update the imperative DOM overlays that used to read crosshair / hoveredClusterSearch from state.
+  const updateCrosshairDom = (ch: { x: number; y: number; price: number } | null, hoveredCandle: ClusterCandle | null, cvdPoint: { value: number } | null) => {
+    // Crosshair price label on the right price scale.
+    if (crosshairPriceGroupRef.current) {
+      if (ch) {
+        crosshairPriceGroupRef.current.style.display = "";
+        if (crosshairPriceRectRef.current) crosshairPriceRectRef.current.setAttribute("y", String(ch.y - 10.5));
+        if (crosshairPriceTextRef.current) {
+          crosshairPriceTextRef.current.setAttribute("y", String(ch.y));
+          crosshairPriceTextRef.current.textContent = formatPriceForOverlay(ch.price);
+        }
+      } else {
+        crosshairPriceGroupRef.current.style.display = "none";
+      }
+    }
+    // Delta value span — only updates when a candle is under the cursor.
+    if (deltaValueSpanRef.current) {
+      if (hoveredCandle) {
+        deltaValueSpanRef.current.textContent = `${hoveredCandle.delta >= 0 ? "+" : ""}${hoveredCandle.delta.toFixed(1)}K`;
+        deltaValueSpanRef.current.className = hoveredCandle.delta >= 0 ? "text-emerald-500 font-extrabold" : "text-rose-500 font-extrabold";
+      } else {
+        deltaValueSpanRef.current.textContent = "--";
+        deltaValueSpanRef.current.className = "text-slate-500";
+      }
+    }
+    // CVD value span.
+    if (cvdValueSpanRef.current) {
+      if (cvdPoint) {
+        cvdValueSpanRef.current.textContent = `${cvdPoint.value >= 0 ? "+" : ""}${cvdPoint.value.toFixed(1)}K`;
+        cvdValueSpanRef.current.style.color = cvdLineColor;
+      } else {
+        cvdValueSpanRef.current.textContent = "--";
+        cvdValueSpanRef.current.style.color = "#64748b";
+      }
+    }
+  };
+
+  // S1: update the floating Cluster Search tooltip imperatively.
+  const updateClusterTooltipDom = (cs: typeof hoveredClusterSearchRef.current) => {
+    const root = clusterTooltipRef.current;
+    if (!root) return;
+    if (!cs || !finalShowAnomalies) {
+      root.style.display = "none";
+      return;
+    }
+    const offsetHorizontal = 90;
+    const vw = visibleClientWidth || 800;
+    const isLeftIdx = cs.x > vw - 390;
+    const isTopIdx = cs.y > (totalSvgHeight || 550) - 220;
+    const leftPos = isLeftIdx ? cs.x - 265 - offsetHorizontal : cs.x + offsetHorizontal;
+    const topPos = isTopIdx ? cs.y - 180 : cs.y + 15;
+
+    root.style.display = "flex";
+    root.style.left = `${leftPos}px`;
+    root.style.top = `${topPos}px`;
+
+    const isBidGreater = cs.bidPercent > cs.askPercent;
+    const imbalanceValueStr = isBidGreater
+      ? `-${cs.bidPercent.toFixed(1)}%`
+      : `+${cs.askPercent.toFixed(1)}%`;
+
+    let titleText = language === "RU" ? "ПОИСК АНОМАЛИЙ" : "ANOMALY SEARCH";
+    let titleColor = cs.color;
+    if (isBidGreater && cs.bidPercent >= 60) {
+      titleText = language === "RU" ? "АГРЕССИВНЫЙ ПРОДАВЕЦ" : "AGGRESSIVE SELLER";
+      titleColor = "#ef4444";
+    } else if (!isBidGreater && cs.askPercent >= 60) {
+      titleText = language === "RU" ? "АГРЕССИВНЫЙ ПОКУПАТЕЛЬ" : "AGGRESSIVE BUYER";
+      titleColor = "#10b981";
+    }
+
+    if (clusterTooltipTitleWrapRef.current) clusterTooltipTitleWrapRef.current.style.color = titleColor;
+    if (clusterTooltipTitleTextRef.current) clusterTooltipTitleTextRef.current.textContent = titleText;
+
+    if (clusterTooltipBadgeRef.current) {
+      const isLarge = cs.filterType === "large";
+      const intensity = isLarge
+        ? (language === "RU" ? "Высокая" : "HIGH")
+        : (language === "RU" ? "Средняя" : "MEDIUM");
+      const badgeClass = isLarge
+        ? "px-2 py-0.5 rounded text-[9.5px] font-black uppercase bg-rose-500/25 text-rose-400 border border-rose-500/20"
+        : "px-2 py-0.5 rounded text-[9.5px] font-black uppercase bg-amber-500/25 text-amber-400 border border-amber-500/20";
+      clusterTooltipBadgeRef.current.className = badgeClass;
+      clusterTooltipBadgeRef.current.textContent = intensity;
+    }
+
+    if (clusterTooltipVolumeCoinsRef.current) clusterTooltipVolumeCoinsRef.current.textContent = formatCoinsVolume(cs.sumVolume, cs.baseAsset);
+    if (clusterTooltipVolumeUsdtRef.current) clusterTooltipVolumeUsdtRef.current.textContent = formatUsdtVolume(cs.usdtVolume);
+    if (clusterTooltipImbalanceRef.current) {
+      clusterTooltipImbalanceRef.current.textContent = imbalanceValueStr;
+      clusterTooltipImbalanceRef.current.style.color = titleColor;
+    }
+  };
+
   // Mouse crosshair update builder
   const handleSvgMouseMove = (e: React.MouseEvent<HTMLCanvasElement>) => {
     const rect = e.currentTarget.getBoundingClientRect();
@@ -1554,9 +1755,12 @@ export default function ClusterChart({
     // Check if hovered on the timeline strip at the bottom
     if (y >= totalSvgHeight - margin.bottom && y <= totalSvgHeight) {
       e.currentTarget.style.cursor = "ew-resize";
-      setCrosshair(null);
-      setHoveredCell(null);
-      setHoveredClusterSearch(null);
+      crosshairRef.current = null;
+      hoveredCellRef.current = null;
+      hoveredClusterSearchRef.current = null;
+      drawOverlay();
+      updateCrosshairDom(null, null, null);
+      updateClusterTooltipDom(null);
       return;
     } else {
       e.currentTarget.style.cursor = "";
@@ -1565,30 +1769,31 @@ export default function ClusterChart({
     if (y >= margin.top && y <= totalSvgHeight - margin.bottom && x >= margin.left && x <= viewportWidth - margin.right) {
       const clampedYForPrice = Math.min(margin.top + chartHeight, Math.max(margin.top, y));
       const price = yToPrice(clampedYForPrice);
-      setCrosshair({ x, y, price });
+      crosshairRef.current = { x, y, price };
 
       const scrolledX = x + visibleScrollLeft;
 
       // Identify hovered cell mathematically
       const colIdx = Math.floor((scrolledX - margin.left) / (candleWidth + candleSpacing));
+      let hoveredCandleForDom: ClusterCandle | null = null;
       if (colIdx >= 0 && colIdx < candles.length) {
         const candle = candles[colIdx];
+        hoveredCandleForDom = candle;
         const candleX = margin.left + colIdx * (candleWidth + candleSpacing);
-        
+
         if (scrolledX >= candleX && scrolledX <= candleX + candleWidth) {
           const step = effectiveStep;
           const cell = (candle.cells || []).find(cl => price >= cl.price && price <= cl.price + step);
-          if (cell) {
-            setHoveredCell({ candleIndex: colIdx, cell });
-          } else {
-            setHoveredCell(null);
-          }
+          hoveredCellRef.current = cell ? { candleIndex: colIdx, cell } : null;
         } else {
-          setHoveredCell(null);
+          hoveredCellRef.current = null;
         }
       } else {
-        setHoveredCell(null);
+        hoveredCellRef.current = null;
       }
+
+      const cvdPoint = (colIdx >= 0 && colIdx < cumulativeDeltaPoints.length) ? cumulativeDeltaPoints[colIdx] : null;
+      updateCrosshairDom(crosshairRef.current, hoveredCandleForDom, cvdPoint);
 
       // --- DYNAMIC CLUSTER SEARCH HOVER DETECTION ---
       let foundCS: any = null;
@@ -1785,18 +1990,26 @@ export default function ClusterChart({
           if (foundCS) break;
         }
       }
-      setHoveredClusterSearch(foundCS);
+      hoveredClusterSearchRef.current = foundCS;
+      updateClusterTooltipDom(foundCS);
+      drawOverlay();
     } else {
-      setCrosshair(null);
-      setHoveredCell(null);
-      setHoveredClusterSearch(null);
+      crosshairRef.current = null;
+      hoveredCellRef.current = null;
+      hoveredClusterSearchRef.current = null;
+      drawOverlay();
+      updateCrosshairDom(null, null, null);
+      updateClusterTooltipDom(null);
     }
   };
 
   const handleSvgMouseLeave = () => {
-    setCrosshair(null);
-    setHoveredCell(null);
-    setHoveredClusterSearch(null);
+    crosshairRef.current = null;
+    hoveredCellRef.current = null;
+    hoveredClusterSearchRef.current = null;
+    drawOverlay();
+    updateCrosshairDom(null, null, null);
+    updateClusterTooltipDom(null);
   };
 
   // Profile aggregates: Horizontal Session Profile drawn on the vertical scale.
@@ -2270,19 +2483,9 @@ export default function ClusterChart({
     candleType
   ]);
 
-  // Find hovered candle's values in components main render scope so overlays can display them dynamically
-  const hoveredCandleIdx = crosshair
-    ? Math.floor((crosshair.x - margin.left) / (candleWidth + candleSpacing))
-    : -1;
-  const hoveredCandle = (hoveredCandleIdx >= 0 && hoveredCandleIdx < candles.length) ? candles[hoveredCandleIdx] : null;
-
-  const deltaValueText = hoveredCandle 
-    ? `${hoveredCandle.delta >= 0 ? "+" : ""}${hoveredCandle.delta.toFixed(1)}K`
-    : "--";
-
-  const cvdValueText = (hoveredCandleIdx >= 0 && hoveredCandleIdx < cumulativeDeltaPoints.length)
-    ? `${cumulativeDeltaPoints[hoveredCandleIdx].value >= 0 ? "+" : ""}${cumulativeDeltaPoints[hoveredCandleIdx].value.toFixed(1)}K`
-    : "--";
+  // S1: hoveredCandle/deltaValueText/cvdValueText derivation removed.
+  // Delta/CVD overlay value spans now updated imperatively via refs in handleSvgMouseMove
+  // so cursor movement no longer triggers a re-render of this entire component.
 
   useLayoutEffect(() => {
     if (candles.length === 0) return;
@@ -2525,10 +2728,8 @@ export default function ClusterChart({
 
       const activePocPrice = activePocCell ? activePocCell.price : candle.pocPrice;
 
-      const hoveredCandleIdx = crosshair
-        ? Math.floor((crosshair.x - margin.left) / (candleWidth + candleSpacing))
-        : -1;
-      const isHoveredCol = crosshair && cIdx === hoveredCandleIdx;
+      // S1: hovered-column derivation removed from main draw — was only computed,
+      // never consumed. Column highlight now lives on overlay canvas (drawOverlay).
 
       // Column alignment gridline removed per user request to hide minor background grids
 
@@ -3473,80 +3674,29 @@ export default function ClusterChart({
     const candleSpacingTotal = candleWidth + candleSpacing;
     const labelStep = allowedSteps.find(step => step * candleSpacingTotal >= 75) || 1000;
 
-    const hoveredCandleIdx = crosshair
-      ? Math.floor(((crosshair.x + visibleScrollLeft) - margin.left) / candleSpacingTotal)
-      : -1;
-
-    // Now draw the horizontal time axis labels for visible candles cleanly on top of this background
+    // S1: hover-box for the timestamp under the cursor moved to overlay canvas (drawOverlay)
+    // so the main draw no longer depends on `crosshair`. Standard timestamps drawn here
+    // unconditionally — the overlay hover-box paints its own filled background on top
+    // and visually masks the underlying standard label for the hovered column.
     for (let cIdx = startIdx; cIdx <= endIdx; cIdx++) {
       const candle = candles[cIdx];
       const x = margin.left + cIdx * candleSpacingTotal;
-      const isHovered = crosshair && cIdx === hoveredCandleIdx;
 
-      const shouldDrawStandard = cIdx % labelStep === 0;
-      const isTooCloseToHovered = isHovered ? false : (hoveredCandleIdx !== -1 && Math.abs(cIdx - hoveredCandleIdx) * candleSpacingTotal < 65);
-
-      if (isHovered || (shouldDrawStandard && !isTooCloseToHovered)) {
-        const timeStr = formatTimezoneString(candle.timestamp, !!isHovered);
-
+      if (cIdx % labelStep === 0) {
+        const timeStr = formatTimezoneString(candle.timestamp, false);
         ctx.save();
-        if (isHovered) {
-          ctx.font = "bold 11.5px 'Inter', sans-serif";
-          const textWidth = ctx.measureText(timeStr).width;
-          const padX = 8;
-          const rectW = textWidth + padX * 2;
-          const rectH = 19;
-          const rectX = x + candleWidth / 2 - rectW / 2;
-          const rectY = totalSvgHeight - margin.bottom + 16 - rectH / 2;
-
-          ctx.beginPath();
-          if (ctx.roundRect) {
-            ctx.roundRect(rectX, rectY, rectW, rectH, 4);
-          } else {
-            ctx.rect(rectX, rectY, rectW, rectH);
-          }
-          ctx.fillStyle = isLight ? "rgba(15, 23, 42, 0.12)" : "rgba(245, 158, 11, 0.22)";
-          ctx.fill();
-
-          ctx.strokeStyle = isLight ? "rgba(15, 23, 42, 0.25)" : "rgba(245, 158, 11, 0.55)";
-          ctx.lineWidth = 1.2;
-          ctx.stroke();
-
-          ctx.fillStyle = isLight ? "#0f172a" : "#facc15";
-          ctx.textAlign = "center";
-          ctx.textBaseline = "middle";
-          ctx.fillText(timeStr, x + candleWidth / 2, totalSvgHeight - margin.bottom + 16);
-        } else {
-          ctx.font = "bold 9px 'Inter', sans-serif";
-          ctx.fillStyle = "#475569";
-          ctx.textAlign = "center";
-          ctx.fillText(timeStr, x + candleWidth / 2, totalSvgHeight - margin.bottom + 16);
-        }
+        ctx.font = "bold 9px 'Inter', sans-serif";
+        ctx.fillStyle = "#475569";
+        ctx.textAlign = "center";
+        ctx.fillText(timeStr, x + candleWidth / 2, totalSvgHeight - margin.bottom + 16);
         ctx.restore();
       }
     }
 
     ctx.restore(); // Undoes translation for the label drawing
 
-    // 6. Draw Crosshair cursor lines
-    if (crosshair) {
-      ctx.save();
-      ctx.beginPath();
-      ctx.strokeStyle = isLight ? "rgba(100, 116, 139, 0.6)" : "rgba(148, 163, 184, 0.4)";
-      ctx.lineWidth = 0.8;
-      ctx.setLineDash([3, 3]);
-
-      // Horizontal crosshair
-      ctx.moveTo(margin.left, crosshair.y);
-      ctx.lineTo(viewportWidth, crosshair.y);
-
-      // Vertical crosshair inside Price chart panel
-      ctx.moveTo(crosshair.x, margin.top);
-      ctx.lineTo(crosshair.x, totalSvgHeight - margin.bottom);
-      
-      ctx.stroke();
-      ctx.restore();
-    }
+    // S1: crosshair lines moved to overlay canvas (drawOverlay).
+    // Main draw no longer depends on crosshair / hoveredCell.
   }, [
     candles,
     candleWidth,
@@ -3557,8 +3707,6 @@ export default function ClusterChart({
     candleType,
     candlePalette,
     candleDataType,
-    crosshair,
-    hoveredCell,
     priceCenterOffset,
     containerHeight,
     scrollWidth,
@@ -3589,6 +3737,25 @@ export default function ClusterChart({
     drawingInProgress,
     selectedDrawingId
   ]);
+
+  // S1: re-apply overlay state from refs after every commit.
+  // The component renders the JSX with "--" defaults for the imperative DOM elements,
+  // so any unrelated re-render (data tick, zoom, scroll) would wipe the visible hover
+  // values. This effect writes refs → DOM right before paint, so the user keeps seeing
+  // the crosshair/Delta/CVD values that were last set by the mouse handler.
+  useLayoutEffect(() => {
+    const ch = crosshairRef.current;
+    if (ch) {
+      const colIdx = Math.floor((ch.x + visibleScrollLeft - margin.left) / (candleWidth + candleSpacing));
+      const hoveredCandle = (colIdx >= 0 && colIdx < candles.length) ? candles[colIdx] : null;
+      const cvdPoint = (colIdx >= 0 && colIdx < cumulativeDeltaPoints.length) ? cumulativeDeltaPoints[colIdx] : null;
+      updateCrosshairDom(ch, hoveredCandle, cvdPoint);
+    } else {
+      updateCrosshairDom(null, null, null);
+    }
+    updateClusterTooltipDom(hoveredClusterSearchRef.current);
+    drawOverlay();
+  });
 
   const formatCoinsVolume = (valInCoins: number, symbol: string) => {
     const rounded = Math.round(valInCoins);
@@ -4210,13 +4377,29 @@ export default function ClusterChart({
               {/* Dummy scroll spacer to enable native scrollbar and wheel scroll dynamics */}
               <div id="procluster-chart-spacer" style={{ width: `${scrollWidth}px`, height: "1px", pointerEvents: "none" }} />
               
-              {/* Absolutely positioned canvas that stays in view and draws only-visible content */}
-              <canvas
-                ref={canvasRef}
-                onMouseMove={handleSvgMouseMove}
-                onMouseLeave={handleSvgMouseLeave}
+              {/* S1: sticky wrapper holds the main canvas + overlay canvas in the same
+                  visual layer so the overlay can be repainted independently of the main. */}
+              <div
                 className="sticky left-0 top-0 block z-10"
-              />
+                style={{ width: `${visibleClientWidth || 800}px`, height: `${totalSvgHeight}px` }}
+              >
+                {/* Main canvas — candles, axes, indicators. Repainted on data/zoom/scroll. */}
+                <canvas
+                  ref={canvasRef}
+                  onMouseMove={handleSvgMouseMove}
+                  onMouseLeave={handleSvgMouseLeave}
+                  className="absolute left-0 top-0 block"
+                />
+                {/* Overlay canvas — crosshair lines, hovered timestamp box, column highlights.
+                    Repainted only on mousemove (drawOverlay). pointer-events:none so the
+                    mouse handlers above keep firing on the main canvas. */}
+                <canvas
+                  ref={overlayCanvasRef}
+                  data-overlay="true"
+                  className="absolute left-0 top-0 block pointer-events-none"
+                  style={{ zIndex: 1 }}
+                />
+              </div>
             </>
           )}
         </div>
@@ -4503,34 +4686,40 @@ export default function ClusterChart({
                 </g>
               )}
 
-              {/* Hover Crosshair price label */}
-              {crosshair && (
-                <g key="fixed-crosshair-price">
-                  <rect
-                    x={3}
-                    y={crosshair.y - 10.5}
-                    width={scaleWidth - 6}
-                    height={21}
-                    fill={isLight ? "#4f46e5" : "#6366f1"}
-                    rx="3"
-                    stroke={isLight ? "#3730a3" : "#818cf8"}
-                    strokeWidth="1.2"
-                  />
-                  <text
-                    x={labelX + 2}
-                    y={crosshair.y}
-                    fill="#ffffff"
-                    fontSize={isMobile ? "9" : "11"}
-                    fontFamily="'Inter', -apple-system, sans-serif"
-                    fontWeight="800"
-                    textAnchor="start"
-                    dominantBaseline="central"
-                    style={{ filter: "drop-shadow(0px 1px 2px rgba(0, 0, 0, 0.6))" }}
-                  >
-                    {formatPrice(crosshair.price)}
-                  </text>
-                </g>
-              )}
+              {/* S1: Hover Crosshair price label — always mounted, shown/hidden imperatively.
+                  Position and price text are written from handleSvgMouseMove via refs, so the
+                  surrounding SVG/component does not re-render on every mouse move. */}
+              <g
+                key="fixed-crosshair-price"
+                ref={crosshairPriceGroupRef}
+                style={{ display: "none" }}
+              >
+                <rect
+                  ref={crosshairPriceRectRef}
+                  x={3}
+                  y={0}
+                  width={scaleWidth - 6}
+                  height={21}
+                  fill={isLight ? "#4f46e5" : "#6366f1"}
+                  rx="3"
+                  stroke={isLight ? "#3730a3" : "#818cf8"}
+                  strokeWidth="1.2"
+                />
+                <text
+                  ref={crosshairPriceTextRef}
+                  x={labelX + 2}
+                  y={0}
+                  fill="#ffffff"
+                  fontSize={isMobile ? "9" : "11"}
+                  fontFamily="'Inter', -apple-system, sans-serif"
+                  fontWeight="800"
+                  textAnchor="start"
+                  dominantBaseline="central"
+                  style={{ filter: "drop-shadow(0px 1px 2px rgba(0, 0, 0, 0.6))" }}
+                >
+                  --
+                </text>
+              </g>
             </svg>
           );
         })()}
@@ -4550,9 +4739,8 @@ export default function ClusterChart({
           {/* Label / Dynamic value indicator */}
           <div className="flex items-center gap-1.5 font-mono text-[10px] sm:text-[11px] font-bold tracking-wider">
             <span className={isLight ? "text-slate-800" : "text-white"}>(PROCLUSTER) DELTA</span>
-            <span className={hoveredCandle ? (hoveredCandle.delta >= 0 ? "text-emerald-500 font-extrabold" : "text-rose-500 font-extrabold") : "text-slate-500"}>
-              {deltaValueText}
-            </span>
+            {/* S1: Delta value — written imperatively in handleSvgMouseMove via ref. */}
+            <span ref={deltaValueSpanRef} className="text-slate-500">--</span>
           </div>
 
           <div className={`w-[1px] h-3 ${isLight ? "bg-slate-300" : "bg-white/10"}`} />
@@ -4615,15 +4803,13 @@ export default function ClusterChart({
               style={{ backgroundColor: cvdLineColor }} 
             />
             <span className={isLight ? "text-slate-800" : "text-white"}>(PROCLUSTER) CVD</span>
-            <span 
+            {/* S1: CVD value — written imperatively in handleSvgMouseMove via ref. */}
+            <span
+              ref={cvdValueSpanRef}
               className="font-extrabold"
-              style={{ 
-                color: hoveredCandleIdx >= 0 && hoveredCandleIdx < cumulativeDeltaPoints.length 
-                  ? cvdLineColor 
-                  : "#64748b" 
-              }}
+              style={{ color: "#64748b" }}
             >
-              {cvdValueText}
+              --
             </span>
           </div>
 
@@ -4765,86 +4951,74 @@ export default function ClusterChart({
 
 
       {/* Floating Cluster Search Tooltip */}
-      {hoveredClusterSearch && finalShowAnomalies && (() => {
-        const offsetHorizontal = 90;
-        const isLeftIdx = hoveredClusterSearch.x > (visibleClientWidth || 800) - 390;
-        const isTopIdx = hoveredClusterSearch.y > (totalSvgHeight || 550) - 220;
-        const leftPos = isLeftIdx ? hoveredClusterSearch.x - 265 - offsetHorizontal : hoveredClusterSearch.x + offsetHorizontal;
-        const topPos = isTopIdx ? hoveredClusterSearch.y - 180 : hoveredClusterSearch.y + 15;
-
-        const isBidGreater = hoveredClusterSearch.bidPercent > hoveredClusterSearch.askPercent;
-        const imbalanceValueStr = isBidGreater 
-          ? `-${hoveredClusterSearch.bidPercent.toFixed(1)}%` 
-          : `+${hoveredClusterSearch.askPercent.toFixed(1)}%`;
-
-        const anomalyIntensity = hoveredClusterSearch.filterType === "large"
-          ? (language === "RU" ? "Высокая" : "HIGH")
-          : (language === "RU" ? "Средняя" : "MEDIUM");
-
-        let titleText = language === "RU" ? "ПОИСК АНОМАЛИЙ" : "ANOMALY SEARCH";
-        let titleColor = hoveredClusterSearch.color;
-        if (isBidGreater && hoveredClusterSearch.bidPercent >= 60) {
-          titleText = language === "RU" ? "АГРЕССИВНЫЙ ПРОДАВЕЦ" : "AGGRESSIVE SELLER";
-          titleColor = "#ef4444";
-        } else if (!isBidGreater && hoveredClusterSearch.askPercent >= 60) {
-          titleText = language === "RU" ? "АГРЕССИВНЫЙ ПОКУПАТЕЛЬ" : "AGGRESSIVE BUYER";
-          titleColor = "#10b981";
-        }
-
-        return (
-          <div
-            className={`absolute border rounded-[16px] p-4 text-sm shadow-2xl z-50 flex flex-col gap-3 backdrop-blur-md pointer-events-none transition-all duration-100 ${
-              isLight
-                ? "bg-white/95 border-slate-200 text-slate-800 shadow-xl shadow-slate-250/50"
-                : "liquid-glass-card border-none text-slate-100 shadow-black/80 shadow-2xl"
-            }`}
-            style={{
-              left: `${leftPos}px`,
-              top: `${topPos}px`,
-              width: "265px"
-            }}
-          >
-            <span className="font-bold flex items-center justify-between uppercase tracking-wider border-b pb-2 border-dashed border-slate-200/20 font-mono text-[11.5px]">
-              <span className="flex items-center gap-1.5 font-extrabold" style={{ color: titleColor }}>
-                <Activity className="w-4 h-4" />
-                {titleText}
-              </span>
-              <span className={`px-2 py-0.5 rounded text-[9.5px] font-black uppercase ${
-                anomalyIntensity === "Высокая"
-                  ? "bg-rose-500/25 text-rose-400 border border-rose-500/20"
-                  : anomalyIntensity === "Средняя"
-                    ? "bg-amber-500/25 text-amber-400 border border-amber-500/20"
-                    : "bg-blue-500/25 text-blue-400 border border-blue-500/20"
-              }`}>
-                {anomalyIntensity}
+      {/* S1: Cluster Search tooltip — always mounted; visibility/position/text updated
+          imperatively via refs from handleSvgMouseMove (updateClusterTooltipDom). */}
+      {finalShowAnomalies && (
+        <div
+          ref={clusterTooltipRef}
+          className={`absolute border rounded-[16px] p-4 text-sm shadow-2xl z-50 flex-col gap-3 backdrop-blur-md pointer-events-none transition-all duration-100 ${
+            isLight
+              ? "bg-white/95 border-slate-200 text-slate-800 shadow-xl shadow-slate-250/50"
+              : "liquid-glass-card border-none text-slate-100 shadow-black/80 shadow-2xl"
+          }`}
+          style={{
+            display: "none",
+            left: "0px",
+            top: "0px",
+            width: "265px"
+          }}
+        >
+          <span className="font-bold flex items-center justify-between uppercase tracking-wider border-b pb-2 border-dashed border-slate-200/20 font-mono text-[11.5px]">
+            <span
+              ref={clusterTooltipTitleWrapRef}
+              className="flex items-center gap-1.5 font-extrabold"
+            >
+              <Activity className="w-4 h-4" />
+              <span ref={clusterTooltipTitleTextRef}>
+                {language === "RU" ? "ПОИСК АНОМАЛИЙ" : "ANOMALY SEARCH"}
               </span>
             </span>
+            <span
+              ref={clusterTooltipBadgeRef}
+              className="px-2 py-0.5 rounded text-[9.5px] font-black uppercase bg-blue-500/25 text-blue-400 border border-blue-500/20"
+            >
+              --
+            </span>
+          </span>
 
-            <div className={`grid grid-cols-[1.2fr_1fr] gap-x-2.5 gap-y-2 font-mono text-[12.5px] ${
-              isLight ? "text-slate-600" : "text-slate-400"
-            }`}>
-              <span>Объем (монеты):</span>
-              <span className={`font-bold text-right ${isLight ? "text-slate-900" : "text-white"}`}>
-                {formatCoinsVolume(hoveredClusterSearch.sumVolume, hoveredClusterSearch.baseAsset)}
-              </span>
+          <div className={`grid grid-cols-[1.2fr_1fr] gap-x-2.5 gap-y-2 font-mono text-[12.5px] ${
+            isLight ? "text-slate-600" : "text-slate-400"
+          }`}>
+            <span>{language === "RU" ? "Объем (монеты):" : "Volume (coins):"}</span>
+            <span
+              ref={clusterTooltipVolumeCoinsRef}
+              className={`font-bold text-right ${isLight ? "text-slate-900" : "text-white"}`}
+            >
+              --
+            </span>
 
-              <span>Объем в USDT:</span>
-              <span className={`font-bold text-right ${isLight ? "text-slate-900" : "text-white"}`}>
-                {formatUsdtVolume(hoveredClusterSearch.usdtVolume)}
-              </span>
+            <span>{language === "RU" ? "Объем в USDT:" : "Volume in USDT:"}</span>
+            <span
+              ref={clusterTooltipVolumeUsdtRef}
+              className={`font-bold text-right ${isLight ? "text-slate-900" : "text-white"}`}
+            >
+              --
+            </span>
 
-              <div className={`col-span-2 border-t border-dashed my-0.5 ${
-                isLight ? "border-slate-200" : "border-white/5"
-              }`} />
+            <div className={`col-span-2 border-t border-dashed my-0.5 ${
+              isLight ? "border-slate-200" : "border-white/5"
+            }`} />
 
-              <span>Дисбаланс:</span>
-              <span style={{ color: titleColor }} className="font-black text-right">
-                {imbalanceValueStr}
-              </span>
-            </div>
+            <span>{language === "RU" ? "Дисбаланс:" : "Imbalance:"}</span>
+            <span
+              ref={clusterTooltipImbalanceRef}
+              className="font-black text-right"
+            >
+              --
+            </span>
           </div>
-        );
-      })()}
+        </div>
+      )}
 
       {/* Floating Volume Profile Settings Overlay */}
       {volumeSettingsDrawingId !== null && (() => {
