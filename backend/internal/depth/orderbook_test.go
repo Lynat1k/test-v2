@@ -262,11 +262,47 @@ func TestPrune_RemovesLevelsOutsideRange(t *testing.T) {
 	if stats.Asks != 3 {
 		t.Errorf("remaining asks = %d, want 3", stats.Asks)
 	}
-	if stats.MinPrice != 100000 {
-		t.Errorf("MinPrice = %f, want 100000", stats.MinPrice)
+	// 6 prices in [100000, 105000, 109000, 111000, 115000, 120000]; p5 = idx 0, p95 = idx 5.
+	if stats.P5Price != 100000 {
+		t.Errorf("P5Price = %f, want 100000", stats.P5Price)
 	}
-	if stats.MaxPrice != 120000 {
-		t.Errorf("MaxPrice = %f, want 120000", stats.MaxPrice)
+	if stats.P95Price != 120000 {
+		t.Errorf("P95Price = %f, want 120000", stats.P95Price)
+	}
+}
+
+func TestStats_PercentilesIgnoreDustOutliers(t *testing.T) {
+	ob := NewOrderBook("BTCUSDT", "futures")
+	// 100 plausible levels around 64000, plus one dust at $1 and one at $999999.
+	bids := make([]PriceLevel, 0, 51)
+	asks := make([]PriceLevel, 0, 51)
+	bids = append(bids, PriceLevel{Price: 1, Qty: 0.0001}) // dust outlier
+	for i := 0; i < 50; i++ {
+		bids = append(bids, PriceLevel{Price: 63000 + float64(i), Qty: 1})
+	}
+	for i := 0; i < 50; i++ {
+		asks = append(asks, PriceLevel{Price: 64000 + float64(i), Qty: 1})
+	}
+	asks = append(asks, PriceLevel{Price: 999999, Qty: 0.0001}) // dust outlier
+	ob.SnapshotFromREST(1, bids, asks)
+
+	s := ob.Stats()
+	if s.Bids+s.Asks != 102 {
+		t.Fatalf("total levels = %d, want 102", s.Bids+s.Asks)
+	}
+	// p5 of 102 prices is idx 5, p95 is idx 96. Neither should be 1 or 999999.
+	if s.P5Price <= 1 {
+		t.Errorf("P5Price = %f, dust outlier $1 leaked into the 5th percentile", s.P5Price)
+	}
+	if s.P95Price >= 999999 {
+		t.Errorf("P95Price = %f, dust outlier $999999 leaked into the 95th percentile", s.P95Price)
+	}
+	// Both percentiles should be within the plausible range [63000, 64049].
+	if s.P5Price < 63000 || s.P5Price > 64049 {
+		t.Errorf("P5Price = %f, want in [63000, 64049]", s.P5Price)
+	}
+	if s.P95Price < 63000 || s.P95Price > 64049 {
+		t.Errorf("P95Price = %f, want in [63000, 64049]", s.P95Price)
 	}
 }
 

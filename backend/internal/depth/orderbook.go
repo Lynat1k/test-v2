@@ -247,45 +247,39 @@ func (ob *OrderBook) Prune(centerPrice, pctRange float64) (removedBids, removedA
 type BookStats struct {
 	Bids     int
 	Asks     int
-	MinPrice float64
-	MaxPrice float64
+	P5Price  float64 // 5th percentile of prices — ignores low-side dust outliers
+	P95Price float64 // 95th percentile of prices — ignores high-side dust outliers
 }
 
-// Stats returns a snapshot of book size and price extent. Used for diagnostics.
+// Stats returns a snapshot of book size and a robust price extent.
+// Uses 5th/95th percentiles so single dust orders far from the mid don't
+// distort the "coverage" diagnostic.
 func (ob *OrderBook) Stats() BookStats {
 	ob.mu.RLock()
 	defer ob.mu.RUnlock()
 
 	s := BookStats{Bids: len(ob.bids), Asks: len(ob.asks)}
-	first := true
+	total := s.Bids + s.Asks
+	if total == 0 {
+		return s
+	}
+
+	prices := make([]float64, 0, total)
 	for p := range ob.bids {
-		if first {
-			s.MinPrice = p
-			s.MaxPrice = p
-			first = false
-			continue
-		}
-		if p < s.MinPrice {
-			s.MinPrice = p
-		}
-		if p > s.MaxPrice {
-			s.MaxPrice = p
-		}
+		prices = append(prices, p)
 	}
 	for p := range ob.asks {
-		if first {
-			s.MinPrice = p
-			s.MaxPrice = p
-			first = false
-			continue
-		}
-		if p < s.MinPrice {
-			s.MinPrice = p
-		}
-		if p > s.MaxPrice {
-			s.MaxPrice = p
-		}
+		prices = append(prices, p)
 	}
+	sort.Float64s(prices)
+
+	p5idx := int(float64(total) * 0.05)
+	p95idx := int(float64(total) * 0.95)
+	if p95idx >= total {
+		p95idx = total - 1
+	}
+	s.P5Price = prices[p5idx]
+	s.P95Price = prices[p95idx]
 	return s
 }
 

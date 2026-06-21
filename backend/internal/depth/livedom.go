@@ -128,19 +128,20 @@ func (b *LiveDOMBroadcaster) logStats() {
 		if s.Bids+s.Asks == 0 {
 			continue
 		}
-		// coverage = max distance from center as % of center, taking the wider side.
+		// coverage uses p5/p95 — single dust orders far from the mid no longer
+		// distort the diagnostic. Range printed is [p5..p95].
 		var below, above float64
-		if s.MinPrice > 0 && s.MinPrice < center {
-			below = (center - s.MinPrice) / center * 100
+		if s.P5Price > 0 && s.P5Price < center {
+			below = (center - s.P5Price) / center * 100
 		}
-		if s.MaxPrice > center {
-			above = (s.MaxPrice - center) / center * 100
+		if s.P95Price > center {
+			above = (s.P95Price - center) / center * 100
 		}
 		coverage := below
 		if above > coverage {
 			coverage = above
 		}
 		log.Printf("[depth-stats] %s bids=%d asks=%d range=[%.2f..%.2f] center=%.2f coverage=±%.2f%%",
-			key, s.Bids, s.Asks, s.MinPrice, s.MaxPrice, center, coverage)
+			key, s.Bids, s.Asks, s.P5Price, s.P95Price, center, coverage)
 	}
 }
