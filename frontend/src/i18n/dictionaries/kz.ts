@@ -300,6 +300,9 @@ const kz = {
     layoutSingle: '1 График',
     layoutHorizontal: '2 График H',
     layoutVertical: '2 График V',
+    zoomControlsTitle: 'Масштабты басқару',
+    zoomVertical: 'тік масштаб',
+    zoomHorizontal: 'көлденең масштаб',
   },
   fng: {
     title: 'Қорқыныш және ашкөздік',

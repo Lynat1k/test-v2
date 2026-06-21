@@ -300,6 +300,9 @@ const ru = {
     layoutSingle: '1 График',
     layoutHorizontal: '2 Графика H',
     layoutVertical: '2 Графика V',
+    zoomControlsTitle: 'Управление масштабом',
+    zoomVertical: 'зум по вертикали',
+    zoomHorizontal: 'зум по горизонтали',
   },
   fng: {
     title: 'Страх и жадность',

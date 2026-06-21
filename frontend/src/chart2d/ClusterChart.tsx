@@ -3878,10 +3878,37 @@ export default function ClusterChart({
             <Settings className="w-3 sm:w-3.5 h-3 sm:h-3.5" />
           </button>
 
-          <div className={`border px-2.5 py-1.5 rounded-xl text-[10px] font-mono font-bold flex items-center gap-1.5 hidden xl:flex shadow-inner transition-all duration-300 ${
-            isLight ? "bg-slate-100 border-slate-200/60 text-slate-600" : "bg-slate-950/60 border-white/5 text-slate-400"
-          }`}>
-            <Move className="w-3 h-3 text-slate-500" /> Click & Drag to Pan (2D)
+          <div className="relative group">
+            <div className={`border px-2.5 py-1.5 rounded-xl text-[10px] font-mono font-bold flex items-center gap-1.5 hidden xl:flex shadow-inner transition-all duration-300 cursor-help ${
+              isLight ? "bg-slate-100 border-slate-200/60 text-slate-600" : "bg-slate-950/60 border-white/5 text-slate-400"
+            }`}>
+              <Move className="w-3 h-3 text-slate-500 animate-pulse" /> Click & Drag to Pan (2D)
+            </div>
+            <div className={`absolute top-full mt-2 z-50 hidden group-hover:block w-64 p-3 rounded-xl shadow-2xl border backdrop-blur-md pointer-events-none ${
+              isLight ? "bg-white border-slate-300" : "bg-[#090d16]/98 border-white/10"
+            }`}>
+              <div className={`text-[9px] font-mono font-bold tracking-widest uppercase mb-2 ${
+                isLight ? "text-slate-400" : "text-slate-500"
+              }`}>
+                {language === "RU" ? "Управление масштабом" : language === "KZ" ? "Масштабты басқару" : "Zoom Controls"}
+              </div>
+              <div className="flex items-center gap-2 mb-1.5">
+                <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold font-mono ${
+                  isLight ? "bg-blue-100 text-blue-700" : "bg-blue-900/40 text-blue-400"
+                }`}>SHIFT + SCROLL</span>
+                <span className="text-[10px] font-mono opacity-80">
+                  {language === "RU" ? "зум по вертикали" : language === "KZ" ? "тік масштаб" : "vertical zoom"}
+                </span>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold font-mono ${
+                  isLight ? "bg-blue-100 text-blue-700" : "bg-blue-900/40 text-blue-400"
+                }`}>CTRL + SCROLL</span>
+                <span className="text-[10px] font-mono opacity-80">
+                  {language === "RU" ? "зум по горизонтали" : language === "KZ" ? "көлденең масштаб" : "horizontal zoom"}
+                </span>
+              </div>
+            </div>
           </div>
         </div>
       </div>

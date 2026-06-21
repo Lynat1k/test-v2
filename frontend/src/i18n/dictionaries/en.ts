@@ -300,6 +300,9 @@ const en = {
     layoutSingle: '1 Chart',
     layoutHorizontal: '2 Charts H',
     layoutVertical: '2 Charts V',
+    zoomControlsTitle: 'Zoom Controls',
+    zoomVertical: 'vertical zoom',
+    zoomHorizontal: 'horizontal zoom',
   },
   fng: {
     title: 'Fear & Greed',
