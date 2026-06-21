@@ -32,11 +32,29 @@ type WSMessage struct {
 	Data   DepthEvent `json:"data"`
 }
 
+// parseDepthMessage handles BOTH Binance WS formats:
+//   - Combined-stream (/stream?streams=...) wraps payload as {"stream":...,"data":{...}}
+//   - Single-stream (/ws/...) sends the depthUpdate object flat
+// Tries combined first; if Data.Symbol is empty (flat payload — wrapper parses but
+// fields are zero) falls back to unmarshaling the raw bytes as DepthEvent directly.
+func parseDepthMessage(raw []byte) (DepthEvent, bool) {
+	var wm WSMessage
+	if err := json.Unmarshal(raw, &wm); err == nil && wm.Data.Symbol != "" {
+		return wm.Data, true
+	}
+	var evt DepthEvent
+	if err := json.Unmarshal(raw, &evt); err != nil {
+		return DepthEvent{}, false
+	}
+	return evt, evt.Symbol != ""
+}
+
 type DepthSync struct {
 	symbol    string
 	market    string
 	orderBook *OrderBook
 	cfg       aggregation.CompressionConfig
+	debug     bool
 }
 
 func NewDepthSync(symbol, market string, ob *OrderBook, cfg aggregation.CompressionConfig) *DepthSync {
@@ -45,7 +63,17 @@ func NewDepthSync(symbol, market string, ob *OrderBook, cfg aggregation.Compress
 		market:    market,
 		orderBook: ob,
 		cfg:       cfg,
+		debug:     os.Getenv("DEPTH_DEBUG") != "",
 	}
+}
+
+// debugf prints [depth-debug] lines only when env DEPTH_DEBUG is set (any non-empty value).
+// Used for one-shot diagnostics during a regression — does not spam in production.
+func (ds *DepthSync) debugf(format string, args ...interface{}) {
+	if !ds.debug {
+		return
+	}
+	log.Printf("[depth-debug] "+format, args...)
 }
 
 func (ds *DepthSync) Run(ctx context.Context) {
@@ -91,14 +119,24 @@ type wsMsg struct {
 // 1. dial WS first; 2. start buffering events; 3. fetch REST snapshot;
 // 4. apply snapshot; 5. drain pending — drop stale, apply first event unchecked,
 // then validate the rest with the normal pu/U+1 rules.
+//
+// If drainPending does NOT find the first event in the buffer, needsFirstApply
+// is set; the first non-stale streaming event is then applied via
+// ApplyFirstEvent instead of processEvent. This is the path that handles the
+// common case where the buffer is empty or contained only stale events.
+//
+// Diagnostic [depth-debug] logging is gated behind env DEPTH_DEBUG (any
+// non-empty value). Off in normal operation.
 func (ds *DepthSync) connectAndSync(ctx context.Context) error {
 	wsURL := ds.wsURL()
+	ds.debugf("%s:%s dialing %s", ds.symbol, ds.market, wsURL)
 	conn, _, err := websocket.DefaultDialer.DialContext(ctx, wsURL, nil)
 	if err != nil {
 		return fmt.Errorf("ws dial: %w", err)
 	}
 	defer conn.Close()
 	conn.SetReadLimit(2 * 1024 * 1024)
+	ds.debugf("%s:%s dialed ok, starting read loop", ds.symbol, ds.market)
 
 	readCtx, cancelRead := context.WithCancel(ctx)
 	defer cancelRead()
@@ -127,6 +165,7 @@ func (ds *DepthSync) connectAndSync(ctx context.Context) error {
 	}()
 	defer wg.Wait()
 
+	ds.debugf("%s:%s fetching snapshot via REST", ds.symbol, ds.market)
 	snapCh := make(chan snapResult, 1)
 	go func() {
 		s, e := ds.fetchSnapshot(ctx)
@@ -139,10 +178,34 @@ func (ds *DepthSync) connectAndSync(ctx context.Context) error {
 
 	snapshotApplied := false
 
+	// Diagnostic counters — logged every 10 seconds.
+	var (
+		wsMsgs          uint64
+		wsErrs          uint64
+		wsBytes         uint64
+		droppedSymbol   uint64
+		dropSymExamples int
+		staleSkipped    uint64
+		applied         uint64
+		bufferedPre     uint64 // counted while !snapshotApplied
+		firstEventLogged bool
+	)
+	// Set by drain branch — if drainPending did NOT find first event in pending,
+	// the first streaming event must be applied via ApplyFirstEvent (unchecked)
+	// instead of processEvent (which validates pu/U+1 against snapshot lastUpd
+	// and would always reject it).
+	needsFirstApply := false
+	diagTicker := time.NewTicker(10 * time.Second)
+	defer diagTicker.Stop()
+
 	for {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
+
+		case <-diagTicker.C:
+			ds.debugf("%s:%s ws_msgs=%d errs=%d bytes=%d drop_sym=%d stale=%d applied=%d pre_buf=%d snap_applied=%v pending=%d",
+				ds.symbol, ds.market, wsMsgs, wsErrs, wsBytes, droppedSymbol, staleSkipped, applied, bufferedPre, snapshotApplied, len(pending))
 
 		case sr := <-snapCh:
 			if sr.err != nil {
@@ -152,31 +215,53 @@ func (ds *DepthSync) connectAndSync(ctx context.Context) error {
 			lastUpd := sr.snap.LastUpdateID
 			log.Printf("[depth-sync] snapshot loaded %s:%s lastUpdateId=%d bids=%d asks=%d",
 				ds.symbol, ds.market, lastUpd, len(sr.snap.Bids), len(sr.snap.Asks))
+			ds.debugf("%s:%s snapshot applied, pending=%d, draining...", ds.symbol, ds.market, len(pending))
 
-			if err := ds.drainPending(pending, lastUpd); err != nil {
-				return err
+			drainStats, derr := ds.drainPendingDiag(pending, lastUpd)
+			ds.debugf("%s:%s drain: found_first=%v dropped_stale=%d applied_rest=%d",
+				ds.symbol, ds.market, drainStats.foundFirst, drainStats.droppedStale, drainStats.appliedRest)
+			if derr != nil {
+				return derr
 			}
 			pending = nil
 			snapshotApplied = true
+			needsFirstApply = !drainStats.foundFirst
+			ds.debugf("%s:%s entering streaming phase (needs_first_apply=%v)",
+				ds.symbol, ds.market, needsFirstApply)
 
 		case m, ok := <-msgCh:
 			if !ok {
 				return fmt.Errorf("ws closed before snapshot/streaming")
 			}
 			if m.err != nil {
+				wsErrs++
 				return fmt.Errorf("ws read: %w", m.err)
 			}
+			wsMsgs++
+			wsBytes += uint64(len(m.raw))
 
-			var wm WSMessage
-			if err := json.Unmarshal(m.raw, &wm); err != nil {
+			evt, okParse := parseDepthMessage(m.raw)
+			if !okParse {
+				droppedSymbol++
+				if dropSymExamples < 3 {
+					ds.debugf("%s:%s parse failed or empty symbol (raw_len=%d sample %d/3)",
+						ds.symbol, ds.market, len(m.raw), dropSymExamples+1)
+					dropSymExamples++
+				}
 				continue
 			}
-			evt := wm.Data
 			if evt.Symbol != ds.symbol {
+				droppedSymbol++
+				if dropSymExamples < 3 {
+					ds.debugf("%s:%s dropped foreign symbol=%q (sample %d/3)",
+						ds.symbol, ds.market, evt.Symbol, dropSymExamples+1)
+					dropSymExamples++
+				}
 				continue
 			}
 
 			if !snapshotApplied {
+				bufferedPre++
 				pending = append(pending, evt)
 				if len(pending) > pendingCap {
 					pending = pending[len(pending)-pendingTrim:]
@@ -184,16 +269,88 @@ func (ds *DepthSync) connectAndSync(ctx context.Context) error {
 				continue
 			}
 
-			// Streaming phase: stale-drop + sequence validation.
+			// Streaming phase.
+			if !firstEventLogged {
+				ds.debugf("%s:%s first streaming event U=%d u=%d pu=%d lastUpd=%d bids_n=%d asks_n=%d",
+					ds.symbol, ds.market, evt.FirstU, evt.LastU, evt.PrevU, ds.orderBook.GetLastUpdateID(), len(evt.Bids), len(evt.Asks))
+				firstEventLogged = true
+			}
 			if ds.isStale(evt, ds.orderBook.GetLastUpdateID()) {
+				staleSkipped++
+				continue
+			}
+			// If drainPending didn't find the first event, the first non-stale
+			// streaming event IS the first event — apply unchecked via ApplyFirstEvent.
+			// Then continue with normal pu/U+1 validation.
+			if needsFirstApply {
+				if !ds.isFirstEvent(evt, ds.orderBook.GetLastUpdateID()) {
+					// Defensive: shouldn't happen after stale-drop. Treat as mismatch.
+					return fmt.Errorf("first streaming event not in overlap range: firstU=%d lastU=%d lastUpd=%d",
+						evt.FirstU, evt.LastU, ds.orderBook.GetLastUpdateID())
+				}
+				ds.orderBook.ApplyFirstEvent(evt.LastU, evt.Bids, evt.Asks)
+				needsFirstApply = false
+				applied++
+				ds.debugf("%s:%s ApplyFirstEvent done in streaming, lastUpd=%d",
+					ds.symbol, ds.market, ds.orderBook.GetLastUpdateID())
 				continue
 			}
 			if !ds.processEvent(evt) {
 				return fmt.Errorf("sequence mismatch: firstU=%d lastU=%d prevU=%d lastUpd=%d",
 					evt.FirstU, evt.LastU, evt.PrevU, ds.orderBook.GetLastUpdateID())
 			}
+			applied++
 		}
 	}
+}
+
+type drainDiag struct {
+	foundFirst   bool
+	droppedStale int
+	appliedRest  int
+}
+
+// drainPendingDiag wraps drainPending with counters for diagnostic logging.
+// Logic is identical to drainPending — same stale-drop, first-event detection,
+// ApplyFirstEvent for the first, normal validation for the rest.
+func (ds *DepthSync) drainPendingDiag(pending []DepthEvent, lastUpd int64) (drainDiag, error) {
+	var d drainDiag
+	if len(pending) == 0 {
+		return d, nil
+	}
+
+	firstIdx := -1
+	for i, evt := range pending {
+		if ds.isStale(evt, lastUpd) {
+			d.droppedStale++
+			continue
+		}
+		if ds.isFirstEvent(evt, lastUpd) {
+			firstIdx = i
+			break
+		}
+	}
+
+	if firstIdx == -1 {
+		return d, nil
+	}
+
+	d.foundFirst = true
+	first := pending[firstIdx]
+	ds.orderBook.ApplyFirstEvent(first.LastU, first.Bids, first.Asks)
+
+	for _, evt := range pending[firstIdx+1:] {
+		if ds.isStale(evt, ds.orderBook.GetLastUpdateID()) {
+			d.droppedStale++
+			continue
+		}
+		if !ds.processEvent(evt) {
+			return d, fmt.Errorf("drain sequence mismatch: firstU=%d lastU=%d prevU=%d lastUpd=%d",
+				evt.FirstU, evt.LastU, evt.PrevU, ds.orderBook.GetLastUpdateID())
+		}
+		d.appliedRest++
+	}
+	return d, nil
 }
 
 func (ds *DepthSync) applySnapshot(snap *snapshotResponse) {
@@ -222,47 +379,6 @@ func (ds *DepthSync) applySnapshot(snap *snapshotResponse) {
 		asks = append(asks, PriceLevel{Price: p, Qty: q})
 	}
 	ds.orderBook.SnapshotFromREST(snap.LastUpdateID, bids, asks)
-}
-
-// drainPending: drop stale, find first event, apply it unchecked, then validate rest.
-func (ds *DepthSync) drainPending(pending []DepthEvent, lastUpd int64) error {
-	if len(pending) == 0 {
-		return nil
-	}
-
-	firstIdx := -1
-	for i, evt := range pending {
-		if ds.isStale(evt, lastUpd) {
-			continue
-		}
-		if ds.isFirstEvent(evt, lastUpd) {
-			firstIdx = i
-			break
-		}
-		// Non-stale but not first-event-eligible — keep scanning (rare, but conservative).
-	}
-
-	if firstIdx == -1 {
-		// No first event in buffer yet; streaming will catch it. Drop everything stale.
-		// (Whatever survives stale-drop but is not first-event-eligible would fail validation
-		// anyway, so dropping is safe.)
-		return nil
-	}
-
-	first := pending[firstIdx]
-	ds.orderBook.ApplyFirstEvent(first.LastU, first.Bids, first.Asks)
-
-	// Apply the rest with normal validation.
-	for _, evt := range pending[firstIdx+1:] {
-		if ds.isStale(evt, ds.orderBook.GetLastUpdateID()) {
-			continue
-		}
-		if !ds.processEvent(evt) {
-			return fmt.Errorf("drain sequence mismatch: firstU=%d lastU=%d prevU=%d lastUpd=%d",
-				evt.FirstU, evt.LastU, evt.PrevU, ds.orderBook.GetLastUpdateID())
-		}
-	}
-	return nil
 }
 
 // isStale per Binance protocol:
@@ -372,8 +488,12 @@ func (ds *DepthSync) wsRateSuffix() string {
 func (ds *DepthSync) wsURL() string {
 	symbol := toLower(ds.symbol)
 	suffix := ds.wsRateSuffix()
+	// Use single-stream paths for BOTH markets. Combined-stream paths
+	// (/stream?streams=...) wrap the payload in {stream, data}; single-stream
+	// (/ws/<stream>) sends the depthUpdate object flat. We use single for both
+	// so parseDepthMessage has a consistent payload shape.
 	if ds.market == "futures" {
-		return fmt.Sprintf("wss://fstream.binance.com/stream?streams=%s@depth%s", symbol, suffix)
+		return fmt.Sprintf("wss://fstream.binance.com/ws/%s@depth%s", symbol, suffix)
 	}
 	return fmt.Sprintf("wss://stream.binance.com:9443/ws/%s@depth%s", symbol, suffix)
 }
