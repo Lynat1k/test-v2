@@ -255,7 +255,7 @@ export function ChartHeader({ fps = 0, showAnomalies = true, onToggleAnomalies }
         <div className="relative" ref={paletteRef}>
           <button
             onClick={() => paletteDropdownOpen ? setPaletteDropdownOpen(false) : openPaletteDropdown()}
-            className="flex items-center justify-between gap-1.5 px-2 py-1 rounded-lg text-xs cursor-pointer hover:scale-[1.01] active:scale-[0.99] transition-all h-[30px] select-none border liquid-glass-button border-white/5 text-slate-200 font-black"
+            className="flex items-center justify-center gap-1.5 px-2 py-1 rounded-lg text-xs cursor-pointer hover:scale-[1.01] active:scale-[0.99] transition-all h-[30px] min-w-[40px] select-none border liquid-glass-button border-white/5 text-slate-200 font-black whitespace-nowrap"
           >
             <CandlePreviewIcon palette={palette} />
             <ChevronDown className={`w-3 h-3 transition-transform duration-200 shrink-0 text-slate-400 ${paletteDropdownOpen ? 'rotate-180' : ''}`} />
