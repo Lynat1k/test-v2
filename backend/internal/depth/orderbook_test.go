@@ -229,3 +229,29 @@ func TestInvalidPriceIgnored(t *testing.T) {
 		t.Errorf("expected 0 levels for invalid prices, got %d", len(levels))
 	}
 }
+
+func TestApplyFirstEvent_BypassesSequenceCheck(t *testing.T) {
+	ob := NewOrderBook("BTCUSDT", "spot")
+	ob.SnapshotFromREST(100, []PriceLevel{{Price: 50000, Qty: 1}}, []PriceLevel{{Price: 51000, Qty: 1}})
+
+	bids := [][2]string{{"50000", "5"}, {"49000", "2"}}
+	asks := [][2]string{{"51000", "0"}, {"52000", "3"}}
+	ob.ApplyFirstEvent(150, bids, asks)
+
+	if ob.GetLastUpdateID() != 150 {
+		t.Errorf("lastUpd = %d, want 150", ob.GetLastUpdateID())
+	}
+	levels := ob.GetAggregatedLevels(50500, 0.10, 100)
+	gotBid50000 := false
+	for _, l := range levels {
+		if l.PriceLevel == 50000 && l.BidSize == 5 {
+			gotBid50000 = true
+		}
+		if l.PriceLevel == 51000 && l.AskSize > 0 {
+			t.Errorf("ask at 51000 should have been deleted by qty=0, got %f", l.AskSize)
+		}
+	}
+	if !gotBid50000 {
+		t.Errorf("expected bid 50000=5 after first event")
+	}
+}

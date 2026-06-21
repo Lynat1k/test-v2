@@ -147,6 +147,48 @@ func (ob *OrderBook) ApplySpotUpdate(firstU, lastU int64, bids, asks [][2]string
 	return true
 }
 
+// ApplyFirstEvent применяет первое event после REST snapshot — без проверки sequence.
+// По Binance protocol первое event после snapshot может иметь U < lastUpdateId (overlap),
+// поэтому валидация prevU/firstU неприменима. Дельты идемпотентны: qty=N на цене P → P=N.
+func (ob *OrderBook) ApplyFirstEvent(lastU int64, bids, asks [][2]string) {
+	ob.mu.Lock()
+	defer ob.mu.Unlock()
+
+	for _, pair := range bids {
+		if len(pair) < 2 {
+			continue
+		}
+		price, err1 := strconv.ParseFloat(pair[0], 64)
+		qty, err2 := strconv.ParseFloat(pair[1], 64)
+		if err1 != nil || err2 != nil || price <= 0 {
+			continue
+		}
+		if qty == 0 {
+			delete(ob.bids, price)
+		} else {
+			ob.bids[price] = qty
+		}
+	}
+
+	for _, pair := range asks {
+		if len(pair) < 2 {
+			continue
+		}
+		price, err1 := strconv.ParseFloat(pair[0], 64)
+		qty, err2 := strconv.ParseFloat(pair[1], 64)
+		if err1 != nil || err2 != nil || price <= 0 {
+			continue
+		}
+		if qty == 0 {
+			delete(ob.asks, price)
+		} else {
+			ob.asks[price] = qty
+		}
+	}
+
+	ob.lastUpd = lastU
+}
+
 func (ob *OrderBook) SetLastPrice(price float64) {
 	ob.mu.Lock()
 	ob.lastPrice = price

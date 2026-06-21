@@ -6,7 +6,9 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"os"
 	"strconv"
+	"sync"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -75,104 +77,202 @@ func (ds *DepthSync) Run(ctx context.Context) {
 	}
 }
 
+type snapResult struct {
+	snap *snapshotResponse
+	err  error
+}
+
+type wsMsg struct {
+	raw []byte
+	err error
+}
+
+// connectAndSync follows the Binance protocol order:
+// 1. dial WS first; 2. start buffering events; 3. fetch REST snapshot;
+// 4. apply snapshot; 5. drain pending — drop stale, apply first event unchecked,
+// then validate the rest with the normal pu/U+1 rules.
 func (ds *DepthSync) connectAndSync(ctx context.Context) error {
-	snapRaw, err := ds.fetchSnapshot(ctx)
-	if err != nil {
-		return fmt.Errorf("fetch snapshot: %w", err)
-	}
-
-	bids := make([]PriceLevel, len(snapRaw.Bids))
-	for i, pair := range snapRaw.Bids {
-		p, _ := strconv.ParseFloat(pair[0], 64)
-		q, _ := strconv.ParseFloat(pair[1], 64)
-		bids[i] = PriceLevel{Price: p, Qty: q}
-	}
-	asks := make([]PriceLevel, len(snapRaw.Asks))
-	for i, pair := range snapRaw.Asks {
-		p, _ := strconv.ParseFloat(pair[0], 64)
-		q, _ := strconv.ParseFloat(pair[1], 64)
-		asks[i] = PriceLevel{Price: p, Qty: q}
-	}
-
-	ds.orderBook.SnapshotFromREST(snapRaw.LastUpdateID, bids, asks)
-	log.Printf("[depth-sync] snapshot loaded %s:%s lastUpdateId=%d bids=%d asks=%d",
-		ds.symbol, ds.market, snapRaw.LastUpdateID, len(bids), len(asks))
-
 	wsURL := ds.wsURL()
 	conn, _, err := websocket.DefaultDialer.DialContext(ctx, wsURL, nil)
 	if err != nil {
 		return fmt.Errorf("ws dial: %w", err)
 	}
 	defer conn.Close()
+	conn.SetReadLimit(2 * 1024 * 1024)
 
-	conn.SetReadLimit(2 * 1024 * 1024) // 2 MB — enough for large Binance diff bursts
+	readCtx, cancelRead := context.WithCancel(ctx)
+	defer cancelRead()
 
-	done := make(chan error, 1)
+	msgCh := make(chan wsMsg, 256)
+	var wg sync.WaitGroup
+	wg.Add(1)
 	go func() {
-		done <- ds.readLoop(ctx, conn)
+		defer wg.Done()
+		defer close(msgCh)
+		for {
+			if readCtx.Err() != nil {
+				return
+			}
+			conn.SetReadDeadline(time.Now().Add(60 * time.Second))
+			_, raw, err := conn.ReadMessage()
+			select {
+			case <-readCtx.Done():
+				return
+			case msgCh <- wsMsg{raw: raw, err: err}:
+			}
+			if err != nil {
+				return
+			}
+		}
+	}()
+	defer wg.Wait()
+
+	snapCh := make(chan snapResult, 1)
+	go func() {
+		s, e := ds.fetchSnapshot(ctx)
+		snapCh <- snapResult{snap: s, err: e}
 	}()
 
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	case err := <-done:
-		return err
-	}
-}
-
-func (ds *DepthSync) readLoop(ctx context.Context, conn *websocket.Conn) error {
 	var pending []DepthEvent
+	const pendingCap = 8192
+	const pendingTrim = 4096
+
 	snapshotApplied := false
 
 	for {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
-		default:
-		}
 
-		conn.SetReadDeadline(time.Now().Add(60 * time.Second))
-		_, raw, err := conn.ReadMessage()
-		if err != nil {
-			return fmt.Errorf("ws read: %w", err)
-		}
+		case sr := <-snapCh:
+			if sr.err != nil {
+				return fmt.Errorf("fetch snapshot: %w", sr.err)
+			}
+			ds.applySnapshot(sr.snap)
+			lastUpd := sr.snap.LastUpdateID
+			log.Printf("[depth-sync] snapshot loaded %s:%s lastUpdateId=%d bids=%d asks=%d",
+				ds.symbol, ds.market, lastUpd, len(sr.snap.Bids), len(sr.snap.Asks))
 
-		var wsMsg WSMessage
-		if err := json.Unmarshal(raw, &wsMsg); err != nil {
-			log.Printf("[depth-sync] invalid message: %v", err)
-			continue
-		}
+			if err := ds.drainPending(pending, lastUpd); err != nil {
+				return err
+			}
+			pending = nil
+			snapshotApplied = true
 
-		evt := wsMsg.Data
-		if evt.Symbol != ds.symbol {
-			continue
-		}
+		case m, ok := <-msgCh:
+			if !ok {
+				return fmt.Errorf("ws closed before snapshot/streaming")
+			}
+			if m.err != nil {
+				return fmt.Errorf("ws read: %w", m.err)
+			}
 
-		if !snapshotApplied {
-			pending = append(pending, evt)
-			lastUpd := ds.orderBook.GetLastUpdateID()
+			var wm WSMessage
+			if err := json.Unmarshal(m.raw, &wm); err != nil {
+				continue
+			}
+			evt := wm.Data
+			if evt.Symbol != ds.symbol {
+				continue
+			}
 
-			for _, p := range pending {
-				if ds.isFirstEvent(p, lastUpd) {
-					snapshotApplied = true
-					for _, pp := range pending {
-						ds.processEvent(pp)
-					}
-					pending = nil
-					break
+			if !snapshotApplied {
+				pending = append(pending, evt)
+				if len(pending) > pendingCap {
+					pending = pending[len(pending)-pendingTrim:]
 				}
+				continue
 			}
 
-			if !snapshotApplied && len(pending) > 1000 {
-				pending = pending[len(pending)-500:]
+			// Streaming phase: stale-drop + sequence validation.
+			if ds.isStale(evt, ds.orderBook.GetLastUpdateID()) {
+				continue
 			}
-			continue
-		}
-
-		if !ds.processEvent(evt) {
-			return fmt.Errorf("sequence mismatch: pu=%d expected=%d", evt.PrevU, ds.orderBook.GetLastUpdateID())
+			if !ds.processEvent(evt) {
+				return fmt.Errorf("sequence mismatch: firstU=%d lastU=%d prevU=%d lastUpd=%d",
+					evt.FirstU, evt.LastU, evt.PrevU, ds.orderBook.GetLastUpdateID())
+			}
 		}
 	}
+}
+
+func (ds *DepthSync) applySnapshot(snap *snapshotResponse) {
+	bids := make([]PriceLevel, 0, len(snap.Bids))
+	for _, pair := range snap.Bids {
+		if len(pair) < 2 {
+			continue
+		}
+		p, e1 := strconv.ParseFloat(pair[0], 64)
+		q, e2 := strconv.ParseFloat(pair[1], 64)
+		if e1 != nil || e2 != nil || p <= 0 {
+			continue
+		}
+		bids = append(bids, PriceLevel{Price: p, Qty: q})
+	}
+	asks := make([]PriceLevel, 0, len(snap.Asks))
+	for _, pair := range snap.Asks {
+		if len(pair) < 2 {
+			continue
+		}
+		p, e1 := strconv.ParseFloat(pair[0], 64)
+		q, e2 := strconv.ParseFloat(pair[1], 64)
+		if e1 != nil || e2 != nil || p <= 0 {
+			continue
+		}
+		asks = append(asks, PriceLevel{Price: p, Qty: q})
+	}
+	ds.orderBook.SnapshotFromREST(snap.LastUpdateID, bids, asks)
+}
+
+// drainPending: drop stale, find first event, apply it unchecked, then validate rest.
+func (ds *DepthSync) drainPending(pending []DepthEvent, lastUpd int64) error {
+	if len(pending) == 0 {
+		return nil
+	}
+
+	firstIdx := -1
+	for i, evt := range pending {
+		if ds.isStale(evt, lastUpd) {
+			continue
+		}
+		if ds.isFirstEvent(evt, lastUpd) {
+			firstIdx = i
+			break
+		}
+		// Non-stale but not first-event-eligible — keep scanning (rare, but conservative).
+	}
+
+	if firstIdx == -1 {
+		// No first event in buffer yet; streaming will catch it. Drop everything stale.
+		// (Whatever survives stale-drop but is not first-event-eligible would fail validation
+		// anyway, so dropping is safe.)
+		return nil
+	}
+
+	first := pending[firstIdx]
+	ds.orderBook.ApplyFirstEvent(first.LastU, first.Bids, first.Asks)
+
+	// Apply the rest with normal validation.
+	for _, evt := range pending[firstIdx+1:] {
+		if ds.isStale(evt, ds.orderBook.GetLastUpdateID()) {
+			continue
+		}
+		if !ds.processEvent(evt) {
+			return fmt.Errorf("drain sequence mismatch: firstU=%d lastU=%d prevU=%d lastUpd=%d",
+				evt.FirstU, evt.LastU, evt.PrevU, ds.orderBook.GetLastUpdateID())
+		}
+	}
+	return nil
+}
+
+// isStale per Binance protocol:
+//   futures: drop events where u < lastUpdateId
+//   spot:    drop events where u < lastUpdateId+1   (i.e. u <= lastUpdateId)
+func (ds *DepthSync) isStale(evt DepthEvent, lastUpdateId int64) bool {
+	if ds.market == "futures" {
+		return evt.LastU < lastUpdateId
+	}
+	return evt.LastU < lastUpdateId+1
 }
 
 func (ds *DepthSync) isFirstEvent(evt DepthEvent, lastUpdateId int64) bool {
@@ -198,9 +298,11 @@ type snapshotResponse struct {
 func (ds *DepthSync) fetchSnapshot(ctx context.Context) (*snapshotResponse, error) {
 	var url string
 	if ds.market == "futures" {
+		// Binance USD-M futures: limit max = 1000.
 		url = fmt.Sprintf("https://fapi.binance.com/fapi/v1/depth?symbol=%s&limit=1000", ds.symbol)
 	} else {
-		url = fmt.Sprintf("https://api.binance.com/api/v3/depth?symbol=%s&limit=1000", ds.symbol)
+		// Binance spot: limit max = 5000.
+		url = fmt.Sprintf("https://api.binance.com/api/v3/depth?symbol=%s&limit=5000", ds.symbol)
 	}
 
 	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
@@ -222,57 +324,58 @@ func (ds *DepthSync) fetchSnapshot(ctx context.Context) (*snapshotResponse, erro
 	if err := json.NewDecoder(resp.Body).Decode(&snap); err != nil {
 		return nil, err
 	}
+	return &snap, nil
+}
 
-	bids := make([]PriceLevel, 0, len(snap.Bids))
-	for _, pair := range snap.Bids {
-		if len(pair) < 2 {
-			continue
+// wsRateSuffix maps DEPTH_WS_RATE_MS env to a valid stream suffix per market.
+// Returns ("" for default cadence) or ("@<rate>ms" for non-default).
+// Per Binance docs:
+//   futures supports 100ms, 250ms (default), 500ms
+//   spot supports    100ms, 1000ms (default)
+func (ds *DepthSync) wsRateSuffix() string {
+	raw := os.Getenv("DEPTH_WS_RATE_MS")
+	if raw == "" {
+		raw = "100" // default — fastest, supported by both markets
+	}
+	rate, err := strconv.Atoi(raw)
+	if err != nil || rate <= 0 {
+		log.Printf("[depth-sync] invalid DEPTH_WS_RATE_MS=%q, falling back to 100", raw)
+		rate = 100
+	}
+
+	if ds.market == "futures" {
+		switch rate {
+		case 100:
+			return "@100ms"
+		case 250:
+			return "" // default for futures
+		case 500:
+			return "@500ms"
+		default:
+			log.Printf("[depth-sync] DEPTH_WS_RATE_MS=%d not supported by futures (allowed 100/250/500), clamping to 500", rate)
+			return "@500ms"
 		}
-		p, err1 := strconv.ParseFloat(pair[0], 64)
-		q, err2 := strconv.ParseFloat(pair[1], 64)
-		if err1 != nil || err2 != nil || p <= 0 {
-			continue
-		}
-		bids = append(bids, PriceLevel{Price: p, Qty: q})
 	}
 
-	asks := make([]PriceLevel, 0, len(snap.Asks))
-	for _, pair := range snap.Asks {
-		if len(pair) < 2 {
-			continue
-		}
-		p, err1 := strconv.ParseFloat(pair[0], 64)
-		q, err2 := strconv.ParseFloat(pair[1], 64)
-		if err1 != nil || err2 != nil || p <= 0 {
-			continue
-		}
-		asks = append(asks, PriceLevel{Price: p, Qty: q})
+	// spot
+	switch rate {
+	case 100:
+		return "@100ms"
+	case 1000:
+		return "" // default for spot
+	default:
+		log.Printf("[depth-sync] DEPTH_WS_RATE_MS=%d not supported by spot (allowed 100/1000), clamping to 100", rate)
+		return "@100ms"
 	}
-
-	snap.Bids = nil
-	snap.Asks = nil
-
-	result := &snapshotResponse{
-		LastUpdateID: snap.LastUpdateID,
-		Bids:         make([][2]string, len(bids)),
-		Asks:         make([][2]string, len(asks)),
-	}
-	for i, b := range bids {
-		result.Bids[i] = [2]string{strconv.FormatFloat(b.Price, 'f', -1, 64), strconv.FormatFloat(b.Qty, 'f', -1, 64)}
-	}
-	for i, a := range asks {
-		result.Asks[i] = [2]string{strconv.FormatFloat(a.Price, 'f', -1, 64), strconv.FormatFloat(a.Qty, 'f', -1, 64)}
-	}
-
-	return result, nil
 }
 
 func (ds *DepthSync) wsURL() string {
-	symbol := ds.symbol
+	symbol := toLower(ds.symbol)
+	suffix := ds.wsRateSuffix()
 	if ds.market == "futures" {
-		return fmt.Sprintf("wss://fstream.binance.com/stream?streams=%s@depth", toLower(symbol))
+		return fmt.Sprintf("wss://fstream.binance.com/stream?streams=%s@depth%s", symbol, suffix)
 	}
-	return fmt.Sprintf("wss://stream.binance.com:9443/ws/%s@depth", toLower(symbol))
+	return fmt.Sprintf("wss://stream.binance.com:9443/ws/%s@depth%s", symbol, suffix)
 }
 
 func toLower(s string) string {
