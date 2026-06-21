@@ -215,6 +215,80 @@ func (ob *OrderBook) Clear() {
 	ob.lastUpd = 0
 }
 
+// Prune removes levels outside [centerPrice*(1-pctRange), centerPrice*(1+pctRange)].
+// Protects RAM during long uptime: diff-stream may add far levels we no longer need.
+// Range should be WIDER than the display filter (e.g. ±10% when display is ±5%) so
+// price jumps don't drop levels we'd want.
+func (ob *OrderBook) Prune(centerPrice, pctRange float64) (removedBids, removedAsks int) {
+	if centerPrice <= 0 || pctRange <= 0 {
+		return 0, 0
+	}
+	low := centerPrice * (1 - pctRange)
+	high := centerPrice * (1 + pctRange)
+
+	ob.mu.Lock()
+	defer ob.mu.Unlock()
+
+	for p := range ob.bids {
+		if p < low || p > high {
+			delete(ob.bids, p)
+			removedBids++
+		}
+	}
+	for p := range ob.asks {
+		if p < low || p > high {
+			delete(ob.asks, p)
+			removedAsks++
+		}
+	}
+	return
+}
+
+type BookStats struct {
+	Bids     int
+	Asks     int
+	MinPrice float64
+	MaxPrice float64
+}
+
+// Stats returns a snapshot of book size and price extent. Used for diagnostics.
+func (ob *OrderBook) Stats() BookStats {
+	ob.mu.RLock()
+	defer ob.mu.RUnlock()
+
+	s := BookStats{Bids: len(ob.bids), Asks: len(ob.asks)}
+	first := true
+	for p := range ob.bids {
+		if first {
+			s.MinPrice = p
+			s.MaxPrice = p
+			first = false
+			continue
+		}
+		if p < s.MinPrice {
+			s.MinPrice = p
+		}
+		if p > s.MaxPrice {
+			s.MaxPrice = p
+		}
+	}
+	for p := range ob.asks {
+		if first {
+			s.MinPrice = p
+			s.MaxPrice = p
+			first = false
+			continue
+		}
+		if p < s.MinPrice {
+			s.MinPrice = p
+		}
+		if p > s.MaxPrice {
+			s.MaxPrice = p
+		}
+	}
+	return s
+}
+
 func (ob *OrderBook) GetAggregatedLevels(centerPrice float64, pctRange float64, baseStep float64) []DOMLevel {
 	ob.mu.RLock()
 	defer ob.mu.RUnlock()

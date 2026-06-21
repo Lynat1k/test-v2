@@ -230,6 +230,60 @@ func TestInvalidPriceIgnored(t *testing.T) {
 	}
 }
 
+func TestPrune_RemovesLevelsOutsideRange(t *testing.T) {
+	ob := NewOrderBook("BTCUSDT", "futures")
+	bids := []PriceLevel{
+		{Price: 50000, Qty: 1},
+		{Price: 100000, Qty: 2},
+		{Price: 105000, Qty: 3},
+		{Price: 109000, Qty: 4},
+	}
+	asks := []PriceLevel{
+		{Price: 111000, Qty: 1},
+		{Price: 115000, Qty: 2},
+		{Price: 120000, Qty: 3},
+		{Price: 130000, Qty: 4},
+		{Price: 200000, Qty: 5},
+	}
+	ob.SnapshotFromREST(1, bids, asks)
+
+	rb, ra := ob.Prune(110000, 0.10)
+	if rb != 1 {
+		t.Errorf("removedBids = %d, want 1 (50000 outside [99000..121000])", rb)
+	}
+	if ra != 2 {
+		t.Errorf("removedAsks = %d, want 2 (130000 and 200000 outside [99000..121000])", ra)
+	}
+
+	stats := ob.Stats()
+	if stats.Bids != 3 {
+		t.Errorf("remaining bids = %d, want 3", stats.Bids)
+	}
+	if stats.Asks != 3 {
+		t.Errorf("remaining asks = %d, want 3", stats.Asks)
+	}
+	if stats.MinPrice != 100000 {
+		t.Errorf("MinPrice = %f, want 100000", stats.MinPrice)
+	}
+	if stats.MaxPrice != 120000 {
+		t.Errorf("MaxPrice = %f, want 120000", stats.MaxPrice)
+	}
+}
+
+func TestPrune_NoOpOnInvalidInputs(t *testing.T) {
+	ob := NewOrderBook("BTCUSDT", "futures")
+	ob.SnapshotFromREST(1, []PriceLevel{{Price: 100000, Qty: 1}}, []PriceLevel{{Price: 110000, Qty: 1}})
+
+	rb, ra := ob.Prune(0, 0.10)
+	if rb != 0 || ra != 0 {
+		t.Errorf("Prune with center=0 should be no-op, got rb=%d ra=%d", rb, ra)
+	}
+	rb, ra = ob.Prune(105000, 0)
+	if rb != 0 || ra != 0 {
+		t.Errorf("Prune with pctRange=0 should be no-op, got rb=%d ra=%d", rb, ra)
+	}
+}
+
 func TestApplyFirstEvent_BypassesSequenceCheck(t *testing.T) {
 	ob := NewOrderBook("BTCUSDT", "spot")
 	ob.SnapshotFromREST(100, []PriceLevel{{Price: 50000, Qty: 1}}, []PriceLevel{{Price: 51000, Qty: 1}})

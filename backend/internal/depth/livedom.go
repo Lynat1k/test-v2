@@ -43,16 +43,31 @@ func NewLiveDOMBroadcaster(
 	}
 }
 
+// Pruning window — wider than the ±5% display filter so a sudden price move
+// doesn't accidentally drop nearby levels.
+const pruneRange = 0.10
+
 func (b *LiveDOMBroadcaster) Run(ctx context.Context) {
-	ticker := time.NewTicker(time.Second)
-	defer ticker.Stop()
+	// Outbound cadence to frontend — DO NOT CHANGE without intent.
+	outTicker := time.NewTicker(time.Second)
+	defer outTicker.Stop()
+
+	pruneTicker := time.NewTicker(30 * time.Second)
+	defer pruneTicker.Stop()
+
+	logTicker := time.NewTicker(60 * time.Second)
+	defer logTicker.Stop()
 
 	for {
 		select {
 		case <-ctx.Done():
 			return
-		case <-ticker.C:
+		case <-outTicker.C:
 			b.broadcastAll()
+		case <-pruneTicker.C:
+			b.pruneAll()
+		case <-logTicker.C:
+			b.logStats()
 		}
 	}
 }
@@ -90,5 +105,42 @@ func (b *LiveDOMBroadcaster) broadcastAll() {
 
 		channelKey := "dom:" + cfg.Symbol + ":" + cfg.Market
 		b.hub.Broadcast(channelKey, data)
+	}
+}
+
+func (b *LiveDOMBroadcaster) pruneAll() {
+	for _, ob := range b.books {
+		center := ob.GetLastPrice()
+		if center <= 0 {
+			continue
+		}
+		ob.Prune(center, pruneRange)
+	}
+}
+
+func (b *LiveDOMBroadcaster) logStats() {
+	for key, ob := range b.books {
+		center := ob.GetLastPrice()
+		if center <= 0 {
+			continue
+		}
+		s := ob.Stats()
+		if s.Bids+s.Asks == 0 {
+			continue
+		}
+		// coverage = max distance from center as % of center, taking the wider side.
+		var below, above float64
+		if s.MinPrice > 0 && s.MinPrice < center {
+			below = (center - s.MinPrice) / center * 100
+		}
+		if s.MaxPrice > center {
+			above = (s.MaxPrice - center) / center * 100
+		}
+		coverage := below
+		if above > coverage {
+			coverage = above
+		}
+		log.Printf("[depth-stats] %s bids=%d asks=%d range=[%.2f..%.2f] center=%.2f coverage=±%.2f%%",
+			key, s.Bids, s.Asks, s.MinPrice, s.MaxPrice, center, coverage)
 	}
 }
