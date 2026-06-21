@@ -542,6 +542,33 @@ export default function ClusterChart({
   const prependCompensatedRef = useRef(false);
   const frozenPriceBoundsRef = useRef<{ maxPriceRaw: number; minPriceRaw: number; priceRange: number; basePriceCenter: number } | null>(null);
 
+  // S2: single rAF planner for the main canvas draw.
+  // The draw used to run synchronously inside useLayoutEffect on every React commit
+  // (scroll event, WS live tick, any setState) — see CHART_ENGINE.md "перерисовка
+  // только при изменении". Now the layout effect just sets the latest draw closure
+  // on drawRef.current and asks for one frame; multiple setState within a tick collapse
+  // into a single paint.
+  const rafIdRef = useRef<number | null>(null);
+  const dirtyRef = useRef<boolean>(false);
+  const drawRef = useRef<() => void>(() => {});
+  const scheduleDraw = () => {
+    dirtyRef.current = true;
+    if (rafIdRef.current != null) return;
+    rafIdRef.current = requestAnimationFrame(() => {
+      rafIdRef.current = null;
+      if (!dirtyRef.current) return;
+      dirtyRef.current = false;
+      const fn = drawRef.current;
+      if (fn) fn();
+    });
+  };
+  useEffect(() => () => {
+    if (rafIdRef.current != null) {
+      cancelAnimationFrame(rafIdRef.current);
+      rafIdRef.current = null;
+    }
+  }, []);
+
   // Adjust scrollLeft after history prepend to prevent viewport jump (sync before paint)
   // Uses timestamp-anchor from the trigger effect to find the candle at the same position in the new array
   useLayoutEffect(() => {
@@ -2488,6 +2515,10 @@ export default function ClusterChart({
   // so cursor movement no longer triggers a re-render of this entire component.
 
   useLayoutEffect(() => {
+    // S2: install the freshest draw closure on each commit. Multiple state changes
+    // in the same JS task all set the same drawRef and request one rAF — the canvas
+    // is painted at most once per frame instead of once per setState.
+    drawRef.current = () => {
     if (candles.length === 0) return;
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -3697,6 +3728,9 @@ export default function ClusterChart({
 
     // S1: crosshair lines moved to overlay canvas (drawOverlay).
     // Main draw no longer depends on crosshair / hoveredCell.
+    };
+    // S2: ask the planner for one paint this frame; coalesces sibling commits.
+    scheduleDraw();
   }, [
     candles,
     candleWidth,
