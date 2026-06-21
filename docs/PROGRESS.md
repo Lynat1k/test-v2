@@ -3,6 +3,37 @@
 > Claude обновляет этот файл в КОНЦЕ каждой задачи. Новые записи — сверху.
 > Формат записи строго по шаблону. Это память между чатами.
 
+### [2026-06-21] perf(chart2d): Branch A шаг 1 — вынос DrawingToolbar в React.memo
+- **Контекст**: после R оставшийся потолок FPS — стоимость одного ре-рендера монолита ClusterChart (~160 мс на WS-тик). Шаг — отделить пере-рендер этого монолита от тяжёлых поддеревьев. Запрос пользователя был «вынести панель стакана», но **стакан уже изолирован**: `DOMSidebar` смонтирован в `App.tsx:701` как сосед `ClusterChartAdapter`, не внутри `ClusterChart`. Внутри `ClusterChart.tsx` `orderBook` фигурирует только как пропс для отрисовки баров на canvas внутри `drawRef.current` (`:3675-3748`). После согласования с пользователем цель шага 1 перенесена на **DrawingToolbar** — самые стабильные пропсы внутри JSX, не зависит от WS/scroll/курсора/цены.
+- **Решение**:
+  1. Новый файл `frontend/src/chart2d/DrawingToolbar.tsx` — функциональный компонент в `React.memo`. Литерал массива `DRAWING_TOOLS` объявлен на модуль-уровне, не аллоцируется на рендер.
+  2. Пропсы стабильные: `activeDrawingTool`, `setActiveDrawingTool` (setState setter), `areDrawingsVisible`, `onToggleDrawingsVisibility` (useCallback), `onClearAllDrawings` (useCallback), `hasDrawings: boolean` (НЕ массив `drawings` — иначе любой `setDrawings` пробил бы memo), `isLight`, `language`.
+  3. В `ClusterChart.tsx` добавлены `useCallback`-обёртки с **функциональными setState-updater'ами** (`prev => ...`), чтобы deps были пустыми — useCallback никогда не пересоздаётся.
+  4. Удалён inline JSX блок (`~4357-4474`, 118 строк), заменён `<DrawingToolbar ... />`.
+- **Файлы**:
+  - Новый: `frontend/src/chart2d/DrawingToolbar.tsx` (~178 строк).
+  - `frontend/src/chart2d/ClusterChart.tsx`: импорт + 2 useCallback + замена JSX.
+- **Verification**:
+  - `npx tsc --noEmit` ✓
+  - `npx vite build` ✓ (1.38 s)
+  - **Главная метрика — MutationObserver на поддереве DrawingToolbar за 13.5 с теста** (3×scroll + 3×idle + 3×mousemove): **0 мутаций**. React.memo пропускает ре-рендер 100%, его DOM остаётся неизменным на каждом commit'е монолита.
+  - FPS-замер (BTCUSDT futures 1m, японские свечи, локальный backend, WS):
+
+    | сценарий | R (до) | A.1 (после) |
+    |----------|-------:|------------:|
+    | scroll | 44.5 | 21-75 (best 75, медиана ~40, зашумлено WS) |
+    | mousemove | 35-79 (медиана 52) | 65-92 (медиана ~69) |
+    | idle | 74-98 | 48-88 (≈сохранён) |
+
+    Числа имеют большой разброс из-за WS-всплесков, но **тренд положительный** на mousemove (+стабильность), scroll-best виден рост до 75. Чтобы стабилизировать — нужны следующие шаги Branch A (PriceScaleSvg, ChartHeader).
+- **Что закрыто**:
+  - ✅ Зашумление от WS-тика на DrawingToolbar полностью устранено (mutations=0). Каждый последующий ре-рендер монолита больше не walk'ает toolbar-поддерево.
+- **TODO (Branch A продолжение)**:
+  - **A.2**: `ChartHeader` (market toggle + indicator chips + controls) — много зависимостей, осторожная стабилизация.
+  - **A.3**: `PriceScaleSvg` (правая шкала + drawing-горизонтали) — часть пропсов меняется на WS-тике через цену.
+  - **A.4**: indicator overlays (Delta/CVD chip overlays) — уже ref-driven значения от S1, мелкий выигрыш.
+  - S1.5, БФ, S4 — без изменений.
+
 ### [2026-06-21] perf(chart2d): R — снижение стоимости ре-рендера монолита (debounce scroll-state + кучу useMemo вынес в drawRef)
 - **Цель этапа**: профилировка после S3 показала, что scroll выдаёт 24.5 FPS, а внутри одного React commit'а тратится ~160 мс. Кадр на скролле: рисование на canvas ~2.5 мс, draw-замыкание ~12 мс, а ~110 мс — React. Цель — снизить стоимость одного ре-рендера ClusterChart.
 - **Step 0 (профилировка, без правок)**:
