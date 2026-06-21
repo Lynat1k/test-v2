@@ -24,6 +24,49 @@
 Binance depth stream (futures/spot). Поддерживать корректную синхронизацию
 снапшот + diff-обновления (lastUpdateId), иначе стакан "поедет".
 
+## Local order book maintenance (правила Binance)
+
+Реализовано в `backend/internal/depth/sync.go`. **Порядок ТОЧНО по протоколу Binance** —
+сначала subscribe, потом snapshot, иначе теряем апдейты между ними → постоянные ресинки
+→ теряем накопленную далёкую глубину.
+
+### Порядок шагов (общий для futures и spot)
+1. **Dial WebSocket** (`<symbol>@depth` или `@depth@100ms`).
+2. Запустить горутину чтения, **буферизовать** все events в `pending` slice.
+3. **Параллельно** запросить REST snapshot.
+4. По приходу snapshot — применить `SnapshotFromREST(lastUpdateId, bids, asks)`.
+5. **Drain pending**: drop stale → найти first event → `ApplyFirstEvent` (без валидации
+   sequence) → применить остаток с обычной валидацией.
+6. Перейти в streaming фазу.
+
+### Различия futures vs spot
+
+| | Futures (USD-M) | Spot |
+|---|---|---|
+| WS endpoint | `wss://fstream.binance.com/stream?streams=<sym>@depth[@rate]` | `wss://stream.binance.com:9443/ws/<sym>@depth[@rate]` |
+| Update rate (default) | 250ms | 1000ms |
+| Available rates | 100ms, 250ms, 500ms | 100ms, 1000ms |
+| REST endpoint | `/fapi/v1/depth?limit=1000` (max=1000) | `/api/v3/depth?limit=5000` (max=5000) |
+| Stale drop (drain) | `evt.u < lastUpdateId` | `evt.u < lastUpdateId+1` |
+| First event check | `U <= lastUpd && u >= lastUpd` | `U <= lastUpd+1 && u >= lastUpd+1` |
+| Streaming validate | `pu == prev.u` (`ApplyFuturesUpdate`) | `U == prev.u+1` (`ApplySpotUpdate`) |
+
+### Конфигурация частоты diff-stream
+
+Env `DEPTH_WS_RATE_MS` (валидные значения: `100`, `250`, `500`, `1000`; **дефолт `100`**).
+При несовместимости с рынком — клампим к ближайшему допустимому и пишем warning.
+
+### Memory bound (Prune)
+
+В `LiveDOMBroadcaster.Run` запущен таймер 30s, вызывающий `OrderBook.Prune(centerPrice, 0.10)`
+для каждой книги. Это отсекает уровни вне `±10%` от текущей цены — запас сверх отображаемого
+`±5%` фильтра на случай быстрого движения цены. Защищает RAM на длинных сессиях.
+
+### Диагностика
+
+В `LiveDOMBroadcaster.Run` таймер 60s пишет `[depth-stats] <key> bids=N asks=M range=[X..Y]
+center=C coverage=±Z%`. По coverage можно отслеживать "прогрев" книги через diff stream.
+
 ## Хранение снапшотов (ClickHouse) — для будущей тепловой карты
 Две раздельные таблицы со своим TTL:
 - clusters_futures_dom

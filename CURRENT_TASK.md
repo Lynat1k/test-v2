@@ -3,9 +3,21 @@
 > Что в работе прямо сейчас. Читать в начале сессии вместе с CLAUDE.md.
 > Обновлять по ходу. Завершённое переносить в docs/PROGRESS.md.
 
-## Статус на 2026-06-20
+## Статус на 2026-06-21
 
 ### ✅ ЗАКОММИЧЕНО
+
+- feat(depth): полная книга через diff-stream, реальная глубина ±5%:
+  - sync.go — переписан connectAndSync по протоколу Binance (dial WS → buffer → snapshot
+    → drain stale-drop → ApplyFirstEvent → streaming). Spot REST limit 1000→5000.
+    Env DEPTH_WS_RATE_MS (дефолт 100) с клампом по правилам рынка.
+  - orderbook.go — ApplyFirstEvent (без sequence-валидации для первого event), Prune
+    (защита RAM ±10% от мида), Stats (диагностика).
+  - livedom.go — pruneTicker 30s + logTicker 60s ([depth-stats]). Выходной 1-сек
+    ticker НЕ тронут — это РАЗНЫЕ частоты с входной (Binance→backend = 100ms).
+  - DOM_SPEC.md — раздел Local order book maintenance с правилами Binance раздельно
+    futures/spot, частотами, prune ±10%.
+  - Smoke (5 мин): spot bids/asks=5000 на старте, futures 1000, 0 mismatch, 0 ended.
 
 - feat(dom): сжатие стакана — выбор уровня агрегации 1-2-5 сетка (8 уровней):
   - DOMSidebar/domCompression.ts — buildDOMCompressionLevels, getDomBaseStep, aggregateDOMLevels

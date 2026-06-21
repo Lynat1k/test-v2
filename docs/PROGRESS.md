@@ -1556,3 +1556,46 @@
   - Задачи загрузки хранятся в SQLite (download_jobs) — выживают после рестарта.
   - CSV формат: aggTradeId,price,quantity,firstTradeId,lastTradeId,timestamp,isBuyerMaker.
 - Тесты/проверки: `go build`, `go vet`, `go test ./...` — all pass. `tsc --noEmit` — clean. `vite build` — success.
+
+## 2026-06-21 — DOM глубина: полная книга через diff-stream
+
+- Цель: стакан с шагом $10 (и любым из 8 уровней) с реальной глубиной ±5% от цены.
+  Раньше глубина была ограничена ~$100 от середины из-за двух ошибок в синхронизации
+  и REST-лимита spot.
+- Корневые причины:
+  1. Snapshot фетчился ДО WS subscribe → между ними терялись апдейты → постоянные ресинки
+     → накопленная далёкая глубина сбрасывалась на каждом ресинке.
+  2. В pending replay не фильтровались stale события (futures `u<lastUpdateId`,
+     spot `u<lastUpdateId+1`) — их применение ломало sequence для следующих валидных.
+  3. Spot REST запрашивался с `limit=1000` при потолке Binance 5000.
+- Фикс:
+  - `depth/sync.go` — переписан `connectAndSync`: dial WS первым → горутина буферизует
+    в `pending` → параллельно `fetchSnapshot` → drainPending(stale-drop, find first,
+    ApplyFirstEvent для первого, normal validate для остатка). Spot REST `limit=5000`.
+    Конфигурируемая частота diff-stream через env `DEPTH_WS_RATE_MS` (дефолт 100,
+    с клампом по правилам каждого рынка).
+  - `depth/orderbook.go` — добавлены `ApplyFirstEvent` (без валидации sequence — для
+    первого event после snapshot), `Prune(centerPrice, pctRange)` (защита RAM от
+    бесконечного роста книги), `Stats() BookStats` (диагностика).
+  - `depth/livedom.go` — добавлены pruneTicker 30s (Prune до ±10%) и logTicker 60s
+    (`[depth-stats]` лог с bids/asks/range/coverage). Выходной 1-сек ticker (вывод на
+    фронт) НЕ ТРОНУТ — пользователь явно зафиксировал что входная и выходная частоты
+    разные.
+  - WS subscribe протокол — точно по Binance docs (свёрено через WebFetch отдельно
+    futures и spot). Подробно в `docs/DOM_SPEC.md::Local order book maintenance`.
+- Не тронуто: `ApplyFuturesUpdate`/`ApplySpotUpdate` (sequence validation), `GetAggregatedLevels`
+  (±5% фильтр + `floor(price/baseStep)*baseStep`), `Snapshotter` (улучшение прилетает
+  автоматически — он использует ту же книгу), фронтенд.
+- Затронутые файлы:
+  - `backend/internal/depth/sync.go` (rewrite connectAndSync)
+  - `backend/internal/depth/orderbook.go` (+ApplyFirstEvent, +Prune, +Stats, +BookStats)
+  - `backend/internal/depth/livedom.go` (+pruneTicker, +logTicker, +pruneAll, +logStats)
+  - `backend/internal/depth/orderbook_test.go` (+3 теста)
+  - `docs/DOM_SPEC.md` (+раздел Local order book maintenance)
+- Smoke test после рестарта: spot snapshot bids=5000 asks=5000, futures bids=1000
+  asks=1000, 0 sequence mismatch, 0 session ended за первые 5 минут.
+- TODO:
+  - На VPS прогнать `go test -race ./internal/depth/...` (на Windows нет cgo/gcc).
+  - Через 30+ минут проверить рост coverage в логе `[depth-stats]`. Критерий: для
+    futures coverage стабильно растёт от ~0.1% и достигает ≥1.5% за час.
+  - При наблюдении регулярных `sequence mismatch` (>5/час) откатить sync.go и копать дальше.
