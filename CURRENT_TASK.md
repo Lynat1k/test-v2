@@ -7,6 +7,9 @@
 
 ### ✅ ЗАКОММИЧЕНО
 
+- ✅ DOM-задача (стакан, полная глубина через diff-stream) — ЗАКРЫТА 2026-06-21.
+  Вывод по споту зафиксирован в docs/DECISIONS.md (±2% live, бэкфилл для тепловой карты).
+
 - fix(depth): два бага sync — книга была замёрзшей на snapshot (cd606fb):
   - Spot single-stream payload плоский, парсился в WSMessage{stream,data}
     → Symbol="" → 100% событий дропалось symbol-фильтром.
