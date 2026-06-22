@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import ClusterChart from "./ClusterChart";
 import { adapter, apiRowsToCells, mergeLiveUpdate, aggregateLevels, computeValueArea } from "./adapter";
 import type { ClusterCandle } from "./types";
@@ -309,7 +309,7 @@ export default function ClusterChartAdapter({
     return () => { cancelled = true; };
   }, [symbol, market, timeframe, compression, accessToken]);
 
-  const activePair = makePair(symbol, market);
+  const activePair = useMemo(() => makePair(symbol, market), [symbol, market]);
 
   const inner = loading ? (
     <div className="flex items-center justify-center w-full h-full text-zinc-500 text-sm">

@@ -3,6 +3,26 @@
 > Claude обновляет этот файл в КОНЦЕ каждой задачи. Новые записи — сверху.
 > Формат записи строго по шаблону. Это память между чатами.
 
+### [2026-06-22] perf(chart): вынос ChartToolsHeader в React.memo-компонент (Branch A, шаг 2)
+
+- **Контекст**: ClusterChart — монолит ~5500 строк. WS-тик (setCandles ~2/сек) вызывал ререндер всей шапки (чипы индикаторов, зум-кнопки, настройки). Branch A, шаг 2 (шаг 1 — DrawingToolbar: 44.5→75 FPS).
+- **Решение**:
+  - Новый файл `frontend/src/chart2d/ChartToolsHeader.tsx` (React.memo + props interface ~320 строк JSX).
+  - `handleResetZoom` стабилизирован через `resetZoomDataRef` (latest-ref паттерн, candles не в deps → callback stable).
+  - `handleZoom` → `useCallback([candleType])`, `handleVerticalZoom` → `useCallback([])`.
+  - `onTimezoneChange`, `onToggleChartSettings` → `useCallback([])`.
+  - `showWorkspaceMenu` state + `workspaceDropdownRef` + click-outside effect перенесены внутрь ChartToolsHeader (чистое владение).
+  - `WORKSPACE_LAYOUTS` (id + icon) вынесены в module scope — иконки создаются один раз при загрузке.
+  - `isLight: boolean` передаётся примитивом (паттерн DrawingToolbar).
+  - `activePair` стабилизирован в `ClusterChartAdapter.tsx` через `useMemo([symbol, market])` — ранее пересоздавался на каждый WS-тик.
+- **Файлы**: `frontend/src/chart2d/ChartToolsHeader.tsx` (создан), `frontend/src/chart2d/ClusterChart.tsx` (блок ~3963–4286 заменён компонентом, 5 useCallback + resetZoomDataRef добавлены), `frontend/src/chart2d/ClusterChartAdapter.tsx` (useMemo для activePair).
+- **FPS скролл**: было ~75 FPS (после DrawingToolbar), после — [замерить в браузере].
+- **Profiler**: ChartToolsHeader — 0 ререндеров на WS-тик ✓ [проверить в React DevTools].
+- **Verification**: `npx tsc --noEmit` ✓, `npx vite build` ✓ (749 ms).
+- **Что закрыто**: Branch A шаг 2 (из 3).
+- **TODO (следующий шаг)**: Branch A шаг 3 — мемоизация IndicatorsModal / остальные тяжёлые компоненты.
+- **TODO (отдельный коммит)**: `ClusterChartAdapter.tsx:344` — `onWorkspaceLayoutChange ?? (() => {})` — inline-стрелка пересоздаётся на каждый рендер, ломает мемо если prop undefined. Обернуть в useCallback или вынести stable noop в module scope.
+
 ### [2026-06-22] fix(chart): FPS-счётчик не перекрывает zoom-hint (stacking context)
 - **Причина**: FPS overlay (z-30) — прямой потомок root div, который не создаёт stacking context. ChartToolsHeader (z-20, backdrop-blur) тоже прямой потомок root. Оба конкурируют глобально по z-index. z-30 > z-20 → FPS рисовался поверх всего header'а включая zoom dropdown (z-50 локальный внутри header'а — за его пределы не выходит).
 - **Фикс**: z-30 → z-10 на FPS overlay. Теперь header (z-20) рисуется поверх FPS.
