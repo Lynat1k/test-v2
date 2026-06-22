@@ -936,6 +936,13 @@ export default function ClusterChart({
           setCandleWidth(nextWidthClamped);
           container.scrollLeft = clampedScrollLeft;
           setVisibleScrollLeftSync(clampedScrollLeft);
+
+          // Fix #3: paint in the same wheel tick so the first visible frame is
+          // consistent (new candleWidth from ref shadow + new scrollLeft).
+          // scheduleDraw at the end of handleWheel still fires post-commit
+          // (useLayoutEffect rebinds drawRef) — that second frame is identical
+          // and confirms state catch-up. Only ctrl branch; combo/shift untouched.
+          if (drawRef.current) drawRef.current();
         }
       } else {
         // Standard Wheel -> zoom BOTH horizontally and vertically centered on mouse position!
@@ -2623,6 +2630,17 @@ export default function ClusterChart({
     // (translate, culling, indicator coords) sees the real scroll position at
     // frame time, not the throttled React state. Body code stays unchanged.
     const visibleScrollLeft = visibleScrollLeftRef.current;
+
+    // Fix #3: same shadow pattern for candleWidth + derivatives. Wheel handler
+    // writes candleWidthRef synchronously, then calls drawRef.current() in the
+    // same tick — before React commits setCandleWidth. Without these shadows,
+    // body code would draw with the not-yet-committed STATE value while ref is
+    // ahead, mixing geometries.
+    const candleWidth = candleWidthRef.current;
+    const candleSpacing = Math.max(1, candleWidth < 30 ? Math.floor(candleWidth * 0.35) : 12);
+    const candleWidthSpacing = candleWidth + candleSpacing;
+    const indexToX = (idx: number) => margin.left + idx * candleWidthSpacing;
+    const scrollWidth = candles.length * candleWidthSpacing + margin.left + margin.right + scrollRightPadding;
 
     // Scale canvas for ultra-crisp Retina/High-DPI support using the visible viewport size to avoid exceeding browser canvas limits
     const dpr = window.devicePixelRatio || 1;

@@ -1981,3 +1981,59 @@ state-ref divergence, нет (один outlier `startCandleWidthRef.current = ca
 S2 rAF/dirty-flag, S1 crosshair, anti-jump prepend, shift-зум, drag-pan,
 onScroll, time-scale читалка на L1493. Проблема рассинхрона paint
 (мерцание) — отдельный коммит, если останется после fix #2.
+
+## 2026-06-22 — Fix #3: синхронная отрисовка при ctrl-зуме (мерцание)
+
+После fix #2 прыжок якоря устранён, но **визуальное мерцание сбоку** при
+быстром ctrl+wheel zoom-out **осталось**. Diagnostic-логи `[draw-tick]`
+показали задержку между `container.scrollLeft = X` (sync) и следующим
+draw'ом (отложен в rAF через `scheduleDraw`): **100-455 мс**. Всё это время
+браузер показывал старый canvas на новой scroll-позиции контейнера → виден
+сдвиг сбоку.
+
+**Фикс** (commit на procluster sub-module, `frontend/src/chart2d/ClusterChart.tsx`):
+
+1. **Shadow в drawRef body** (~2675, сразу после `visibleScrollLeft` shadow):
+   - `candleWidth = candleWidthRef.current` + derivatives (`candleSpacing`,
+     `candleWidthSpacing`, `indexToX`, `scrollWidth`) — 5 локальных `const`.
+   - Паттерн идентичен `const visibleScrollLeft = visibleScrollLeftRef.current`
+     на L2672 (S3 fix).
+   - Все 70+ usages этих имён внутри drawRef резолвятся на shadow (JS scope).
+
+2. **Sync `drawRef.current()` в ctrl-ветке** (~949, после
+   `setVisibleScrollLeftSync`):
+   - Синхронный paint в том же wheel-тике после согласованной записи
+     (`candleWidthRef`, `setCandleWidth`, `container.scrollLeft`,
+     `setVisibleScrollLeftSync`).
+   - Кадр сразу консистентен (ref-shadow + новый scrollLeft).
+   - `scheduleDraw()` в конце handleWheel оставлен — он нужен для combo/shift
+     веток, post-commit useLayoutEffect (второй кадр со state-catch-up),
+     scroll/WS-тиков.
+
+**Покрытие**: shadow покрывает прямую отрисовку candles/grid/footprint/scroll-границ.
+
+**Known limitation (follow-up по необходимости)**: outer-scope memo'и,
+зависящие от state `candleWidth` (через `useMemo` deps), на sync-кадре дают
+cache-hit со **STALE** значениями. Конкретно:
+- `cumulativeDeltaPoints` (CVD coords, L2316-2319): точки CVD на 1 кадр
+  могут отставать от свеч (≤16 мс, против прежних 100-455 мс — улучшение в
+  ~28 раз). На rAF-после-commit'а memo пересчитывается, CVD выравнивается.
+- `zoomedCvdMax/Min/Range/cvdCenterVal` (L2355): CVD-scale тот же кадр stale.
+- `isDetailedMode` (L1216-1219, derived от state): edge-case вокруг
+  candleWidth=15 — sync-кадр и rAF-кадр могут быть в разных режимах. Внутри
+  одного режима — без эффекта.
+
+Если CVD-отставание окажется визуально заметным — fix через `flushSync` или
+ref-refactor CVD memo'ев (отдельный коммит).
+
+**Цена**: 2 draw'а на одно wheel-событие в ctrl-ветке (~3-6 мс/draw ×2 =
+~6-12 мс). При burst dtMs=30 мс — <40% бюджета, приемлемо.
+
+**Verify**:
+- `npx tsc --noEmit` ✓
+- `npx vite build` ✓ (721 мс)
+- Юзеру: мерцание сбоку при ctrl+wheel zoom-out должно исчезнуть; задержка
+  `[draw-tick]` после `[ctrl-zoom]` ≈ 0 мс (sync) + один второй rAF-tick.
+
+Не тронуто: combo wheel, shift, scheduleDraw (для прочих путей), формула
+якоря, верхний clamp, fix #2 SoT, anti-jump prepend, drag-pan, onScroll.
