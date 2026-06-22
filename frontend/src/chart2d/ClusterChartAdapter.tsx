@@ -6,6 +6,8 @@ import type { ApiCandle, ApiClusterRow } from "./adapter";
 import { useLiveChart } from "./useLiveChart";
 import type { LiveChartState } from "./useLiveChart";
 
+const NOOP = () => {};
+
 const BATCH_SIZE = 100;
 const PARALLEL_LIMIT = 3;
 
@@ -341,7 +343,7 @@ export default function ClusterChartAdapter({
       timeframe={timeframe}
       language={language}
       workspaceLayout={workspaceLayout ?? "1"}
-      onWorkspaceLayoutChange={onWorkspaceLayoutChange ?? (() => {})}
+      onWorkspaceLayoutChange={onWorkspaceLayoutChange ?? NOOP}
       workspacesCount={workspacesCount ?? 1}
       onNeedHistory={handleNeedHistory}
       onVisibleTimestampsChange={handleVisibleTimestampsChange}
