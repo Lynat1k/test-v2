@@ -54,7 +54,7 @@ export function ChartContainer2({
   layoutMode, indicators, activeIndicators, onToggleIndicator, onToggleVisibility, onRemoveIndicator, onShowIndicatorsSettings,
   onLayoutChange, showAnomalies, onChangeShowAnomalies,
 }: ChartContainer2Props) {
-  const { accessToken } = useAuthContext()
+  const { accessToken, user } = useAuthContext()
   const { limits } = useUserLimits()
   const { theme } = useTheme()
 
@@ -88,6 +88,7 @@ export function ChartContainer2({
         showAnomalies={showAnomalies}
         onChangeShowAnomalies={onChangeShowAnomalies}
         theme={theme}
+        userRole={user?.role ?? ''}
       />
     </div>
   )

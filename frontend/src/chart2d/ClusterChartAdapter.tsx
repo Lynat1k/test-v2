@@ -41,6 +41,7 @@ export interface ClusterChartAdapterProps {
   showAnomalies?: boolean | undefined;
   onChangeShowAnomalies?: ((show: boolean) => void) | undefined;
   theme?: "dark" | "light";
+  userRole?: string;
 }
 
 function estimatePriceStep(symbol: string): number {
@@ -102,6 +103,7 @@ export default function ClusterChartAdapter({
   showAnomalies,
   onChangeShowAnomalies,
   theme = "dark",
+  userRole,
 }: ClusterChartAdapterProps) {
   const priceStep = computePriceStep(symbol, market, compression);
   const [candles, setCandles] = useState<ClusterCandle[]>([]);
@@ -347,6 +349,7 @@ export default function ClusterChartAdapter({
       showAnomalies={showAnomalies}
       onChangeShowAnomalies={onChangeShowAnomalies}
       theme={theme}
+      {...(userRole !== undefined ? { userRole } : {})}
     />
   );
 

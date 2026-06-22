@@ -3,6 +3,22 @@
 > Claude обновляет этот файл в КОНЦЕ каждой задачи. Новые записи — сверху.
 > Формат записи строго по шаблону. Это память между чатами.
 
+### [2026-06-22] feat(chart): FPS-счётчик для админа (привязан к реальному frame())
+- **Контекст**: Нужна диагностика реальной частоты рисования движка (Canvas2D draw loop), а не частоты браузерного RAF. Счётчик виден только администратору и реально падает при тормозах скролла/зума.
+- **Реализация**:
+  - 3 ref добавлены в `ClusterChart.tsx`: `fpsFrameCountRef`, `fpsLastTimeRef`, `fpsRef` — после `drawRef`.
+  - `fpsDisplay: number | null` state — `null` = idle ("—").
+  - Блок измерения (~10 строк) вставлен в самое начало `drawRef.current()` — до ранних `return`. Пересчёт каждые 500 мс, `setFpsDisplay` ≤2×/сек.
+  - Idle useEffect: 1-секундный interval **только для admin**, сбрасывает display в `null` если нет кадров >1 с.
+  - JSX оверлей: `absolute top-2 right-2 z-50`, emerald 9px mono, `backdrop-blur-sm`, пульсирующая точка. В DOM **только при** `userRole.toLowerCase() === "admin"`.
+- **Фикс цепочки пропа**: `userRole` не доходил до `ClusterChart` — исправлено в 2 файлах:
+  - `ChartContainer2.tsx`: деструктурирован `user` из `useAuthContext()`, передан `userRole={user?.role ?? ''}`.
+  - `ClusterChartAdapter.tsx`: добавлен `userRole?: string` в интерфейс и деструктуризацию, прокинут в `<ClusterChart>` через `{...(userRole !== undefined ? { userRole } : {})}` (требование `exactOptionalPropertyTypes`).
+- **userRole**: `AuthUser.role: string` (api.ts), backend хранит `"admin"` lower, проверка `(userRole ?? "").toLowerCase() === "admin"` — регистронезависимо.
+- **Idle**: при простое >1 с отображается "— FPS".
+- **Файлы**: `frontend/src/chart2d/ClusterChart.tsx`, `frontend/src/chart2d/ClusterChartAdapter.tsx`, `frontend/src/chart2d/ChartContainer2.tsx`, `docs/PROGRESS.md`.
+- **Verification**: `npx tsc --noEmit` ✓, `npx vite build` ✓ (717 ms).
+
 ### [2026-06-21] perf(chart2d): D — удалён hot-path session-separator с toLocaleDateString
 - **Контекст**: Реальное профилирование (monkey-patch `CanvasRenderingContext2D.prototype` + `Date.prototype.toLocaleDateString` без правок репо) показало: **~91% времени canvas-draw** уходит на `toLocaleDateString` в цикле отрисовки вертикальных разделителей суток (`~2763-2786`). Цикл сравнивал день текущей и предыдущей свечи через `d.toLocaleDateString("en-US", { timeZone })` — **75-85 µs на вызов × 2 вызова на каждую видимую свечу за кадр**. Линейный скейл подтверждён замером:
 

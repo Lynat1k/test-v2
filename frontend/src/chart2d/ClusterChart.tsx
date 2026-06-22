@@ -119,6 +119,7 @@ export default function ClusterChart({
   const hadTokenRef = useRef(false);
 
   const [isMobile, setIsMobile] = useState<boolean>(typeof window !== "undefined" ? window.innerWidth < 768 : false);
+  const [fpsDisplay, setFpsDisplay] = useState<number | null>(null);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -578,6 +579,9 @@ export default function ClusterChart({
   const rafIdRef = useRef<number | null>(null);
   const dirtyRef = useRef<boolean>(false);
   const drawRef = useRef<() => void>(() => {});
+  const fpsFrameCountRef = useRef<number>(0);
+  const fpsLastTimeRef = useRef<number>(performance.now());
+  const fpsRef = useRef<number>(0);
   const scheduleDraw = () => {
     dirtyRef.current = true;
     if (rafIdRef.current != null) return;
@@ -599,6 +603,18 @@ export default function ClusterChart({
       scrollSyncTimerRef.current = null;
     }
   }, []);
+
+  // Idle detection: reset FPS display to null ("—") if no draw for >1 s.
+  // Interval runs only for admin — zero overhead for other roles.
+  useEffect(() => {
+    if ((userRole ?? "").toLowerCase() !== "admin") return;
+    const id = setInterval(() => {
+      if (performance.now() - fpsLastTimeRef.current > 1000) {
+        setFpsDisplay(null);
+      }
+    }, 1000);
+    return () => clearInterval(id);
+  }, [userRole]);
 
   // S3: push the throttled scrollLeft into React state. Called from onScroll on
   // half-candle deltas (immediate) and from a debounce when scrolling stops.
@@ -2620,6 +2636,17 @@ export default function ClusterChart({
     // in the same JS task all set the same drawRef and request one rAF — the canvas
     // is painted at most once per frame instead of once per setState.
     drawRef.current = () => {
+    // ── FPS measurement (admin diagnostics, zero cost on hot-path) ──────────
+    fpsFrameCountRef.current++;
+    const _fpsnow = performance.now();
+    const _fpsdt = _fpsnow - fpsLastTimeRef.current;
+    if (_fpsdt >= 500) {
+      fpsRef.current = Math.round(fpsFrameCountRef.current / (_fpsdt / 1000));
+      fpsLastTimeRef.current = _fpsnow;
+      fpsFrameCountRef.current = 0;
+      if ((userRole ?? "").toLowerCase() === "admin") setFpsDisplay(fpsRef.current);
+    }
+    // ────────────────────────────────────────────────────────────────────────
     if (candles.length === 0) return;
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -5006,6 +5033,19 @@ export default function ClusterChart({
               </div>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* ── Admin FPS overlay ─────────────────────────────────────────────── */}
+      {(userRole ?? "").toLowerCase() === "admin" && (
+        <div
+          className="absolute top-2 right-2 z-50 flex items-center gap-1.5 px-2 py-1 rounded-md bg-black/60 backdrop-blur-sm select-none pointer-events-none"
+          style={{ fontFamily: "ui-monospace, monospace", fontSize: "9px", lineHeight: 1 }}
+        >
+          <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse flex-shrink-0" />
+          <span className="text-emerald-400 tracking-wider">
+            {fpsDisplay === null ? "— FPS" : `${fpsDisplay} FPS`}
+          </span>
         </div>
       )}
 
