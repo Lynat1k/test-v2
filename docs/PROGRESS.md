@@ -3,6 +3,12 @@
 > Claude обновляет этот файл в КОНЦЕ каждой задачи. Новые записи — сверху.
 > Формат записи строго по шаблону. Это память между чатами.
 
+### [2026-06-22] fix(chart): FPS-счётчик не перекрывает zoom-hint (stacking context)
+- **Причина**: FPS overlay (z-30) — прямой потомок root div, который не создаёт stacking context. ChartToolsHeader (z-20, backdrop-blur) тоже прямой потомок root. Оба конкурируют глобально по z-index. z-30 > z-20 → FPS рисовался поверх всего header'а включая zoom dropdown (z-50 локальный внутри header'а — за его пределы не выходит).
+- **Фикс**: z-30 → z-10 на FPS overlay. Теперь header (z-20) рисуется поверх FPS.
+- **Файлы**: `frontend/src/chart2d/ClusterChart.tsx`, `docs/PROGRESS.md`.
+- **Verification**: `npx tsc --noEmit` ✓, `npx vite build` ✓ (1.1 s).
+
 ### [2026-06-22] style(chart): позиция/размер/z-index FPS-оверлея
 - `right: margin.right + 8 = 98px` (margin.right=90, константа line 418) — счётчик левее ценовой шкалы.
 - `fontSize 9px → 11px`, точка-пульс `w-1.5 h-1.5 → w-2 h-2`.

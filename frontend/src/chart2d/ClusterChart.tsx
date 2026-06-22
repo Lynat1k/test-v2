@@ -5039,7 +5039,7 @@ export default function ClusterChart({
       {/* ── Admin FPS overlay ─────────────────────────────────────────────── */}
       {(userRole ?? "").toLowerCase() === "admin" && (
         <div
-          className="absolute top-2 z-30 flex items-center gap-1.5 px-2 py-1 rounded-md bg-black/60 backdrop-blur-sm select-none pointer-events-none"
+          className="absolute top-2 z-10 flex items-center gap-1.5 px-2 py-1 rounded-md bg-black/60 backdrop-blur-sm select-none pointer-events-none"
           style={{ fontFamily: "ui-monospace, monospace", fontSize: "11px", lineHeight: 1, right: `${margin.right + 8}px` }}
         >
           <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse flex-shrink-0" />
