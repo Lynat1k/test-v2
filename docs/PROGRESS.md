@@ -2037,3 +2037,40 @@ ref-refactor CVD memo'ев (отдельный коммит).
 
 Не тронуто: combo wheel, shift, scheduleDraw (для прочих путей), формула
 якоря, верхний clamp, fix #2 SoT, anti-jump prepend, drag-pan, onScroll.
+
+## 2026-06-22 — Зум-история закрыта: 3 фикса + cleanup
+
+ctrl+wheel зум (горизонтальный) — серия рывков, прыжков якоря и мерцания —
+полностью устранена тремя атомарными фиксами + cleanup:
+
+| commit | проблема | решение |
+|---|---|---|
+| `0287969` | рывок-возврат + полное смещение при сильном зум-out | верхний clamp `nextScrollLeft` по новой ширине spacer'а в обеих wheel-ветках; явный `scheduleDraw()` в конце handleWheel |
+| `c3c74f8` (Fix #1 / SoT) | прыжок якоря на ~20 свечей при быстрой пачке (dtMs<40 мс) — useEffect[525] откатывал `candleWidthRef` со stale closure-state | удалён asynchronous useEffect, ref-write добавлен СИНХРОННО ДО `setCandleWidth` в 7 call-site'ах |
+| `3394377` (Fix #3) | мерцание сбоку: задержка 100-455 мс между sync `container.scrollLeft = X` и rAF draw'ом | (a) shadow `candleWidth`/`candleSpacing`/`candleWidthSpacing`/`indexToX`/`scrollWidth` от ref в drawRef body; (b) sync `drawRef.current()` в ctrl-ветке после согласованной записи |
+
+**Диагностическая инструментовка** (`[ctrl-zoom]`, `[draw-tick]`, `[cw-sync]`)
+жила только в working tree, в git **никогда не коммитилась**. После
+подтверждения работы фиксов удалена локально.
+
+**Known limitation** (follow-up по необходимости): outer-scope `useMemo`,
+зависящие от state `candleWidth` (CVD-точки на L2316, CVD-scale на L2355,
+`isDetailedMode` на L1216), на sync-кадре дают stale-cache → CVD/режим
+могут отставать **на 1 кадр** (≤16 мс). Раньше отставали 100-455 мс,
+улучшение ~28×. Если визуально заметно — фикс через `flushSync` или
+ref-refactor CVD memo'ев отдельным коммитом.
+
+**Outlier** для time-scale-drag: `startCandleWidthRef.current = candleWidth` на
+L1493 читает STATE на mousedown. Drag сразу после wheel'а до commit'а получит
+stale baseline. Drag + wheel-burst редко одновременны, риск низкий — оставлен
+follow-up'ом.
+
+Замеры (синтетический wheel-burst через Chrome DevTools MCP + реальная
+мышь в браузере пользователя):
+- per-tick anchor drift ≤ 0.5 px (DOM pixel-rounding), кумулятив за 8-16
+  шагов ≤ 1.7 px (визуально невидимо).
+- задержка sync-draw vs scheduleDraw: ~0 мс vs 100-455 мс (улучшение ~25-1000×).
+- prevRef vs cwBefore[k+1] = совпадают (fix #1 подтверждён).
+- FPS scroll ~77 не просел.
+
+Зум закрыт. Дальнейшие задачи — отдельные.
