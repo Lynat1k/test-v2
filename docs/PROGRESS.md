@@ -1930,3 +1930,54 @@ Note: ошибся в прошлой верификации — судил по 
 
 Не тронуто: rAF/dirty-flag (S2), crosshair/overlay (S1), anti-jump prependScrollRef,
 shift-зум, onScroll, drag-pan, time-scale-drag.
+
+## 2026-06-22 — Fix #2: candleWidthRef как единственный синхронный writer (race condition)
+
+Фикс 0287969 (верхний clamp + явный scheduleDraw) **дефект НЕ устранил**.
+Реальная пачка ctrl+wheel с физической мыши (dtMs 27-40 мс) поймала прыжок якоря
+на ~20 свечей. Diagnostic-логи (`[ctrl-zoom]`, `[cw-sync]`) показали:
+
+```
+n=31  cwAfter=18.9233
+[cw-sync] delta=-1.4017   ← useEffect[525] синкает ref ← state со СТАРЫМ closure
+n=32  cwBefore=17.5216    ← stale: ref откатился на шаг назад
+       idxBefore: 337.4 → 357.5 (+20 свечей)
+... 28 мс ...
+[cw-sync] delta=+1.4017   ← возвращает к актуальному 18.9233
+```
+
+При `dtMs > 200 мс` (медленная мышь) `delta` всегда 0 — дефекта нет.
+
+**Корневая причина**: `useEffect(() => { candleWidthRef.current = candleWidth; }, [candleWidth])`
+был асинхронным мостом state → ref. В React 18 при burst-commits очередь
+эффектов обрабатывается с **closure-captured** значениями каждого commit'а.
+Эффект из старого commit'а пишет в ref устаревшее значение между двумя
+wheel-событиями → wheel читает stale → формула якоря строится от неверного
+candleWidth → прыжок индекса.
+
+**Фикс** (commit на procluster sub-module, файл `frontend/src/chart2d/ClusterChart.tsx`):
+- Удалён `useEffect [candleWidth]` (525-527) — больше нет асинхронного writer'а ref'а.
+- В каждом из **7 call-site'ов** `setCandleWidth` ref пишется СИНХРОННО, ДО `setCandleWidth`:
+  - wheel ctrl (~949), wheel combo (~1017): переупорядочено (ref ВЫШЕ set).
+  - auto-fit (~1092, isComboChange only): добавлен парный ref-write.
+  - `handleZoom` (~1148): functional update заменён на чтение через ref.
+  - `handleResetZoom` (~1174, ~1177): парные ref-write для обеих веток.
+  - time-scale-drag (~2608): парный ref-write.
+
+Теперь `candleWidthRef` — единственный источник правды в hot-path; state
+catch-up на следующем React-commit'е через `useLayoutEffect`, который
+ре-собирает `drawRef`. Сквозной grep: внешних читателей, зависящих от
+state-ref divergence, нет (один outlier `startCandleWidthRef.current = candleWidth;`
+на L1493 — read STATE на time-scale mousedown — оставлен как follow-up, риск
+низкий: drag и wheel-burst редко одновременны).
+
+**Verify**:
+- `npx tsc --noEmit` ✓
+- `npx vite build` ✓
+- Юзеру: после фикса в логах cwBefore[k+1] === cwAfter[k] всегда; idx
+  под курсором не прыгает на N свечей; HMR на :5182 подхватит автоматически.
+
+**Не тронуто в этом коммите**: формула якоря, верхний clamp (0287969),
+S2 rAF/dirty-flag, S1 crosshair, anti-jump prepend, shift-зум, drag-pan,
+onScroll, time-scale читалка на L1493. Проблема рассинхрона paint
+(мерцание) — отдельный коммит, если останется после fix #2.

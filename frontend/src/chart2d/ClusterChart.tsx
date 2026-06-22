@@ -522,9 +522,10 @@ export default function ClusterChart({
   const verticalScaleRef = useRef<number>(0.812);
   const priceCenterOffsetRef = useRef<number>(0);
 
-  useEffect(() => {
-    candleWidthRef.current = candleWidth;
-  }, [candleWidth]);
+  // candleWidthRef is now written synchronously at every setCandleWidth call-site
+  // (wheel ctrl/combo, auto-fit, handleZoom, handleResetZoom, time-scale-drag).
+  // The previous async useEffect bridge caused stale reverts during ctrl-wheel bursts
+  // because React 18 ran queued effects with closure-captured old state.
 
   useEffect(() => {
     verticalScaleRef.current = verticalScale;
@@ -904,12 +905,12 @@ export default function ClusterChart({
           const mouseRelativeX = e.clientX - rect.left;
           const currentScrollLeft = container.scrollLeft;
           const chartCursorX = currentScrollLeft + mouseRelativeX;
-          
+
           const activeChartX = chartCursorX - margin.left;
-          
+
           const prevSpacing = Math.max(1, curCandleWidth < 30 ? Math.floor(curCandleWidth * 0.35) : 12);
           const nextSpacing = Math.max(1, nextWidthClamped < 30 ? Math.floor(nextWidthClamped * 0.35) : 12);
-          
+
           const ratio = (nextWidthClamped + nextSpacing) / (curCandleWidth + prevSpacing);
           const newChartCursorX = margin.left + activeChartX * ratio;
           const nextScrollLeft = Math.max(0, newChartCursorX - mouseRelativeX);
@@ -930,12 +931,11 @@ export default function ClusterChart({
           const maxScroll = Math.max(0, nextScrollWidth - containerClientWidth);
           const clampedScrollLeft = Math.min(maxScroll, nextScrollLeft);
 
+          // Single source of truth: write ref FIRST, synchronously, then queue state.
+          candleWidthRef.current = nextWidthClamped;
           setCandleWidth(nextWidthClamped);
           container.scrollLeft = clampedScrollLeft;
           setVisibleScrollLeftSync(clampedScrollLeft);
-
-          // Update ref synchronously for any consecutive ticks in the same frame
-          candleWidthRef.current = nextWidthClamped;
         }
       } else {
         // Standard Wheel -> zoom BOTH horizontally and vertically centered on mouse position!
@@ -975,12 +975,11 @@ export default function ClusterChart({
           const maxScroll = Math.max(0, nextScrollWidth - containerClientWidth);
           const clampedScrollLeft = Math.min(maxScroll, nextScrollLeft);
 
+          // Single source of truth: ref synchronously FIRST, then state.
+          candleWidthRef.current = nextWidthClamped;
           setCandleWidth(nextWidthClamped);
           container.scrollLeft = clampedScrollLeft;
           setVisibleScrollLeftSync(clampedScrollLeft);
-
-          // Update ref synchronously for any consecutive ticks in the same frame
-          candleWidthRef.current = nextWidthClamped;
           updatedScaleCandleWidth = nextWidthClamped;
         }
 
@@ -1052,6 +1051,7 @@ export default function ClusterChart({
           }
         }
         currentWidth = Math.max(2, bestWidth);
+        candleWidthRef.current = currentWidth;
         setCandleWidth(currentWidth);
 
         // Centering on last VISIBLE_CANDLES candles; since candlesToScale already uses the
@@ -1104,11 +1104,11 @@ export default function ClusterChart({
 
   // Adjust canvas zoom
   const handleZoom = (factor: number) => {
-    setCandleWidth(prev => {
-      const next = prev + factor;
-      const minW = (candleType === "japanese" || candleType === "auto" || candleType === "bars") ? 2 : 8;
-      return Math.min(100, Math.max(minW, next));
-    });
+    const prev = candleWidthRef.current;
+    const minW = (candleType === "japanese" || candleType === "auto" || candleType === "bars") ? 2 : 8;
+    const next = Math.min(100, Math.max(minW, prev + factor));
+    candleWidthRef.current = next;
+    setCandleWidth(next);
   };
 
   const handleVerticalZoom = (factor: number) => {
@@ -1132,8 +1132,11 @@ export default function ClusterChart({
           break;
         }
       }
-      setCandleWidth(Math.max(2, bestWidth));
+      const W = Math.max(2, bestWidth);
+      candleWidthRef.current = W;
+      setCandleWidth(W);
     } else {
+      candleWidthRef.current = 10;
       setCandleWidth(10);
     }
     
@@ -2564,6 +2567,7 @@ export default function ClusterChart({
       const minW = (candleType === "japanese" || candleType === "auto" || candleType === "bars") ? 2 : 8;
       const clampedW = Math.min(100, Math.max(minW, nextW));
 
+      candleWidthRef.current = clampedW;
       setCandleWidth(clampedW);
 
       if (zoomAnchorIndexRef.current !== null && containerRef.current) {
