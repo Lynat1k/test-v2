@@ -103,6 +103,10 @@ func (h *Handler) handleListIndicatorPresets(w http.ResponseWriter, r *http.Requ
 func (h *Handler) handleCreateIndicatorPreset(w http.ResponseWriter, r *http.Request) {
 	userID := r.Context().Value(UserIDKey).(string)
 
+	if !h.requireCustomIndicatorSettings(w, r) {
+		return
+	}
+
 	r.Body = http.MaxBytesReader(w, r.Body, maxPresetRequestLen)
 	defer r.Body.Close()
 
@@ -163,6 +167,10 @@ func (h *Handler) handleUpdateIndicatorPreset(w http.ResponseWriter, r *http.Req
 	id := r.PathValue("id")
 	if id == "" {
 		writeError(w, http.StatusBadRequest, "INVALID_PARAMS", "preset id is required")
+		return
+	}
+
+	if !h.requireCustomIndicatorSettings(w, r) {
 		return
 	}
 
@@ -232,6 +240,10 @@ func (h *Handler) handleDeleteIndicatorPreset(w http.ResponseWriter, r *http.Req
 	id := r.PathValue("id")
 	if id == "" {
 		writeError(w, http.StatusBadRequest, "INVALID_PARAMS", "preset id is required")
+		return
+	}
+
+	if !h.requireCustomIndicatorSettings(w, r) {
 		return
 	}
 

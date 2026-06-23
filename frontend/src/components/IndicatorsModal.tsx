@@ -11,6 +11,7 @@ import type { IndicatorPreset, IndicatorsSource, StoredIndicator } from "@/featu
 import { useIndicatorsStorage } from "@/features/indicators/IndicatorsStorageContext"
 import { useAuthContext } from "@/features/auth/AuthContext"
 import { apiPatchAdminIndicatorDefault, apiDeleteAdminIndicatorDefaultForIndicator } from "@/features/admin/api"
+import { notify } from "@/features/notify/toast"
 
 interface IndicatorsModalProps {
   isOpen: boolean
@@ -352,13 +353,9 @@ export default function IndicatorsModal({ isOpen, onClose, symbol = "", market =
 
   const toggleActive = (id: string, e?: React.MouseEvent) => {
     if (e) e.stopPropagation()
-
-    const target = draft.find((ind) => ind.id === id)
-    if (target && !target.isActive) {
-      const activeCount = draft.filter((ind) => ind.isActive).length
-      if (activeCount >= maxIndicators) return
-    }
-
+    // Adding to the list is no longer capped — users can keep more indicators
+    // around than their tier allows visible. The cap is enforced on the
+    // visibility step below (and on the backend) instead.
     setDraft((prev) =>
       prev.map((ind) => (ind.id === id ? { ...ind, isActive: !ind.isActive } : ind))
     )
@@ -371,9 +368,19 @@ export default function IndicatorsModal({ isOpen, onClose, symbol = "", market =
 
   const toggleVisibility = (id: string, e: React.MouseEvent) => {
     e.stopPropagation()
-    setDraft((prev) =>
-      prev.map((ind) => (ind.id === id ? { ...ind, isVisible: ind.isVisible === false ? true : false } : ind))
-    )
+    setDraft((prev) => {
+      const target = prev.find((ind) => ind.id === id)
+      if (!target) return prev
+      const turningOn = target.isVisible === false
+      if (turningOn) {
+        const visibleCount = prev.filter((ind) => ind.isActive && ind.isVisible !== false).length
+        if (visibleCount >= maxIndicators) {
+          notify(`Лимит видимых индикаторов: ${maxIndicators}. Скройте другой или выберите платный тариф.`, { kind: 'warn' })
+          return prev
+        }
+      }
+      return prev.map((ind) => (ind.id === id ? { ...ind, isVisible: ind.isVisible === false ? true : false } : ind))
+    })
   }
 
   const moveIndicator = (id: string, direction: "up" | "down", e: React.MouseEvent) => {
@@ -814,7 +821,9 @@ export default function IndicatorsModal({ isOpen, onClose, symbol = "", market =
                               </span>
                               <button
                                 onClick={() => { setCreatePresetOpen((v) => !v); setNewPresetName(''); setPresetsError(null) }}
-                                className={`flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-bold transition ${isLight ? "bg-blue-50 text-blue-700 hover:bg-blue-100" : "bg-blue-500/10 text-blue-300 hover:bg-blue-500/20"}`}
+                                disabled={!limits.customIndicatorSettings}
+                                title={!limits.customIndicatorSettings ? "Доступно на платных тарифах" : undefined}
+                                className={`flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-bold transition disabled:opacity-40 disabled:cursor-not-allowed ${isLight ? "bg-blue-50 text-blue-700 hover:bg-blue-100" : "bg-blue-500/10 text-blue-300 hover:bg-blue-500/20"}`}
                               >
                                 <Plus className="w-3 h-3" />
                                 Новый
@@ -911,15 +920,17 @@ export default function IndicatorsModal({ isOpen, onClose, symbol = "", market =
                                     </button>
                                     <button
                                       onClick={() => { setRenamingId(preset.id); setRenameDraft(preset.name) }}
-                                      title="Переименовать"
-                                      className={`p-1 rounded ${isLight ? "hover:bg-slate-200 text-slate-600" : "hover:bg-white/10 text-slate-400"}`}
+                                      disabled={!limits.customIndicatorSettings}
+                                      title={!limits.customIndicatorSettings ? "Доступно на платных тарифах" : "Переименовать"}
+                                      className={`p-1 rounded disabled:opacity-40 disabled:cursor-not-allowed ${isLight ? "hover:bg-slate-200 text-slate-600" : "hover:bg-white/10 text-slate-400"}`}
                                     >
                                       <Pencil className="w-3 h-3" />
                                     </button>
                                     <button
                                       onClick={() => void handleDeletePreset(preset)}
-                                      title="Удалить"
-                                      className={`p-1 rounded ${isLight ? "hover:bg-rose-100 text-rose-600" : "hover:bg-rose-500/20 text-rose-400"}`}
+                                      disabled={!limits.customIndicatorSettings}
+                                      title={!limits.customIndicatorSettings ? "Доступно на платных тарифах" : "Удалить"}
+                                      className={`p-1 rounded disabled:opacity-40 disabled:cursor-not-allowed ${isLight ? "hover:bg-rose-100 text-rose-600" : "hover:bg-rose-500/20 text-rose-400"}`}
                                     >
                                       <Trash2 className="w-3 h-3" />
                                     </button>
@@ -987,7 +998,7 @@ export default function IndicatorsModal({ isOpen, onClose, symbol = "", market =
                     {!limits.customIndicatorSettings && (
                       <div className={`p-3.5 border rounded-xl text-center text-xs font-bold mb-1 flex flex-col md:flex-row items-center justify-center gap-2 leading-relaxed ${isLight ? "bg-rose-50 border-rose-200 text-rose-800 shadow-sm" : "bg-rose-500/10 border-rose-505/15 text-rose-450"}`}>
                         <X className="w-4 h-4 shrink-0 text-red-500 animate-pulse" />
-                        <span>Настройки индикаторов заблокированы для вашего тарифа ({limits.tier.toUpperCase()})! Настройте политики в Админке.</span>
+                        <span>Настройки индикаторов заблокированы для вашего тарифа ({limits.tier.toUpperCase()})! Выберите платный тариф для разблокировки.</span>
                       </div>
                     )}
 
@@ -1763,13 +1774,14 @@ export default function IndicatorsModal({ isOpen, onClose, symbol = "", market =
                             type="checkbox"
                             id={`propagate-${selectedIndicator.id}`}
                             checked={propagateIds.has(selectedIndicator.id)}
+                            disabled={!limits.customIndicatorSettings}
                             onChange={() => togglePropagate(selectedIndicator.id)}
-                            className="w-3.5 h-3.5 cursor-pointer accent-blue-500"
+                            className="w-3.5 h-3.5 cursor-pointer accent-blue-500 disabled:opacity-40 disabled:cursor-not-allowed"
                           />
                           <label
                             htmlFor={`propagate-${selectedIndicator.id}`}
-                            className={`text-[11px] font-medium cursor-pointer select-none ${isLight ? "text-slate-600 hover:text-slate-800" : "text-slate-400 hover:text-slate-200"}`}
-                            title="Применить настройки этого индикатора ко всем ТФ. Снимается при каждом открытии модалки."
+                            className={`text-[11px] font-medium select-none ${!limits.customIndicatorSettings ? "opacity-40 cursor-not-allowed" : "cursor-pointer"} ${isLight ? "text-slate-600 hover:text-slate-800" : "text-slate-400 hover:text-slate-200"}`}
+                            title={!limits.customIndicatorSettings ? "Доступно на платных тарифах" : "Применить настройки этого индикатора ко всем ТФ. Снимается при каждом открытии модалки."}
                           >
                             Применить ко всем ТФ ({selectedIndicator.label.replace("(PROCLUSTER) ", "")})
                           </label>
@@ -1809,7 +1821,9 @@ export default function IndicatorsModal({ isOpen, onClose, symbol = "", market =
               </button>
               <button
                 onClick={handleApply}
-                className="px-6 py-2 bg-[#2563eb] hover:bg-blue-600 text-white rounded-xl text-xs font-extrabold font-sans transition-all active:scale-[0.98] shadow-lg cursor-pointer flex items-center gap-1.5"
+                disabled={!limits.customIndicatorSettings}
+                title={!limits.customIndicatorSettings ? "Доступно на платных тарифах" : undefined}
+                className="px-6 py-2 bg-[#2563eb] hover:bg-blue-600 text-white rounded-xl text-xs font-extrabold font-sans transition-all active:scale-[0.98] shadow-lg cursor-pointer flex items-center gap-1.5 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-[#2563eb]"
               >
                 <Activity className="w-3.5 h-3.5 text-blue-200" />
                 <span>Сохранить</span>

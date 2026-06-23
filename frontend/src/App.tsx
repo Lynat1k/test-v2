@@ -7,7 +7,7 @@ import type { MarketType } from '@/contexts/ChartControlsContext'
 import { LayoutProvider, useLayout } from '@/contexts/LayoutContext'
 import { UserSettingsProvider } from '@/contexts/UserSettingsContext'
 import { AuthProvider } from '@/features/auth/AuthContext'
-import { LimitsProvider } from '@/contexts/LimitsContext'
+import { LimitsProvider, useUserLimits } from '@/contexts/LimitsContext'
 import { DrawingDefaultsProvider } from '@/contexts/DrawingDefaultsContext'
 import { LoginModal } from '@/features/auth/LoginModal'
 import { RegisterModal } from '@/features/auth/RegisterModal'
@@ -24,6 +24,7 @@ import { IndicatorsStorageProvider, useIndicatorsForKey, useIndicatorsStorage } 
 import { computeActiveIndicators } from '@/features/indicators/storage'
 import { UserDropdown } from '@/components/UserDropdown'
 import RoadmapModal from '@/components/RoadmapModal'
+import ToastHost from '@/features/notify/ToastHost'
 import { Splitter } from '@/components/Splitter'
 import { DOMSidebar } from '@/components/DOMSidebar'
 import type { CandleMode, VolumeMode } from '@/chart-engine'
@@ -102,6 +103,14 @@ function AppShell() {
   const activeSlotData = activeSlot === 0 ? slot0 : slot1
   const activeSlotInd = activeSlot === 0 ? slot0Ind : slot1Ind
   const indicatorsStore = useIndicatorsStorage()
+
+  // Refresh tier limits on every active symbol/market navigation. Without a
+  // WS push for tier changes this is the cheapest way to keep the UI honest
+  // after a downgrade — one extra GET /user/limits per ticker switch.
+  const { refresh: refreshLimits } = useUserLimits()
+  useEffect(() => {
+    void refreshLimits()
+  }, [activeSlotData.symbol, activeSlotData.market, refreshLimits])
   const handlePropagateIndicator = useCallback((ind: Indicator) => {
     void indicatorsStore.propagateIndicator(activeSlotData.symbol, activeSlotData.market, ind)
   }, [indicatorsStore, activeSlotData.symbol, activeSlotData.market])
@@ -782,6 +791,7 @@ function AppShell() {
       <LoginModal open={loginOpen} onClose={() => setLoginOpen(false)} onSwitchToRegister={() => { setLoginOpen(false); setRegisterOpen(true) }} />
       <RegisterModal open={registerOpen} onClose={() => setRegisterOpen(false)} onSwitchToLogin={() => { setRegisterOpen(false); setLoginOpen(true) }} />
       <RoadmapModal isOpen={isRoadmapOpen} onClose={() => setIsRoadmapOpen(false)} language={language} />
+      <ToastHost />
     </div>
   )
 }

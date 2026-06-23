@@ -51,16 +51,23 @@ export async function fetchIndicators(symbol: string, market: string, timeframe:
 
 /**
  * PUT /api/v1/user/indicators with mode=replace. Requires auth.
+ *
+ * `intent` signals to the backend whether per-indicator settings changed in
+ * this request ('settings_changed') or only the active/visible/order shape
+ * ('add_only'). The backend gates 'settings_changed' behind the tier's
+ * custom_indicator_settings policy and returns 403 CUSTOM_SETTINGS_FORBIDDEN
+ * when the tier does not allow it.
  */
 export async function putIndicators(
   symbol: string,
   market: string,
   timeframe: string,
   indicators: StoredIndicator[],
+  intent: 'add_only' | 'settings_changed',
 ): Promise<void> {
   await request('/user/indicators', {
     method: 'PUT',
-    body: JSON.stringify({ symbol, market, timeframe, indicators, mode: 'replace' }),
+    body: JSON.stringify({ symbol, market, timeframe, indicators, mode: 'replace', intent }),
   })
 }
 
@@ -82,7 +89,7 @@ export async function propagateIndicator(
 ): Promise<void> {
   await request('/user/indicators', {
     method: 'PUT',
-    body: JSON.stringify({ symbol, market, mode: 'propagate', indicator }),
+    body: JSON.stringify({ symbol, market, mode: 'propagate', intent: 'settings_changed', indicator }),
   })
 }
 

@@ -31,6 +31,8 @@ import {
   type ResolvedIndicators,
   type StoredIndicator,
 } from './types'
+import { notify, reportCustomSettingsForbidden } from '@/features/notify/toast'
+import { useUserLimits } from '@/contexts/LimitsContext'
 import {
   canonKey,
   clearGuestPresets,
@@ -176,6 +178,7 @@ function systemDefaultsEntry(): StoreEntry {
 export function IndicatorsStorageProvider({ children }: { children: ReactNode }) {
   const { user, accessToken, loading: authLoading } = useAuthContext()
   const isLoggedIn = !!user && !!accessToken
+  const { limits } = useUserLimits()
 
   // Cache key for the latest user we synced for; used to detect login/logout
   // edges so we can refetch on transition without leaking previous-user data.
@@ -242,6 +245,49 @@ export function IndicatorsStorageProvider({ children }: { children: ReactNode })
       bumpRevision()
     }
   }, [user?.id, authLoading, bumpRevision])
+
+  // Tier-cap cascade. When limits.maxIndicators drops (downgrade), force
+  // isVisible=false on every active indicator past the new cap across all
+  // cached keys. First N by current array order stay visible. The backend
+  // mirrors this trim on its next read/write, so this effect is the
+  // immediate-UX half of the contract — without it the chart would keep
+  // drawing the previous-tier set until the next refetch.
+  const prevMaxIndicatorsRef = useRef<number | null>(null)
+  useEffect(() => {
+    const max = limits.maxIndicators
+    const prev = prevMaxIndicatorsRef.current
+    prevMaxIndicatorsRef.current = max
+    if (prev === null) return // first observed value — no cascade
+    if (max >= prev) return // increase or unchanged
+    if (max >= 100) return // unlimited tier — nothing to trim
+
+    let totalTrimmed = 0
+    for (const [key, entry] of storeRef.current.entries()) {
+      let visibleCount = 0
+      let trimmedHere = 0
+      const arr = entry.indicators.map((s) => {
+        if (!s.isActive) return s
+        const isVis = s.isVisible !== false
+        if (!isVis) return s
+        if (visibleCount >= max) {
+          trimmedHere++
+          return { ...s, isVisible: false }
+        }
+        visibleCount++
+        return s
+      })
+      if (trimmedHere > 0) {
+        const updated: StoreEntry = { ...entry, indicators: arr, updatedAt: new Date().toISOString() }
+        storeRef.current.set(key, updated)
+        writeCachedEntry(key, updated)
+        totalTrimmed += trimmedHere
+      }
+    }
+    if (totalTrimmed > 0) {
+      bumpRevision()
+      notify(`Тариф изменён, скрыто индикаторов: ${totalTrimmed}`, { kind: 'warn' })
+    }
+  }, [limits.maxIndicators, bumpRevision])
 
   /** Lazy server fetch with dedup; updates the cache + bumps revision when done. */
   const ensureFetched = useCallback((symbol: string, market: string, timeframe: string) => {
@@ -346,7 +392,7 @@ export function IndicatorsStorageProvider({ children }: { children: ReactNode })
 
     if (!isLoggedIn) return
     try {
-      await putIndicators(cs, cm, ct, stored)
+      await putIndicators(cs, cm, ct, stored, 'add_only')
     } catch (err) {
       console.warn('[indicators] PUT failed, kept local cache', err)
     }
@@ -393,9 +439,11 @@ export function IndicatorsStorageProvider({ children }: { children: ReactNode })
 
     if (!isLoggedIn) return
     try {
-      await putIndicators(cs, cm, ct, stored)
+      await putIndicators(cs, cm, ct, stored, 'settings_changed')
     } catch (err) {
       console.warn('[indicators] PUT failed (apply), kept local cache', err)
+      reportCustomSettingsForbidden(err)
+      throw err
     }
   }, [favorites, isLoggedIn, bumpRevision])
 
@@ -519,8 +567,13 @@ export function IndicatorsStorageProvider({ children }: { children: ReactNode })
     const trimmed = name.trim()
     if (!trimmed) throw { code: 'INVALID_PARAMS', message: 'name required' }
     if (isLoggedIn) {
-      const { id } = await apiCreatePreset(indicatorId, trimmed, settings)
-      return { id, indicatorId, name: trimmed, settings, updatedAt: new Date().toISOString() }
+      try {
+        const { id } = await apiCreatePreset(indicatorId, trimmed, settings)
+        return { id, indicatorId, name: trimmed, settings, updatedAt: new Date().toISOString() }
+      } catch (err) {
+        reportCustomSettingsForbidden(err)
+        throw err
+      }
     }
     const existing = readGuestPresetsFor(indicatorId)
     if (existing.some((p) => p.name.toLowerCase() === trimmed.toLowerCase())) {
@@ -542,7 +595,12 @@ export function IndicatorsStorageProvider({ children }: { children: ReactNode })
     const trimmed = name.trim()
     if (!trimmed) throw { code: 'INVALID_PARAMS', message: 'name required' }
     if (isLoggedIn) {
-      await apiUpdatePreset(id, { name: trimmed })
+      try {
+        await apiUpdatePreset(id, { name: trimmed })
+      } catch (err) {
+        reportCustomSettingsForbidden(err)
+        throw err
+      }
       return
     }
     const existing = readGuestPresetsFor(indicatorId)
@@ -557,7 +615,12 @@ export function IndicatorsStorageProvider({ children }: { children: ReactNode })
 
   const updatePresetSettings = useCallback(async (id: string, indicatorId: string, settings: IndicatorSettings) => {
     if (isLoggedIn) {
-      await apiUpdatePreset(id, { settings })
+      try {
+        await apiUpdatePreset(id, { settings })
+      } catch (err) {
+        reportCustomSettingsForbidden(err)
+        throw err
+      }
       return
     }
     const existing = readGuestPresetsFor(indicatorId)
@@ -569,7 +632,12 @@ export function IndicatorsStorageProvider({ children }: { children: ReactNode })
 
   const deletePreset = useCallback(async (id: string, indicatorId: string) => {
     if (isLoggedIn) {
-      await apiDeletePreset(id)
+      try {
+        await apiDeletePreset(id)
+      } catch (err) {
+        reportCustomSettingsForbidden(err)
+        throw err
+      }
       return
     }
     const existing = readGuestPresetsFor(indicatorId)

@@ -23,6 +23,68 @@ const (
 	maxIndicatorsRequest = 64 * 1024 // 64 KB hard ceiling on the whole request body
 )
 
+// applyVisibleCap walks arr in order and forces isVisible=false on every
+// active indicator past the tier's per-user max. Mutates arr in place.
+// Returns the number of items trimmed. max < 0 disables the cap.
+//
+// "Visibility" semantics mirror the frontend (storage.ts computeActiveIndicators):
+// chart renders an indicator iff isActive && isVisible !== false. We only
+// touch isVisible — isActive is left alone so users keep their list intact
+// and can delete the hidden ones manually after a downgrade.
+func applyVisibleCap(arr []map[string]interface{}, max int) int {
+	if max < 0 {
+		return 0
+	}
+	visible := 0
+	trimmed := 0
+	for _, it := range arr {
+		active, _ := it["isActive"].(bool)
+		if !active {
+			continue
+		}
+		isVisible := true
+		if v, ok := it["isVisible"].(bool); ok {
+			isVisible = v
+		}
+		if !isVisible {
+			continue
+		}
+		if visible >= max {
+			it["isVisible"] = false
+			trimmed++
+		} else {
+			visible++
+		}
+	}
+	return trimmed
+}
+
+// getMaxIndicatorsForRole reads tier_policies.max_indicators for the role.
+// Returns -1 (no cap) for unknown roles or query failures — the global
+// maxIndicatorsPerKey ceiling still applies as a hard DoS guard. Values >= 100
+// are treated as unlimited, matching the frontend convention.
+func (h *Handler) getMaxIndicatorsForRole(role string) int {
+	if role == "" {
+		role = "guest"
+	}
+	var maxN int
+	err := h.db.QueryRow(
+		`SELECT max_indicators FROM tier_policies WHERE tier = ?`,
+		strings.ToLower(role),
+	).Scan(&maxN)
+	if err == sql.ErrNoRows {
+		return -1
+	}
+	if err != nil {
+		log.Printf("[auth] visible cap: query for %s: %v", role, err)
+		return -1
+	}
+	if maxN >= 100 {
+		return -1
+	}
+	return maxN
+}
+
 // NormalizeIndicatorKey enforces the canonical case (symbol upper, market/tf
 // lower) and validates against the allow-list. timeframe='*' is accepted as
 // the all-tf marker. Returns the normalized triple and an error string
@@ -62,7 +124,7 @@ func (h *Handler) handleGetUserIndicators(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	userID, _, _ := ExtractUserFromRequest(h.cfg, r)
+	userID, role, _ := ExtractUserFromRequest(h.cfg, r)
 	// userID is "" for guest — ResolveIndicators handles that explicitly.
 
 	jsonStr, source, err := ResolveIndicators(r.Context(), h.db, userID, symbol, market, timeframe)
@@ -72,11 +134,22 @@ func (h *Handler) handleGetUserIndicators(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	var parsed interface{}
-	if err := json.Unmarshal([]byte(jsonStr), &parsed); err != nil {
-		// Corrupt row — degrade to empty so the UI keeps working. We log so this
-		// shows up in metrics; ResolveIndicators already wrapped the SQL error.
+	// Parse as a typed array of objects so we can apply the per-tier visible
+	// cap. Falls back to an empty array on corrupt rows so the UI keeps
+	// working. The cap is enforced on read to repair any dirty state saved
+	// before the cap landed (e.g. a freshly downgraded user whose previous-tier
+	// state still has too many visible indicators).
+	var arr []map[string]interface{}
+	if err := json.Unmarshal([]byte(jsonStr), &arr); err != nil {
 		log.Printf("[auth] resolve indicators: corrupt json for %s/%s/%s: %v", symbol, market, timeframe, err)
+		arr = nil
+	}
+	if trimmed := applyVisibleCap(arr, h.getMaxIndicatorsForRole(role)); trimmed > 0 {
+		log.Printf("[auth] visible cap on read: user=%s role=%s key=%s/%s/%s trimmed=%d",
+			userID, role, symbol, market, timeframe, trimmed)
+	}
+	var parsed interface{} = arr
+	if arr == nil {
 		parsed = []interface{}{}
 	}
 
@@ -139,6 +212,7 @@ func (h *Handler) handlePutUserIndicators(w http.ResponseWriter, r *http.Request
 		Indicators json.RawMessage `json:"indicators"`
 		Indicator  json.RawMessage `json:"indicator"`
 		Mode       string          `json:"mode"`
+		Intent     string          `json:"intent"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeError(w, http.StatusBadRequest, "INVALID_BODY", "invalid request body")
@@ -148,6 +222,25 @@ func (h *Handler) handlePutUserIndicators(w http.ResponseWriter, r *http.Request
 	mode := body.Mode
 	if mode == "" {
 		mode = "replace"
+	}
+
+	// Intent is orthogonal to mode: explicit signal whether the request modifies
+	// per-indicator settings ("settings_changed") or only the add/remove/visibility
+	// shape of the list ("add_only"). Missing intent defaults to settings_changed
+	// (safer fallback for legacy clients). propagate always implies settings change.
+	intent := strings.ToLower(strings.TrimSpace(body.Intent))
+	if intent == "" {
+		intent = "settings_changed"
+	}
+	if mode == "propagate" {
+		intent = "settings_changed"
+	}
+	if intent != "add_only" && intent != "settings_changed" {
+		writeError(w, http.StatusBadRequest, "INVALID_PARAMS", "intent must be 'add_only' or 'settings_changed'")
+		return
+	}
+	if intent == "settings_changed" && !h.requireCustomIndicatorSettings(w, r) {
+		return
 	}
 
 	// For propagate the timeframe is not part of the wire — operation is
@@ -220,7 +313,24 @@ func (h *Handler) handlePutUserIndicators(w http.ResponseWriter, r *http.Request
 			}
 		}
 
+		// Enforce per-tier visible cap silently: items past the cap get
+		// isVisible=false (active flag preserved so user can still delete
+		// them). Logged but never returned as an error — matches the plan's
+		// "молча обрезать" decision.
+		role, _ := r.Context().Value(RoleKey).(string)
+		if trimmed := applyVisibleCap(arr, h.getMaxIndicatorsForRole(role)); trimmed > 0 {
+			log.Printf("[auth] visible cap on write: user=%s role=%s key=%s/%s/%s mode=%s trimmed=%d",
+				userID, role, symbol, market, timeframe, mode, trimmed)
+		}
+
+		// Re-marshal arr after cap application so the persisted JSON reflects
+		// any isVisible mutations. Falls back to the original body on encoding
+		// errors (defensive — Marshal of a map already parsed via Unmarshal
+		// should never fail).
 		indicatorsJSON := string(body.Indicators)
+		if reEncoded, err := json.Marshal(arr); err == nil {
+			indicatorsJSON = string(reEncoded)
+		}
 		if mode == "replace" {
 			if err := UpsertUserIndicator(r.Context(), h.db, userID, symbol, market, timeframe, indicatorsJSON); err != nil {
 				log.Printf("[auth] upsert user_indicators: %v", err)
