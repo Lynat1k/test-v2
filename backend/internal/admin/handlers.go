@@ -109,6 +109,14 @@ func (h *AdminHandler) RegisterAdminRoutes(mux *http.ServeMux) {
 	mux.Handle("GET /api/v1/admin/compressions", wrap(h.handleGetCompressions))
 	mux.Handle("PUT /api/v1/admin/compressions", wrap(h.handleUpsertCompressions))
 
+	// Indicator defaults (Phase 15)
+	mux.Handle("GET /api/v1/admin/indicator-defaults", wrap(h.handleGetIndicatorDefaults))
+	mux.Handle("PUT /api/v1/admin/indicator-defaults", wrap(h.handlePutIndicatorDefaults))
+	mux.Handle("DELETE /api/v1/admin/indicator-defaults", wrap(h.handleDeleteIndicatorDefaults))
+	// Per-indicator merge/delete on the same admin-defaults table.
+	mux.Handle("PATCH /api/v1/admin/indicator-defaults/indicator", wrap(h.handlePatchIndicatorDefaultIndicator))
+	mux.Handle("DELETE /api/v1/admin/indicator-defaults/indicator", wrap(h.handleDeleteIndicatorDefaultIndicator))
+
 	// History download
 	mux.Handle("POST /api/v1/admin/history/download", wrap(h.handleStartDownload))
 	mux.Handle("GET /api/v1/admin/history/jobs", wrap(h.handleGetJobs))

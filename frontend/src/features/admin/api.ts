@@ -1,4 +1,5 @@
 import { request } from '@/features/auth/api'
+import type { StoredIndicator } from '@/features/indicators/types'
 
 // --- Metrics ---
 
@@ -259,3 +260,70 @@ export async function apiUpdatePayment(id: string, data: Partial<PaymentRecord>)
 export async function apiDeletePayment(id: string): Promise<void> {
   await request(`/admin/billing/${id}`, { method: 'DELETE' })
 }
+
+// --- Indicator defaults (admin) ---
+
+export interface AdminIndicatorDefault {
+  symbol: string
+  market: string
+  timeframe: string
+  indicators: StoredIndicator[]
+  updatedBy: string
+  updatedAt: string
+}
+
+export async function apiListIndicatorDefaults(symbol: string): Promise<AdminIndicatorDefault[]> {
+  const qs = new URLSearchParams({ symbol }).toString()
+  return request<AdminIndicatorDefault[]>(`/admin/indicator-defaults?${qs}`)
+}
+
+export async function apiPutIndicatorDefaults(
+  symbol: string,
+  market: string,
+  timeframe: string,
+  indicators: StoredIndicator[],
+): Promise<void> {
+  await request('/admin/indicator-defaults', {
+    method: 'PUT',
+    body: JSON.stringify({ symbol, market, timeframe, indicators }),
+  })
+}
+
+export async function apiDeleteIndicatorDefaults(symbol: string, market: string, timeframe: string): Promise<void> {
+  const qs = new URLSearchParams({ symbol, market, timeframe }).toString()
+  await request(`/admin/indicator-defaults?${qs}`, { method: 'DELETE' })
+}
+
+/**
+ * PATCH /api/v1/admin/indicator-defaults/indicator — merge-upsert one indicator
+ * by id, preserving siblings on the (symbol, market, timeframe) row. Use this
+ * instead of the PUT-replace endpoint when toggling a single indicator's
+ * admin-default state so other admin defaults on the same key are not wiped.
+ */
+export async function apiPatchAdminIndicatorDefault(
+  symbol: string,
+  market: string,
+  timeframe: string,
+  indicator: StoredIndicator,
+): Promise<void> {
+  await request('/admin/indicator-defaults/indicator', {
+    method: 'PATCH',
+    body: JSON.stringify({ symbol, market, timeframe, indicator }),
+  })
+}
+
+/**
+ * DELETE /api/v1/admin/indicator-defaults/indicator — remove a single indicator
+ * by id from the admin-defaults row. If the row becomes empty the whole row is
+ * dropped server-side.
+ */
+export async function apiDeleteAdminIndicatorDefaultForIndicator(
+  symbol: string,
+  market: string,
+  timeframe: string,
+  indicatorId: string,
+): Promise<void> {
+  const qs = new URLSearchParams({ symbol, market, timeframe, indicatorId }).toString()
+  await request(`/admin/indicator-defaults/indicator?${qs}`, { method: 'DELETE' })
+}
+

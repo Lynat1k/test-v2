@@ -3142,7 +3142,7 @@ export default function ClusterChart({
             const isBuyDelta = cellDeltaVal > 0;
 
             ctx.fillStyle = useAltPalette
-              ? (isBuyDelta ? "#C7C7C7" : "#7F7F7F")
+              ? (isBuyDelta ? "#10b981" : "#f43f5e")
               : isBuyDelta
                 ? (isLight ? `rgba(34, 197, 94, ${deltaOpacity * 0.70})` : `rgba(4, 120, 87, ${deltaOpacity})`)
                 : (isLight ? `rgba(239, 68, 68, ${deltaOpacity * 0.70})` : `rgba(220, 38, 38, ${deltaOpacity})`);
@@ -3178,7 +3178,7 @@ export default function ClusterChart({
                 ? (0.06 + bidRatioClamped * 0.68) 
                 : (0.10 + bidRatioClamped * 0.85);
               ctx.fillStyle = useAltPalette
-                ? `rgba(127, 127, 127, ${op})`
+                ? `rgba(244, 63, 94, ${op})`
                 : (isLight ? `rgba(220, 38, 38, ${op})` : `rgba(239, 68, 68, ${op})`);
               ctx.fillRect(sepX - bidBarWidth, cellY + 0.5, bidBarWidth, drawHeight);
             }
@@ -3187,23 +3187,27 @@ export default function ClusterChart({
                 ? (0.06 + askRatioClamped * 0.68) 
                 : (0.10 + askRatioClamped * 0.85);
               ctx.fillStyle = useAltPalette
-                ? `rgba(199, 199, 199, ${op})`
+                ? `rgba(16, 185, 129, ${op})`
                 : (isLight ? `rgba(22, 163, 74, ${op})` : `rgba(16, 185, 129, ${op})`);
               ctx.fillRect(sepX, cellY + 0.5, askBarWidth, drawHeight);
             }
           } else {
-            const maxBarWidth = candleWidth - 2;
-            const barWidth = cell.volume > 0 ? (cell.volume / visibleMaxCellVol) * maxBarWidth : 0;
-            if (barWidth > 0) {
-              const barIsBuy = cell.ask > cell.bid;
-              ctx.fillStyle = useAltPalette
-                ? (barIsBuy ? "#C7C7C7" : "#7F7F7F")
-                : barIsBuy
-                  ? (isLight ? "rgba(22, 163, 74, 0.35)" : "rgba(16, 185, 129, 0.45)")
-                  : (isLight ? "rgba(220, 38, 38, 0.35)" : "rgba(239, 68, 68, 0.45)");
-              ctx.fillRect(x + 1, cellY + 0.5, barWidth, drawHeight);
-            }
-          }
+  const maxBarWidth = candleWidth - 2;
+  const barWidth = cell.volume > 0 ? (cell.volume / visibleMaxCellVol) * maxBarWidth : 0;
+  if (barWidth > 0) {
+    const barIsBuy = cell.ask > cell.bid;
+    const volRatioBar = cell.volume / visibleMaxCellVol;
+    const op = isLight
+      ? (0.06 + volRatioBar * 0.68)
+      : (0.10 + volRatioBar * 0.95);
+    ctx.fillStyle = useAltPalette
+      ? (barIsBuy ? `rgba(16, 185, 129, ${op})` : `rgba(244, 63, 94, ${op})`)
+      : barIsBuy
+        ? (isLight ? `rgba(22, 163, 74, ${op})` : `rgba(16, 185, 129, ${op})`)
+        : (isLight ? `rgba(220, 38, 38, ${op})` : `rgba(239, 68, 68, ${op})`);
+    ctx.fillRect(x + 1, cellY + 0.5, barWidth, drawHeight);
+  }
+}
 
           // C. Highlight Diagonal Buy / Sell Imbalance rows removed at user's request (only keep histograms)
 

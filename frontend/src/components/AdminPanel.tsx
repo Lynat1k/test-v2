@@ -19,7 +19,9 @@ import {
   Download,
   RefreshCw,
 } from 'lucide-react'
-import { apiGetMetrics, apiGetMetricsHistory, apiGetTickers, apiAddTicker, apiUpdateTicker, apiDeleteTicker, apiGetCompressions, apiUpsertCompressions, apiStartDownload, apiGetJobs, apiClearJobs, apiGetUserStats, apiListUsers, apiCreateUser, apiUpdateUserRole, apiDeleteUser, apiGetPolicies, apiUpdatePolicies, type ServerMetrics, type MetricsHistoryPoint, type Ticker, type DefaultCompression, type DownloadJob, type UserListItem, type UserStats, type TierPolicy } from '@/features/admin/api'
+import { apiGetMetrics, apiGetMetricsHistory, apiGetTickers, apiAddTicker, apiUpdateTicker, apiDeleteTicker, apiGetCompressions, apiUpsertCompressions, apiStartDownload, apiGetJobs, apiClearJobs, apiGetUserStats, apiListUsers, apiCreateUser, apiUpdateUserRole, apiDeleteUser, apiGetPolicies, apiUpdatePolicies, apiListIndicatorDefaults, apiPutIndicatorDefaults, apiDeleteIndicatorDefaults, type ServerMetrics, type MetricsHistoryPoint, type Ticker, type DefaultCompression, type DownloadJob, type UserListItem, type UserStats, type TierPolicy, type AdminIndicatorDefault } from '@/features/admin/api'
+import { useChartControls } from '@/contexts/ChartControlsContext'
+import { useIndicatorsStorage } from '@/features/indicators/IndicatorsStorageContext'
 
 type AdminTab = 'server' | 'database' | 'users' | 'settings' | 'stats'
 
@@ -2003,6 +2005,151 @@ function SettingsTab({ isLight }: { isLight: boolean }) {
   return (
     <div className="flex-1 flex flex-col gap-6 min-h-0 w-full overflow-y-auto">
       <TierPoliciesBlock isLight={isLight} />
+      <AdminIndicatorDefaultsBlock isLight={isLight} />
+    </div>
+  )
+}
+
+function AdminIndicatorDefaultsBlock({ isLight }: { isLight: boolean }) {
+  const { getSlot, activeSlot } = useChartControls()
+  const slot = getSlot(activeSlot)
+  const store = useIndicatorsStorage()
+  const [symbol, setSymbol] = useState(slot.symbol)
+  const [rows, setRows] = useState<AdminIndicatorDefault[]>([])
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [message, setMessage] = useState<string | null>(null)
+
+  const load = useCallback(async (sym: string) => {
+    setLoading(true)
+    setError(null)
+    try {
+      const data = await apiListIndicatorDefaults(sym)
+      setRows(data)
+    } catch (e: unknown) {
+      const err = e as { code?: string; message?: string }
+      setError(err.message ?? 'failed')
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
+  useEffect(() => { void load(symbol) }, [symbol, load])
+
+  const flash = (m: string) => {
+    setMessage(m)
+    setTimeout(() => setMessage(null), 2500)
+  }
+
+  const saveFromActiveSlot = async (scope: 'tf' | 'all-tf') => {
+    const tf = scope === 'all-tf' ? '*' : slot.timeframe
+    const current = store.getForKey(slot.symbol, slot.market, slot.timeframe)
+    // Re-narrow the hydrated array back to the wire shape. We can't reuse
+    // dehydrateForSave from the indicators package without a circular import,
+    // and the projection is trivial enough to inline here.
+    const stored = current.indicators.map((i) => ({
+      id: i.id,
+      isActive: i.isActive,
+      ...(i.isVisible === undefined ? {} : { isVisible: i.isVisible }),
+      settings: i.settings,
+    }))
+    try {
+      await apiPutIndicatorDefaults(slot.symbol, slot.market, tf, stored)
+      flash(`Сохранено: ${slot.symbol} / ${slot.market} / ${tf} (${stored.length} индикаторов)`)
+      void load(symbol)
+    } catch (e: unknown) {
+      const err = e as { message?: string }
+      setError(err.message ?? 'save failed')
+    }
+  }
+
+  const handleDelete = async (row: AdminIndicatorDefault) => {
+    if (!confirm(`Удалить дефолт ${row.symbol}/${row.market}/${row.timeframe}?`)) return
+    try {
+      await apiDeleteIndicatorDefaults(row.symbol, row.market, row.timeframe)
+      flash(`Удалено: ${row.symbol}/${row.market}/${row.timeframe}`)
+      void load(symbol)
+    } catch (e: unknown) {
+      const err = e as { message?: string }
+      setError(err.message ?? 'delete failed')
+    }
+  }
+
+  return (
+    <div className={`p-5 rounded-2xl border ${isLight ? 'bg-white border-slate-200' : 'liquid-glass-card'}`}>
+      <div className="flex items-center gap-2 text-xs font-bold font-mono text-indigo-500 uppercase mb-3">
+        <Activity className="w-4 h-4" />
+        Индикаторы по умолчанию
+      </div>
+      <p className={`text-[11px] mb-4 ${isLight ? 'text-slate-600' : 'text-slate-400'}`}>
+        Эти настройки увидят пользователи, которые ещё не задавали свои собственные на этой паре/рынке/ТФ.
+        Каскад: своя запись юзера → этот админ-дефолт → системный пустой.
+      </p>
+
+      <div className="flex items-center gap-2 mb-4 flex-wrap">
+        <label className={`text-[11px] font-mono uppercase ${isLight ? 'text-slate-600' : 'text-slate-400'}`}>Символ:</label>
+        <input
+          value={symbol}
+          onChange={(e) => setSymbol(e.target.value.toUpperCase())}
+          className={`text-xs font-mono px-2 py-1 rounded border ${isLight ? 'bg-white border-slate-300' : 'bg-slate-900/40 border-white/10 text-slate-100'}`}
+        />
+        <button
+          onClick={() => void saveFromActiveSlot('tf')}
+          className="px-3 py-1.5 rounded-lg bg-indigo-500 hover:bg-indigo-600 text-white text-[11px] font-bold flex items-center gap-1 cursor-pointer"
+          title={`Сохранить активный график (${slot.symbol}/${slot.market}/${slot.timeframe}) как дефолт для этого ТФ`}
+        >
+          <Save className="w-3 h-3" />
+          Сохранить из графика — этот ТФ
+        </button>
+        <button
+          onClick={() => void saveFromActiveSlot('all-tf')}
+          className="px-3 py-1.5 rounded-lg bg-indigo-700 hover:bg-indigo-800 text-white text-[11px] font-bold flex items-center gap-1 cursor-pointer"
+          title={`Сохранить активный график (${slot.symbol}/${slot.market}) как scope=all-tf дефолт`}
+        >
+          <Save className="w-3 h-3" />
+          Сохранить из графика — все ТФ
+        </button>
+      </div>
+
+      {message && <div className="text-emerald-500 text-[11px] mb-2 font-mono">{message}</div>}
+      {error && <div className="text-rose-500 text-[11px] mb-2 font-mono">{error}</div>}
+      {loading ? (
+        <div className="text-slate-400 text-center py-6 text-xs">Загрузка...</div>
+      ) : rows.length === 0 ? (
+        <div className="text-slate-400 text-center py-6 text-xs italic">Нет админ-дефолтов для {symbol}</div>
+      ) : (
+        <table className="w-full text-[11px] font-mono">
+          <thead>
+            <tr className={`text-left uppercase ${isLight ? 'text-slate-600' : 'text-slate-400'} border-b ${isLight ? 'border-slate-200' : 'border-white/5'}`}>
+              <th className="py-2 pr-3">Рынок</th>
+              <th className="py-2 pr-3">ТФ</th>
+              <th className="py-2 pr-3">Кол-во</th>
+              <th className="py-2 pr-3">Обновлено</th>
+              <th className="py-2 pr-3 text-right">Действия</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((row, i) => (
+              <tr key={`${row.symbol}/${row.market}/${row.timeframe}/${i}`}
+                  className={`border-b ${isLight ? 'border-slate-100' : 'border-white/5'}`}>
+                <td className="py-2 pr-3">{row.market}</td>
+                <td className="py-2 pr-3 font-bold">{row.timeframe === '*' ? <span className="text-indigo-500">all-tf</span> : row.timeframe}</td>
+                <td className="py-2 pr-3">{row.indicators.length}</td>
+                <td className="py-2 pr-3 text-slate-500">{row.updatedAt}</td>
+                <td className="py-2 pr-3 text-right">
+                  <button
+                    onClick={() => void handleDelete(row)}
+                    className="px-2 py-1 rounded bg-rose-500/20 hover:bg-rose-500/40 text-rose-500 cursor-pointer"
+                    title="Удалить дефолт"
+                  >
+                    <Trash2 className="w-3 h-3" />
+                  </button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
     </div>
   )
 }

@@ -2125,3 +2125,101 @@ follow-up'ом.
 - FPS scroll ~77 не просел.
 
 Зум закрыт. Дальнейшие задачи — отдельные.
+
+---
+
+## 2026-06-22 — Per-key indicators (Phase 15, Feature 1)
+
+Привязка индикаторов к ключу `symbol + market + timeframe` с серверным
+хранением, локальным кэшем-страховкой, опцией "на все ТФ" через маркер
+`timeframe='*'`, и админскими дефолтами через 5-уровневый каскад:
+user-tf → user-all-tf → admin-tf → admin-all-tf → system.
+
+### Backend
+- Миграция Phase 15 в `internal/auth/sqlite.go:299-323`: таблицы
+  `user_indicators` и `admin_indicator_defaults` (PK на `(user_id?, symbol, market, timeframe)`).
+- CRUD + резолвер каскада в новом `internal/auth/indicators.go`:
+  `Get/Upsert/Delete/MergeAddUserIndicator`, `Get/List/Upsert/Delete AdminIndicatorDefault`,
+  `ResolveIndicators` с обязательным `ORDER BY prio LIMIT 1` (UNION ALL в SQLite
+  без ORDER не гарантирует порядок).
+- HTTP-эндпоинты в `internal/auth/indicators_handlers.go`:
+  - `GET  /api/v1/user/indicators` — auth-optional, гость видит только admin-*.
+  - `PUT  /api/v1/user/indicators` — auth, mode=replace|merge-add.
+  - `DELETE /api/v1/user/indicators` — auth, снимает override.
+  - `PUT  /api/v1/user/settings/favorite-indicators` — атомарный merge
+    `favoriteIndicatorIds` в `user_settings.settings_json` через транзакцию SQLite.
+  - Канонизация на входе: symbol→UPPER, market/tf→lower, валидация
+    против `TIMEFRAMES_BY_MARKET ∪ {'*'}`.
+- Админские эндпоинты в новом `internal/admin/indicator_defaults.go`:
+  - `GET  /api/v1/admin/indicator-defaults?symbol=X` — список всех (market, tf).
+  - `PUT  /api/v1/admin/indicator-defaults` — replace; `RequireRole("admin")`.
+  - `DELETE /api/v1/admin/indicator-defaults` — удалить запись.
+- `SetUserSettingsField` в `internal/auth/user_settings.go` — общий
+  read-modify-write для одного поля в JSON-блобе настроек (использует
+  favorites; не затирает другие поля блоба).
+- Тесты: 5 unit (CRUD + resolver + favorites-merge) + 5 integration
+  через httptest mux (cascade через HTTP, нормализация регистра,
+  merge-add idempotent, DELETE→каскад, валидация). Все зелёные.
+
+### Frontend
+- Новый каталог `frontend/src/features/indicators/`:
+  - `types.ts` — `StoredIndicator`, `IndicatorsSource`, `ALL_TF_MARKER`,
+    схема localStorage v3.
+  - `api.ts` — HTTP-клиент (fetch/put/mergeAdd/delete + favorites).
+  - `storage.ts` — канонизация ключа, `hydrate/dehydrateForSave` с
+    passthrough неизвестных id, миграция legacy `procluster_indicators_v2`
+    в одну `scope=all-tf` row (старый ключ переименован, не удалён).
+  - `IndicatorsStorageContext.tsx` — Provider с in-memory `Map<comboKey,Entry>`,
+    lazy-load + stale-while-revalidate, write-through в localStorage,
+    обработка login/logout через `useEffect` на `user?.id`, hooks
+    `useIndicatorsStorage` и `useIndicatorsForKey`.
+  - старый `useIndicators.ts` удалён.
+- `App.tsx` — `IndicatorsStorageProvider` в дереве; `useIndicatorsForKey` для
+  slot 0/1 (per-slot indicators); 6 рендер-мест ChartContainer2 принимают
+  свои per-slot indicators/handlers; IndicatorsModal привязан к активному
+  слоту.
+- `IndicatorsModal.tsx` — source badge (3 текста: admin/system,
+  user-all-tf, user-tf без бэйджа); чекбокс "Применять ко всем ТФ" в
+  footer; на Apply newly-activated индикаторы записываются и в scope=all-tf
+  через `addToAllTimeframes`.
+- `AdminPanel.tsx` — `AdminIndicatorDefaultsBlock` в Settings tab:
+  список дефолтов для введённого symbol, Delete на каждой row,
+  "Сохранить из графика" (per-tf или all-tf) для активного слота.
+
+### Файлы
+**Backend:**
+- `backend/internal/auth/sqlite.go` (изменён)
+- `backend/internal/auth/indicators.go` (новый)
+- `backend/internal/auth/indicators_handlers.go` (новый)
+- `backend/internal/auth/indicators_test.go` (новый)
+- `backend/internal/auth/indicators_handlers_test.go` (новый)
+- `backend/internal/auth/handlers.go` (RegisterRoutes patch)
+- `backend/internal/auth/user_settings.go` (SetUserSettingsField)
+- `backend/internal/admin/indicator_defaults.go` (новый)
+- `backend/internal/admin/handlers.go` (RegisterAdminRoutes patch)
+
+**Frontend:**
+- `frontend/src/features/indicators/types.ts` (новый)
+- `frontend/src/features/indicators/api.ts` (новый)
+- `frontend/src/features/indicators/storage.ts` (новый)
+- `frontend/src/features/indicators/IndicatorsStorageContext.tsx` (новый)
+- `frontend/src/features/indicators/useIndicators.ts` (УДАЛЁН)
+- `frontend/src/features/admin/api.ts` (расширен)
+- `frontend/src/App.tsx` (изменён)
+- `frontend/src/components/IndicatorsModal.tsx` (изменён)
+- `frontend/src/components/AdminPanel.tsx` (расширен)
+
+### TODO
+- Live-apply настроек (Фича 2): сейчас onChange кладёт в draft, Apply
+  пишет в storage; для live нужен дополнительный путь `applyImmediate`
+  → `saveForKey` без закрытия модалки. Требует мемоизации
+  IndicatorsModal (Фича 4) ради производительности.
+- Пресеты (Фича 3): отдельная таблица `indicator_presets` + UI
+  save/load/toggle-default в IndicatorsModal.
+- WS-инвалидация админ-дефолтов на клиенте: сейчас юзер увидит
+  обновлённый админ-дефолт только при следующем GET (по TTL 5мин или
+  смене ТФ).
+- BroadcastChannel sync между вкладками (две вкладки на одной паре
+  не видят друг друга до переключения ТФ).
+- "Удалить со всех ТФ" UI (сейчас удаление работает только для
+  текущего ТФ; пользователь вручную обходит ТФ).

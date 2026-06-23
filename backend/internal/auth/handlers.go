@@ -136,6 +136,17 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v1/user/drawings", RequireAuth(h.cfg)(http.HandlerFunc(h.handleGetDrawings)).ServeHTTP)
 	mux.HandleFunc("PUT /api/v1/user/drawings", RequireAuth(h.cfg)(http.HandlerFunc(h.handlePutDrawingsBatch)).ServeHTTP)
 	mux.HandleFunc("DELETE /api/v1/user/drawings/{id}", RequireAuth(h.cfg)(http.HandlerFunc(h.handleDeleteDrawing)).ServeHTTP)
+	mux.HandleFunc("GET /api/v1/user/indicators", h.handleGetUserIndicators)
+	mux.HandleFunc("PUT /api/v1/user/indicators", RequireAuth(h.cfg)(http.HandlerFunc(h.handlePutUserIndicators)).ServeHTTP)
+	mux.HandleFunc("DELETE /api/v1/user/indicators", RequireAuth(h.cfg)(http.HandlerFunc(h.handleDeleteUserIndicators)).ServeHTTP)
+	mux.HandleFunc("PUT /api/v1/user/settings/favorite-indicators", RequireAuth(h.cfg)(http.HandlerFunc(h.handlePutFavoriteIndicators)).ServeHTTP)
+	// User indicator presets. GET stays auth-optional (route shape unchanged
+	// after the procluster-preset deprecation); guests get an empty list.
+	mux.HandleFunc("GET /api/v1/user/indicator-presets", h.handleListIndicatorPresets)
+	mux.HandleFunc("POST /api/v1/user/indicator-presets", RequireAuth(h.cfg)(http.HandlerFunc(h.handleCreateIndicatorPreset)).ServeHTTP)
+	mux.HandleFunc("PUT /api/v1/user/indicator-presets/{id}", RequireAuth(h.cfg)(http.HandlerFunc(h.handleUpdateIndicatorPreset)).ServeHTTP)
+	mux.HandleFunc("DELETE /api/v1/user/indicator-presets/{id}", RequireAuth(h.cfg)(http.HandlerFunc(h.handleDeleteIndicatorPreset)).ServeHTTP)
+	mux.HandleFunc("POST /api/v1/user/indicator-presets/{id}/apply", RequireAuth(h.cfg)(http.HandlerFunc(h.handleApplyIndicatorPreset)).ServeHTTP)
 	mux.HandleFunc("POST /api/v1/auth/google", h.handleGoogleAuth)
 	mux.HandleFunc("GET /api/v1/auth/google/callback", h.handleGoogleCallback)
 }

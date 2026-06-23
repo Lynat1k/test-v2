@@ -297,6 +297,63 @@ func Migrate(db *sql.DB) error {
 		}
 	}
 
+	// Phase 15: per-key indicators (user_indicators + admin_indicator_defaults)
+	// Scope: (symbol, market, timeframe). timeframe='*' is the scope=all-tf marker.
+	indicatorsQueries := []string{
+		`CREATE TABLE IF NOT EXISTS user_indicators (
+			user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+			symbol TEXT NOT NULL,
+			market TEXT NOT NULL,
+			timeframe TEXT NOT NULL,
+			indicators_json TEXT NOT NULL DEFAULT '[]',
+			updated_at TEXT NOT NULL,
+			PRIMARY KEY (user_id, symbol, market, timeframe)
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_user_indicators_lookup ON user_indicators(user_id, symbol, market, timeframe)`,
+		`CREATE TABLE IF NOT EXISTS admin_indicator_defaults (
+			symbol TEXT NOT NULL,
+			market TEXT NOT NULL,
+			timeframe TEXT NOT NULL,
+			indicators_json TEXT NOT NULL DEFAULT '[]',
+			updated_by TEXT NOT NULL REFERENCES users(id),
+			updated_at TEXT NOT NULL,
+			PRIMARY KEY (symbol, market, timeframe)
+		)`,
+	}
+	for _, q := range indicatorsQueries {
+		if _, err := db.Exec(q); err != nil {
+			return fmt.Errorf("migration indicators: %w", err)
+		}
+	}
+
+	// User indicator presets (per-user named presets of one indicator type,
+	// UNIQUE per (user, indicator_id, name)).
+	// admin_preset_indicators dropped here as part of the procluster-preset
+	// deprecation — replaced by admin_indicator_defaults (per-key defaults
+	// driven by the "Дефолт" button in the indicator modal).
+	if _, err := db.Exec(`DROP TABLE IF EXISTS admin_preset_indicators`); err != nil {
+		return fmt.Errorf("migration drop admin_preset_indicators: %w", err)
+	}
+	presetQueries := []string{
+		`CREATE TABLE IF NOT EXISTS user_indicator_presets (
+			id            TEXT PRIMARY KEY,
+			user_id       TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+			indicator_id  TEXT NOT NULL,
+			name          TEXT NOT NULL,
+			settings_json TEXT NOT NULL,
+			created_at    TEXT NOT NULL,
+			updated_at    TEXT NOT NULL,
+			UNIQUE (user_id, indicator_id, name)
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_user_indicator_presets_user
+			ON user_indicator_presets(user_id, indicator_id, updated_at DESC)`,
+	}
+	for _, q := range presetQueries {
+		if _, err := db.Exec(q); err != nil {
+			return fmt.Errorf("migration presets: %w", err)
+		}
+	}
+
 	log.Println("[auth] sqlite migrations applied")
 	return nil
 }

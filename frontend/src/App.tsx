@@ -20,12 +20,14 @@ import { ChartContainer2 } from '@/chart2d/ChartContainer2'
 import { ChartHeader } from '@/components/ChartHeader'
 import { Logo } from '@/components/Logo'
 import IndicatorsModal from '@/components/IndicatorsModal'
-import { useIndicators } from '@/features/indicators/useIndicators'
+import { IndicatorsStorageProvider, useIndicatorsForKey, useIndicatorsStorage } from '@/features/indicators/IndicatorsStorageContext'
+import { computeActiveIndicators } from '@/features/indicators/storage'
 import { UserDropdown } from '@/components/UserDropdown'
 import RoadmapModal from '@/components/RoadmapModal'
 import { Splitter } from '@/components/Splitter'
 import { DOMSidebar } from '@/components/DOMSidebar'
 import type { CandleMode, VolumeMode } from '@/chart-engine'
+import type { Indicator } from '@/chart2d/types'
 import { useTheme } from '@/contexts/ThemeContext'
 import { Sparkles, Sliders, X, Layers, ChevronLeft, ChevronRight } from 'lucide-react'
 import { AnimatePresence, motion } from 'motion/react'
@@ -36,15 +38,11 @@ function AppShell() {
   const { showIndicatorsModal, setShowIndicatorsModal, getSlot, activeSlot, setActiveSlot, setSymbol, setMarket, setTimeframe, setCandleMode, setVolumeMode, setPalette, setCompression, getTickerConfig } = useChartControls()
   const { layoutMode, setLayoutMode, splitRatio, setSplitRatio } = useLayout()
   const useCanvas2d = import.meta.env['VITE_USE_CANVAS2D'] === 'true'
-  const { indicators, activeIndicators, handleIndicatorToggle, handleIndicatorDeactivate, handleIndicatorVisibility, handleApplyIndicators } = useIndicators()
   const [currentView, setCurrentView] = useState<View>('terminal')
   const [fps, setFps] = useState(0)
   const [focusIndicatorId, setFocusIndicatorId] = useState<string | null>(null)
   const handleFpsChange = useCallback((f: number) => setFps(f), [])
   const handleResolvedModeChange = useCallback((_m: Exclude<CandleMode, 'auto'>) => {}, [])
-  const onToggleIndicator = useCallback((id: string) => handleIndicatorToggle(id), [handleIndicatorToggle])
-  const onToggleVisibility = useCallback((id: string) => handleIndicatorVisibility(id), [handleIndicatorVisibility])
-  const onRemoveIndicator = useCallback((id: string) => handleIndicatorDeactivate(id), [handleIndicatorDeactivate])
   const onShowIndicatorsSettings = useCallback((id?: string) => {
     if (id) setFocusIndicatorId(id); else setFocusIndicatorId(null)
     setShowIndicatorsModal(true)
@@ -93,6 +91,45 @@ function AppShell() {
 
   const slot0 = getSlot(0)
   const slot1 = getSlot(1)
+
+  // Per-slot indicators. Each hook subscribes to its slot's (symbol, market,
+  // timeframe) key — different slots get different indicator arrays based on
+  // the cascade resolution for their key. handlers write through to that key
+  // only, so toggling on slot 0 does NOT affect slot 1.
+  const slot0Ind = useIndicatorsForKey(slot0.symbol, slot0.market, slot0.timeframe)
+  const slot1Ind = useIndicatorsForKey(slot1.symbol, slot1.market, slot1.timeframe)
+  // For the modal: target the ACTIVE slot's key so Apply writes there.
+  const activeSlotData = activeSlot === 0 ? slot0 : slot1
+  const activeSlotInd = activeSlot === 0 ? slot0Ind : slot1Ind
+  const indicatorsStore = useIndicatorsStorage()
+  const handlePropagateIndicator = useCallback((ind: Indicator) => {
+    void indicatorsStore.propagateIndicator(activeSlotData.symbol, activeSlotData.market, ind)
+  }, [indicatorsStore, activeSlotData.symbol, activeSlotData.market])
+
+  // Live-preview overrides for the indicators modal. While the modal is open
+  // and editing, the parent gets every draft change through onPreviewIndicators
+  // and routes it here. The chart renders against the override; the persistence
+  // layer is untouched until the user clicks Save (handleApply → onApplyIndicators
+  // inside the modal). Cleared on close so subsequent renders pick up the
+  // freshly-persisted indicators from the store.
+  const [previewInd0, setPreviewInd0] = useState<Indicator[] | null>(null)
+  const [previewInd1, setPreviewInd1] = useState<Indicator[] | null>(null)
+  const effectiveInd0 = previewInd0 ?? slot0Ind.indicators
+  const effectiveInd1 = previewInd1 ?? slot1Ind.indicators
+  const effectiveActive0 = previewInd0 ? computeActiveIndicators(previewInd0) : slot0Ind.activeIndicators
+  const effectiveActive1 = previewInd1 ? computeActiveIndicators(previewInd1) : slot1Ind.activeIndicators
+  const handlePreviewIndicators = useCallback((draft: Indicator[]) => {
+    if (activeSlot === 0) setPreviewInd0(draft); else setPreviewInd1(draft)
+  }, [activeSlot])
+  const handleCancelPreview = useCallback(() => {
+    if (activeSlot === 0) setPreviewInd0(null); else setPreviewInd1(null)
+  }, [activeSlot])
+  const handleCloseIndicatorsModal = useCallback(() => {
+    setShowIndicatorsModal(false)
+    setFocusIndicatorId(null)
+    setPreviewInd0(null)
+    setPreviewInd1(null)
+  }, [setShowIndicatorsModal])
 
   useEffect(() => {
     if (layoutMode === 'single') setActiveSlot(0);
@@ -456,11 +493,11 @@ function AppShell() {
                           compression={slot0.compression}
                           palette={slot0.palette}
                           layoutMode={layoutMode}
-                          indicators={indicators}
-                          activeIndicators={activeIndicators}
-                            onToggleIndicator={onToggleIndicator}
-                            onToggleVisibility={onToggleVisibility}
-                            onRemoveIndicator={onRemoveIndicator}
+                          indicators={effectiveInd0}
+                          activeIndicators={effectiveActive0}
+                            onToggleIndicator={slot0Ind.handlers.onToggleIndicator}
+                            onToggleVisibility={slot0Ind.handlers.onToggleVisibility}
+                            onRemoveIndicator={slot0Ind.handlers.onRemoveIndicator}
                           onShowIndicatorsSettings={onShowIndicatorsSettings}
                           onLayoutChange={setLayoutMode}
                           showAnomalies={showAnomalies0}
@@ -505,11 +542,11 @@ function AppShell() {
                             compression={slot0.compression}
                             palette={slot0.palette}
                             layoutMode={layoutMode}
-                            indicators={indicators}
-                            activeIndicators={activeIndicators}
-                            onToggleIndicator={onToggleIndicator}
-                            onToggleVisibility={onToggleVisibility}
-                            onRemoveIndicator={onRemoveIndicator}
+                            indicators={effectiveInd0}
+                            activeIndicators={effectiveActive0}
+                            onToggleIndicator={slot0Ind.handlers.onToggleIndicator}
+                            onToggleVisibility={slot0Ind.handlers.onToggleVisibility}
+                            onRemoveIndicator={slot0Ind.handlers.onRemoveIndicator}
                             onShowIndicatorsSettings={onShowIndicatorsSettings}
                             onLayoutChange={setLayoutMode}
                             showAnomalies={showAnomalies0}
@@ -556,11 +593,11 @@ function AppShell() {
                             compression={slot1.compression}
                             palette={slot1.palette}
                             layoutMode={layoutMode}
-                            indicators={indicators}
-                            activeIndicators={activeIndicators}
-                            onToggleIndicator={onToggleIndicator}
-                            onToggleVisibility={onToggleVisibility}
-                            onRemoveIndicator={onRemoveIndicator}
+                            indicators={effectiveInd1}
+                            activeIndicators={effectiveActive1}
+                            onToggleIndicator={slot1Ind.handlers.onToggleIndicator}
+                            onToggleVisibility={slot1Ind.handlers.onToggleVisibility}
+                            onRemoveIndicator={slot1Ind.handlers.onRemoveIndicator}
                             onShowIndicatorsSettings={onShowIndicatorsSettings}
                             onLayoutChange={setLayoutMode}
                             showAnomalies={showAnomalies1}
@@ -611,11 +648,11 @@ function AppShell() {
                             compression={slot0.compression}
                             palette={slot0.palette}
                             layoutMode={layoutMode}
-                            indicators={indicators}
-                            activeIndicators={activeIndicators}
-                            onToggleIndicator={onToggleIndicator}
-                            onToggleVisibility={onToggleVisibility}
-                            onRemoveIndicator={onRemoveIndicator}
+                            indicators={effectiveInd0}
+                            activeIndicators={effectiveActive0}
+                            onToggleIndicator={slot0Ind.handlers.onToggleIndicator}
+                            onToggleVisibility={slot0Ind.handlers.onToggleVisibility}
+                            onRemoveIndicator={slot0Ind.handlers.onRemoveIndicator}
                             onShowIndicatorsSettings={onShowIndicatorsSettings}
                             onLayoutChange={setLayoutMode}
                             showAnomalies={showAnomalies0}
@@ -662,11 +699,11 @@ function AppShell() {
                             compression={slot1.compression}
                             palette={slot1.palette}
                             layoutMode={layoutMode}
-                            indicators={indicators}
-                            activeIndicators={activeIndicators}
-                            onToggleIndicator={onToggleIndicator}
-                            onToggleVisibility={onToggleVisibility}
-                            onRemoveIndicator={onRemoveIndicator}
+                            indicators={effectiveInd1}
+                            activeIndicators={effectiveActive1}
+                            onToggleIndicator={slot1Ind.handlers.onToggleIndicator}
+                            onToggleVisibility={slot1Ind.handlers.onToggleVisibility}
+                            onRemoveIndicator={slot1Ind.handlers.onRemoveIndicator}
                             onShowIndicatorsSettings={onShowIndicatorsSettings}
                             onLayoutChange={setLayoutMode}
                             showAnomalies={showAnomalies1}
@@ -726,11 +763,20 @@ function AppShell() {
 
       <IndicatorsModal
         isOpen={showIndicatorsModal}
-        onClose={() => { setShowIndicatorsModal(false); setFocusIndicatorId(null) }}
-        symbol={slot0.symbol}
-        indicators={indicators}
+        onClose={handleCloseIndicatorsModal}
+        symbol={activeSlotData.symbol}
+        market={activeSlotData.market}
+        timeframe={activeSlotData.timeframe}
+        indicators={activeSlotInd.indicators}
+        source={activeSlotInd.source}
         focusIndicatorId={focusIndicatorId}
-        onApplyIndicators={handleApplyIndicators}
+        onApplyIndicators={activeSlotInd.handlers.onApplyIndicators}
+        onPropagateIndicator={handlePropagateIndicator}
+        onPreviewIndicators={handlePreviewIndicators}
+        onCancelPreview={handleCancelPreview}
+        adminDefaultsTf={activeSlotInd.adminDefaultsTf}
+        adminDefaultsAllTf={activeSlotInd.adminDefaultsAllTf}
+        onRefreshAdminDefaults={activeSlotInd.handlers.refreshKey}
       />
 
       <LoginModal open={loginOpen} onClose={() => setLoginOpen(false)} onSwitchToRegister={() => { setLoginOpen(false); setRegisterOpen(true) }} />
@@ -751,7 +797,9 @@ export default function App() {
             <CandlePaletteProvider>
               <ChartControlsProvider>
                 <LayoutProvider>
-                  <AppShell />
+                  <IndicatorsStorageProvider>
+                    <AppShell />
+                  </IndicatorsStorageProvider>
                 </LayoutProvider>
               </ChartControlsProvider>
             </CandlePaletteProvider>

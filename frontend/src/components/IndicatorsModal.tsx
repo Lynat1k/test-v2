@@ -1,42 +1,109 @@
-import { useState, useEffect, useRef } from "react"
+import { useState, useEffect, useRef, useCallback, useMemo } from "react"
+import { createPortal } from "react-dom"
 import { useTheme } from "@/contexts/ThemeContext"
 import type { Indicator, IndicatorSettings } from "@/chart2d/types"
-import { X, Search, Star, Trash2, Eye, EyeOff, Layers, Activity, ChevronDown, ArrowUp, ArrowDown } from "lucide-react"
+import { X, Search, Star, Trash2, Eye, EyeOff, Layers, Activity, ChevronDown, ArrowUp, ArrowDown, Info, Plus, Check, Pencil, Shield } from "lucide-react"
 import { motion, AnimatePresence } from "motion/react"
 import { MODULAR_INDICATORS } from "@/chart2d/indicators"
 import { INDICATOR_DESCRIPTIONS } from "@/chart2d/indicators/descriptions"
 import { useUserLimits } from "@/contexts/LimitsContext"
+import type { IndicatorPreset, IndicatorsSource, StoredIndicator } from "@/features/indicators/types"
+import { useIndicatorsStorage } from "@/features/indicators/IndicatorsStorageContext"
+import { useAuthContext } from "@/features/auth/AuthContext"
+import { apiPatchAdminIndicatorDefault, apiDeleteAdminIndicatorDefaultForIndicator } from "@/features/admin/api"
 
 interface IndicatorsModalProps {
   isOpen: boolean
   onClose: () => void
   symbol?: string
+  market?: string
+  timeframe?: string
   indicators?: Indicator[]
+  source?: IndicatorsSource
   focusIndicatorId?: string | null
   onApplyIndicators?: (indicators: Indicator[]) => void
   onToggleVisibility?: (id: string) => void
+  /**
+   * Propagate ONE indicator (replace-or-append by id) into the '*' row and
+   * every existing per-tf row of (symbol, market). Called on Apply for each
+   * indicator with its per-id checkbox ticked. Indicators routed through here
+   * do NOT also go through onApplyIndicators — propagate writes the current
+   * TF too, so a parallel per-tf save would race the upsert.
+   */
+  onPropagateIndicator?: (indicator: Indicator) => void
+  /**
+   * Live preview hook. Fires on every draft change while the modal is open so
+   * the chart can render the in-progress edit without going through the
+   * persistence layer. No network — pure local state in the parent.
+   */
+  onPreviewIndicators?: (draft: Indicator[]) => void
+  /**
+   * Cancel hook. Fires on Cancel / X / Esc to tell the parent to drop the
+   * preview and fall back to the persisted indicators.
+   */
+  onCancelPreview?: () => void
+  /**
+   * Snapshot of admin_indicator_defaults rows for the current key. Used to
+   * render the virtual "Дефолт от админа" preset row (visible to everyone)
+   * and to drive the admin-only "Дефолт" toggle state. Tf takes precedence
+   * over allTf when both contain the same indicator id (mirrors cascade).
+   */
+  adminDefaultsTf?: StoredIndicator[]
+  adminDefaultsAllTf?: StoredIndicator[]
+  /**
+   * Called after a successful admin PATCH/DELETE so the parent re-fetches
+   * adminDefaultsTf/AllTf and the modal re-renders with up-to-date state.
+   */
+  onRefreshAdminDefaults?: () => Promise<void>
 }
 
-function buildDefaultIndicators(): Indicator[] {
-  return MODULAR_INDICATORS.map((mod) => ({
-    id: mod.id,
-    label: mod.label,
-    category: mod.category,
-    type: mod.type,
-    isFavorite: false,
-    isActive: mod.isActiveDefault ?? false,
-    isVisible: true,
-    settings: { ...mod.defaultSettings },
-  }))
-}
-
-export default function IndicatorsModal({ isOpen, onClose, symbol = "", indicators, focusIndicatorId, onApplyIndicators, onToggleVisibility }: IndicatorsModalProps) {
+export default function IndicatorsModal({ isOpen, onClose, symbol = "", market = "futures", timeframe = "", indicators, source, focusIndicatorId, onApplyIndicators, onToggleVisibility, onPropagateIndicator, onPreviewIndicators, onCancelPreview, adminDefaultsTf, adminDefaultsAllTf, onRefreshAdminDefaults }: IndicatorsModalProps) {
   const { limits } = useUserLimits()
   const maxIndicators = limits.maxIndicators >= 100 ? Infinity : limits.maxIndicators
+  const { user } = useAuthContext()
+  const isAdmin = (user?.role ?? '').toLowerCase() === 'admin'
 
   const [draft, setDraft] = useState<Indicator[]>([])
   const [searchQuery, setSearchQuery] = useState("")
   const [selectedId, setSelectedId] = useState("clusterSearch")
+  // Per-indicator "apply to all TFs" intent. Each id ticked on Apply is sent
+  // through onPropagateIndicator instead of the normal per-tf save, so it
+  // lands in the '*' row plus every existing per-tf row at once. Resets to
+  // empty on every modal open — never persisted.
+  const [propagateIds, setPropagateIds] = useState<Set<string>>(new Set())
+  const togglePropagate = (id: string) => {
+    setPropagateIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id); else next.add(id)
+      return next
+    })
+  }
+
+  // ===== Preset panel state — per-indicator =====
+  const indicatorsStore = useIndicatorsStorage()
+  const [presetsByIndicator, setPresetsByIndicator] = useState<Record<string, IndicatorPreset[]>>({})
+  const [presetsLoading, setPresetsLoading] = useState<Record<string, boolean>>({})
+  const [presetsError, setPresetsError] = useState<string | null>(null)
+  const [presetDropdownOpen, setPresetDropdownOpen] = useState(false)
+  const [createPresetOpen, setCreatePresetOpen] = useState(false)
+  const [newPresetName, setNewPresetName] = useState('')
+  const [renamingId, setRenamingId] = useState<string | null>(null)
+  const [renameDraft, setRenameDraft] = useState('')
+  const presetBtnRef = useRef<HTMLButtonElement>(null)
+  const presetPopoverRef = useRef<HTMLDivElement>(null)
+  const [presetPopoverPos, setPresetPopoverPos] = useState<{ top: number; left: number } | null>(null)
+
+  const loadPresetsFor = useCallback(async (indicatorId: string) => {
+    setPresetsLoading((prev) => ({ ...prev, [indicatorId]: true }))
+    try {
+      const { presets } = await indicatorsStore.listPresets(indicatorId)
+      setPresetsByIndicator((prev) => ({ ...prev, [indicatorId]: presets }))
+    } catch (err) {
+      console.warn('[indicators-modal] load presets failed', err)
+    } finally {
+      setPresetsLoading((prev) => ({ ...prev, [indicatorId]: false }))
+    }
+  }, [indicatorsStore])
 
   const [size, setSize] = useState({ width: 855, height: 800 })
   const [resizing, setResizing] = useState(false)
@@ -80,22 +147,97 @@ export default function IndicatorsModal({ isOpen, onClose, symbol = "", indicato
   const modalOffset = useRef({ x: 0, y: 0 })
 
   const prevIsOpen = useRef(isOpen)
-  const initialIndicators = useRef<Indicator[]>([])
 
   useEffect(() => {
     if (isOpen && !prevIsOpen.current) {
-      const source = (indicators && indicators.length > 0) ? indicators : buildDefaultIndicators()
-      const cloned = JSON.parse(JSON.stringify(source)) as Indicator[]
-      setDraft(cloned)
-      initialIndicators.current = cloned
+      // Seed draft as the FULL catalog with stored state overlayed per id.
+      // Catalog provides the visible set; stored entries (server cascade
+      // result) override isActive/isVisible/settings for ids they cover.
+      // Catalog-only entries land as isActive:false so untouched indicators
+      // are not silently activated on the next Apply.
+      const storedById = new Map((indicators ?? []).map((i) => [i.id, i]))
+      const seeded: Indicator[] = MODULAR_INDICATORS.map((mod) => {
+        const fromStored = storedById.get(mod.id)
+        if (fromStored) {
+          return JSON.parse(JSON.stringify(fromStored)) as Indicator
+        }
+        return {
+          id: mod.id,
+          label: mod.label,
+          category: mod.category,
+          type: mod.type,
+          isFavorite: false,
+          isActive: false,
+          isVisible: true,
+          settings: { ...mod.defaultSettings },
+        }
+      })
+      setDraft(seeded)
       if (focusIndicatorId) setSelectedId(focusIndicatorId)
       setOffset({ x: 0, y: 0 })
       setSize({ width: 855, height: 800 })
+      setPropagateIds(new Set())
+      setPresetDropdownOpen(false)
+      setCreatePresetOpen(false)
+      setNewPresetName('')
+      setRenamingId(null)
+      setPresetsError(null)
     }
     prevIsOpen.current = isOpen
   }, [isOpen, indicators, focusIndicatorId])
 
+  // Load presets whenever the selected indicator changes (or modal opens).
+  useEffect(() => {
+    if (!isOpen) return
+    if (!selectedId) return
+    if (presetsByIndicator[selectedId] !== undefined) return
+    void loadPresetsFor(selectedId)
+  }, [isOpen, selectedId, presetsByIndicator, loadPresetsFor])
+
+  // Preset popover lives in a Portal (document.body) to escape the modal's
+  // overflow-hidden / overflow-y-auto ancestors. Position is recalculated on
+  // open, on window resize, and on internal scroll of the right column.
+  useEffect(() => {
+    if (!presetDropdownOpen) { setPresetPopoverPos(null); return }
+    const recalc = () => {
+      const r = presetBtnRef.current?.getBoundingClientRect()
+      if (r) setPresetPopoverPos({ top: r.bottom + 6, left: r.left })
+    }
+    recalc()
+    window.addEventListener('resize', recalc)
+    const rightCol = presetBtnRef.current?.closest('.overflow-y-auto') as HTMLElement | null
+    rightCol?.addEventListener('scroll', recalc, { passive: true })
+    return () => {
+      window.removeEventListener('resize', recalc)
+      rightCol?.removeEventListener('scroll', recalc)
+    }
+  }, [presetDropdownOpen])
+
+  // Click outside closes the portal-mounted popover.
+  useEffect(() => {
+    if (!presetDropdownOpen) return
+    const onDocDown = (e: MouseEvent) => {
+      const t = e.target as Node
+      if (presetBtnRef.current?.contains(t)) return
+      if (presetPopoverRef.current?.contains(t)) return
+      setPresetDropdownOpen(false)
+    }
+    document.addEventListener('mousedown', onDocDown)
+    return () => document.removeEventListener('mousedown', onDocDown)
+  }, [presetDropdownOpen])
+
+  // Live preview: every draft change while the modal is open is mirrored to
+  // the parent so the chart re-renders against the in-progress edit. The
+  // initial fire on open writes a value equal to persisted (clone of source),
+  // so it's a visual no-op but lets the parent take over rendering.
+  useEffect(() => {
+    if (!isOpen) return
+    if (!onPreviewIndicators) return
+    onPreviewIndicators(draft)
+  }, [draft, isOpen, onPreviewIndicators])
+
   const handleCancel = () => {
+    onCancelPreview?.()
     onClose()
   }
 
@@ -162,9 +304,34 @@ export default function IndicatorsModal({ isOpen, onClose, symbol = "", indicato
     resizeOffsetStart.current = { ...offset }
   }
 
-  if (!isOpen) return null
-
+  // selectedIndicator + admin-defaults useMemo MUST live above the early
+  // return so the hook order is stable between renders where isOpen flips.
+  // React tracks hooks by call position; new hooks placed below `return null`
+  // would skip on closed renders and trip the Rules-of-Hooks check.
   const selectedIndicator = draft.find((i) => i.id === selectedId) || draft[0]
+
+  // Selected indicator's admin-default settings, cascade-style: per-tf wins
+  // over all-tf. Drives the virtual "Дефолт от админа" row in the dropdown.
+  const adminDefaultForSelected = useMemo<StoredIndicator | null>(() => {
+    if (!selectedIndicator) return null
+    const fromTf = adminDefaultsTf?.find((d) => d.id === selectedIndicator.id)
+    if (fromTf) return fromTf
+    const fromAllTf = adminDefaultsAllTf?.find((d) => d.id === selectedIndicator.id)
+    return fromAllTf ?? null
+  }, [selectedIndicator, adminDefaultsTf, adminDefaultsAllTf])
+
+  // True iff THIS tf has an admin-default for the selected indicator (per-tf
+  // row only, not all-tf). The toggle writes/clears the per-tf row regardless
+  // of all-tf, so the toggle state must reflect per-tf only.
+  const adminTfHasSelected = useMemo<boolean>(() => {
+    if (!selectedIndicator) return false
+    return adminDefaultsTf?.some((d) => d.id === selectedIndicator.id) ?? false
+  }, [selectedIndicator, adminDefaultsTf])
+
+  const { theme } = useTheme()
+  const isLight = theme === 'light'
+
+  if (!isOpen) return null
 
   const updateSettings = (updates: Partial<IndicatorSettings>) => {
     if (!selectedIndicator) return
@@ -238,15 +405,150 @@ export default function IndicatorsModal({ isOpen, onClose, symbol = "", indicato
     })
   }
 
+  // ===== Preset actions =====
+  const handleSavePreset = async () => {
+    if (!selectedIndicator) return
+    const name = newPresetName.trim()
+    if (!name) {
+      setPresetsError('Введите имя пресета')
+      return
+    }
+    setPresetsError(null)
+    try {
+      const created = await indicatorsStore.savePreset(selectedIndicator.id, name, selectedIndicator.settings)
+      setPresetsByIndicator((prev) => ({
+        ...prev,
+        [selectedIndicator.id]: [created, ...(prev[selectedIndicator.id] ?? [])],
+      }))
+      setCreatePresetOpen(false)
+      setNewPresetName('')
+    } catch (err) {
+      const e = err as { code?: string; message?: string }
+      setPresetsError(e.code === 'NAME_EXISTS' ? 'Имя уже занято' : e.message ?? 'Не удалось сохранить пресет')
+    }
+  }
+
+  const handleRenamePreset = async (preset: IndicatorPreset) => {
+    const name = renameDraft.trim()
+    if (!name) {
+      setRenamingId(null)
+      return
+    }
+    try {
+      await indicatorsStore.renamePreset(preset.id, preset.indicatorId, name)
+      setPresetsByIndicator((prev) => ({
+        ...prev,
+        [preset.indicatorId]: (prev[preset.indicatorId] ?? []).map((p) =>
+          p.id === preset.id ? { ...p, name } : p,
+        ),
+      }))
+      setRenamingId(null)
+    } catch (err) {
+      const e = err as { code?: string; message?: string }
+      setPresetsError(e.code === 'NAME_EXISTS' ? 'Имя уже занято' : e.message ?? 'Не удалось переименовать')
+    }
+  }
+
+  const handleDeletePreset = async (preset: IndicatorPreset) => {
+    try {
+      await indicatorsStore.deletePreset(preset.id, preset.indicatorId)
+      setPresetsByIndicator((prev) => ({
+        ...prev,
+        [preset.indicatorId]: (prev[preset.indicatorId] ?? []).filter((p) => p.id !== preset.id),
+      }))
+    } catch (err) {
+      console.warn('[indicators-modal] delete preset failed', err)
+    }
+  }
+
+  const handleApplyPreset = async (preset: IndicatorPreset) => {
+    if (!selectedIndicator) return
+    if (!symbol || !market || !timeframe) {
+      setPresetsError('Откройте график перед применением')
+      return
+    }
+    // Patch draft so the preview reflects the preset immediately. Server-side
+    // apply also happens (when authed) via applyPresetToCurrent.
+    setDraft((prev) =>
+      prev.map((ind) =>
+        ind.id === preset.indicatorId
+          ? { ...ind, isActive: true, isVisible: true, settings: { ...preset.settings } }
+          : ind,
+      ),
+    )
+    try {
+      await indicatorsStore.applyPresetToCurrent(
+        preset.id,
+        preset.indicatorId,
+        preset.settings,
+        symbol,
+        market,
+        timeframe,
+      )
+      setPresetDropdownOpen(false)
+    } catch (err) {
+      const e = err as { code?: string; message?: string }
+      setPresetsError(e.message ?? 'Не удалось применить пресет')
+    }
+  }
+
+  // ===== Admin defaults (Feature 1) — handlers; useMemo hoisted above the
+  // early return — see comment near selectedIndicator declaration. =====
+
+  const handleApplyAdminDefault = (settings: IndicatorSettings) => {
+    if (!selectedIndicator) return
+    setDraft((prev) =>
+      prev.map((ind) =>
+        ind.id === selectedIndicator.id
+          ? { ...ind, isActive: true, isVisible: true, settings: { ...settings } }
+          : ind,
+      ),
+    )
+    setPresetDropdownOpen(false)
+  }
+
+  const handleToggleAdminDefault = async () => {
+    if (!selectedIndicator) return
+    if (!symbol || !market || !timeframe) {
+      setPresetsError('Откройте график перед сохранением дефолта')
+      return
+    }
+    setPresetsError(null)
+    try {
+      if (adminTfHasSelected) {
+        await apiDeleteAdminIndicatorDefaultForIndicator(symbol, market, timeframe, selectedIndicator.id)
+      } else {
+        const oneStored: StoredIndicator = {
+          id: selectedIndicator.id,
+          isActive: selectedIndicator.isActive,
+          ...(selectedIndicator.isVisible === undefined ? {} : { isVisible: selectedIndicator.isVisible }),
+          settings: selectedIndicator.settings,
+        }
+        await apiPatchAdminIndicatorDefault(symbol, market, timeframe, oneStored)
+      }
+      await onRefreshAdminDefaults?.()
+    } catch (err) {
+      const e = err as { code?: string; message?: string }
+      setPresetsError(e.message ?? 'Не удалось обновить админ-дефолт')
+    }
+  }
+
   const handleApply = () => {
-    onApplyIndicators?.(draft)
+    // Indicators whose "apply to all TFs" checkbox is ticked go through
+    // propagate only — that path also writes the current TF, so a parallel
+    // per-tf save would race. Everything else flows through the normal per-tf
+    // save.
+    const perTfSave = draft.filter((ind) => !propagateIds.has(ind.id))
+    onApplyIndicators?.(perTfSave)
+    if (onPropagateIndicator) {
+      for (const ind of draft) {
+        if (propagateIds.has(ind.id)) onPropagateIndicator(ind)
+      }
+    }
     onClose()
   }
 
   const addedIndicators = draft.filter((ind) => ind.isActive)
-
-  const { theme } = useTheme()
-  const isLight = theme === 'light'
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 pointer-events-none bg-transparent">
@@ -279,6 +581,22 @@ export default function IndicatorsModal({ isOpen, onClose, symbol = "", indicato
               <X className="w-5 h-5" />
             </button>
           </div>
+
+          {/* SOURCE BADGE — informs the user which cascade layer their current
+              view comes from. Without this the "all-tf changes leave per-tf
+              overrides alone" semantics looks like a bug. */}
+          {source && (source === 'admin-tf' || source === 'admin-all-tf' || source === 'system') && (
+            <div className={`px-6 py-2 text-[11px] font-medium flex items-center gap-2 border-b ${isLight ? "bg-amber-50 text-amber-800 border-amber-100" : "bg-amber-500/10 text-amber-300 border-amber-500/20"}`}>
+              <Info className="w-3.5 h-3.5 shrink-0" />
+              <span>Вы видите настройки по умолчанию — измените что-нибудь, чтобы создать свои.</span>
+            </div>
+          )}
+          {source === 'user-all-tf' && (
+            <div className={`px-6 py-2 text-[11px] font-medium flex items-center gap-2 border-b ${isLight ? "bg-blue-50 text-blue-800 border-blue-100" : "bg-blue-500/10 text-blue-300 border-blue-500/20"}`}>
+              <Info className="w-3.5 h-3.5 shrink-0" />
+              <span>Применено ко всем ТФ. Изменение настроек затронет только текущий ТФ{timeframe ? ` (${timeframe})` : ""}.</span>
+            </div>
+          )}
 
           {/* WORKSPACE */}
           <div className="flex-1 flex min-h-0 overflow-hidden">
@@ -468,24 +786,186 @@ export default function IndicatorsModal({ isOpen, onClose, symbol = "", indicato
                         {selectedIndicator.label.replace("(PROCLUSTER) ", "")}
                       </h3>
                       <div className="flex items-center gap-2 mt-1">
-                        <p className="text-[10px] text-slate-550 font-bold font-mono tracking-widest leading-none">
+                        <span className={`text-[9px] font-bold rounded px-1.5 py-1 uppercase tracking-wide font-mono leading-none ${isLight ? "bg-slate-200 text-slate-750" : "bg-white/10 text-slate-300"}`}>
                           ТИП: {selectedIndicator.type.toUpperCase()}
-                        </p>
-                        <span className={`text-[9px] font-bold rounded px-1.5 py-0.5 uppercase tracking-wide font-mono scale-90 leading-none ${isLight ? "bg-slate-200/80 text-slate-750" : "bg-white/10 text-slate-300"}`}>
-                          Оверлей
                         </span>
+                        <button
+                          ref={presetBtnRef}
+                          onClick={() => { setPresetDropdownOpen((v) => !v); setPresetsError(null) }}
+                          className={`flex items-center gap-1 py-0.5 px-2 rounded border text-[9px] font-extrabold cursor-pointer transition-all uppercase tracking-wider font-mono ${isLight ? "bg-slate-50 border-slate-250 hover:bg-slate-250 text-slate-700" : "bg-white/5 border-white/10 text-slate-300 hover:bg-white/10"}`}
+                          title="Пресеты настроек этого индикатора"
+                        >
+                          <Layers className="w-3 h-3 text-emerald-500" />
+                          <span>Пресеты ({(presetsByIndicator[selectedIndicator.id] ?? []).length})</span>
+                          <ChevronDown className={`w-2.5 h-2.5 opacity-60 transition-transform ${presetDropdownOpen ? "rotate-180" : ""}`} />
+                        </button>
                       </div>
                     </div>
-                    <div className="flex flex-col items-end gap-1.5">
+                    <div className="flex items-start gap-2 no-drag">
+                      {presetDropdownOpen && presetPopoverPos && createPortal(
+                        <div
+                          ref={presetPopoverRef}
+                          style={{ position: 'fixed', top: presetPopoverPos.top, left: presetPopoverPos.left }}
+                          className={`w-[345px] max-w-[345px] z-[9999] rounded-xl border shadow-2xl p-3 flex flex-col gap-2 no-drag ${isLight ? "bg-white border-slate-200" : "bg-[#0b0f19] border-white/10"}`}
+                        >
+                            <div className="flex items-center justify-between">
+                              <span className={`text-[10px] font-bold uppercase tracking-widest font-mono ${isLight ? "text-slate-500" : "text-slate-400"}`}>
+                                Пресеты — {selectedIndicator.label.replace("(PROCLUSTER) ", "")}
+                              </span>
+                              <button
+                                onClick={() => { setCreatePresetOpen((v) => !v); setNewPresetName(''); setPresetsError(null) }}
+                                className={`flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-bold transition ${isLight ? "bg-blue-50 text-blue-700 hover:bg-blue-100" : "bg-blue-500/10 text-blue-300 hover:bg-blue-500/20"}`}
+                              >
+                                <Plus className="w-3 h-3" />
+                                Новый
+                              </button>
+                            </div>
+
+                            {createPresetOpen && (
+                              <div className={`p-2 rounded-lg flex gap-1.5 ${isLight ? "bg-slate-50 border border-slate-200" : "bg-white/5 border border-white/10"}`}>
+                                <input
+                                  autoFocus
+                                  type="text"
+                                  value={newPresetName}
+                                  placeholder="Имя пресета"
+                                  maxLength={64}
+                                  onChange={(e) => setNewPresetName(e.target.value)}
+                                  onKeyDown={(e) => { if (e.key === 'Enter') void handleSavePreset() }}
+                                  className={`flex-1 rounded-md px-2 py-1.5 text-[11px] outline-none border ${isLight ? "bg-white border-slate-200 text-slate-800" : "bg-[#030712]/60 border-white/10 text-slate-100"}`}
+                                />
+                                <button
+                                  onClick={() => void handleSavePreset()}
+                                  className="px-2 py-1.5 rounded-md text-[11px] font-bold bg-blue-600 hover:bg-blue-500 text-white"
+                                >
+                                  Сохранить
+                                </button>
+                              </div>
+                            )}
+
+                            {presetsError && (
+                              <div className={`text-[10px] font-medium px-1 ${isLight ? "text-rose-600" : "text-rose-400"}`}>
+                                {presetsError}
+                              </div>
+                            )}
+
+                            <div className="flex flex-col gap-1 max-h-[260px] overflow-y-auto pr-1">
+                              {/* Virtual admin-default row for the current key
+                                  (Feature 1). Visible to everyone when an
+                                  admin_indicator_defaults row exists for this
+                                  indicator at (symbol, market, tf) or all-tf.
+                                  Read-only: Apply only — no rename, no delete. */}
+                              {adminDefaultForSelected && (
+                                <div className={`flex items-center justify-between px-2 py-1.5 rounded-lg border ${isLight ? "bg-emerald-50 border-emerald-200" : "bg-emerald-500/5 border-emerald-500/20"}`}>
+                                  <div className="flex items-center gap-1.5 min-w-0">
+                                    <Shield className={`w-3 h-3 shrink-0 ${isLight ? "text-emerald-600" : "text-emerald-400"}`} />
+                                    <span className={`text-[11px] font-bold truncate ${isLight ? "text-emerald-900" : "text-emerald-200"}`}>Дефолт от админа</span>
+                                    <span className={`text-[9px] font-black px-1.5 py-0.5 rounded uppercase tracking-wider font-mono shrink-0 ${isLight ? "bg-emerald-200 text-emerald-900" : "bg-emerald-500/30 text-emerald-200"}`}>
+                                      ДЕФОЛТ
+                                    </span>
+                                  </div>
+                                  <button
+                                    onClick={() => handleApplyAdminDefault(adminDefaultForSelected.settings)}
+                                    className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-emerald-500 hover:bg-emerald-400 text-white"
+                                  >
+                                    Применить
+                                  </button>
+                                </div>
+                              )}
+
+                              {presetsLoading[selectedIndicator.id] && (
+                                <div className={`text-[10px] italic px-1 py-1 ${isLight ? "text-slate-500" : "text-slate-400"}`}>Загрузка…</div>
+                              )}
+
+                              {(presetsByIndicator[selectedIndicator.id] ?? []).length === 0 && !presetsLoading[selectedIndicator.id] && !adminDefaultForSelected && (
+                                <div className={`text-[10px] italic px-1 py-2 ${isLight ? "text-slate-500" : "text-slate-400"}`}>Нет пресетов</div>
+                              )}
+
+                              {(presetsByIndicator[selectedIndicator.id] ?? []).map((preset) => (
+                                <div key={preset.id} className={`flex items-center justify-between px-2 py-1.5 rounded-lg border transition ${isLight ? "bg-white border-slate-200 hover:bg-slate-50" : "bg-white/[0.02] border-white/10 hover:bg-white/[0.06]"}`}>
+                                  {renamingId === preset.id ? (
+                                    <input
+                                      autoFocus
+                                      type="text"
+                                      value={renameDraft}
+                                      maxLength={64}
+                                      onChange={(e) => setRenameDraft(e.target.value)}
+                                      onBlur={() => void handleRenamePreset(preset)}
+                                      onKeyDown={(e) => {
+                                        if (e.key === 'Enter') void handleRenamePreset(preset)
+                                        if (e.key === 'Escape') setRenamingId(null)
+                                      }}
+                                      className={`flex-1 rounded-md px-1.5 py-0.5 text-[11px] outline-none border mr-2 ${isLight ? "bg-white border-slate-300" : "bg-[#030712]/60 border-white/20 text-slate-100"}`}
+                                    />
+                                  ) : (
+                                    <span className={`text-[11px] font-semibold truncate ${isLight ? "text-slate-800" : "text-slate-200"}`} title={preset.name}>
+                                      {preset.name}
+                                    </span>
+                                  )}
+                                  <div className="flex items-center gap-0.5 shrink-0">
+                                    <button
+                                      onClick={() => void handleApplyPreset(preset)}
+                                      title="Применить пресет к текущему графику"
+                                      className={`p-1 rounded ${isLight ? "hover:bg-emerald-100 text-emerald-700" : "hover:bg-emerald-500/20 text-emerald-400"}`}
+                                    >
+                                      <Check className="w-3.5 h-3.5" />
+                                    </button>
+                                    <button
+                                      onClick={() => { setRenamingId(preset.id); setRenameDraft(preset.name) }}
+                                      title="Переименовать"
+                                      className={`p-1 rounded ${isLight ? "hover:bg-slate-200 text-slate-600" : "hover:bg-white/10 text-slate-400"}`}
+                                    >
+                                      <Pencil className="w-3 h-3" />
+                                    </button>
+                                    <button
+                                      onClick={() => void handleDeletePreset(preset)}
+                                      title="Удалить"
+                                      className={`p-1 rounded ${isLight ? "hover:bg-rose-100 text-rose-600" : "hover:bg-rose-500/20 text-rose-400"}`}
+                                    >
+                                      <Trash2 className="w-3 h-3" />
+                                    </button>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          </div>,
+                        document.body
+                      )}
+                      {/* Admin-only "Дефолт" toggle (Feature 1). Writes the
+                          CURRENT live settings as admin default for the
+                          current (symbol, market, tf) via PATCH-single so
+                          sibling indicators are preserved. Pressing again
+                          removes this indicator from the per-tf admin row. */}
+                      {isAdmin && symbol && market && timeframe && (
+                        <div className="flex flex-col items-end gap-1.5">
+                          <button
+                            onClick={() => void handleToggleAdminDefault()}
+                            title={adminTfHasSelected ? "Снять админ-дефолт для этого ТФ" : "Сохранить текущие настройки как админ-дефолт для этого ТФ"}
+                            className={`flex items-center gap-1.5 px-3 py-1.5 font-bold text-[11px] rounded-lg cursor-pointer transition-all active:scale-[0.98] border ${adminTfHasSelected
+                              ? "bg-emerald-500 hover:bg-emerald-400 text-white border-emerald-600"
+                              : isLight
+                                ? "bg-white border-emerald-300 text-emerald-700 hover:bg-emerald-50"
+                                : "bg-white/5 border-emerald-500/30 text-emerald-300 hover:bg-emerald-500/10"
+                              }`}
+                          >
+                            <Shield className="w-3.5 h-3.5" />
+                            {adminTfHasSelected ? "Дефолт ✓" : "Дефолт"}
+                          </button>
+                          <span className={`text-[10px] font-bold font-mono leading-none ${adminTfHasSelected ? isLight ? "text-emerald-600" : "text-emerald-400" : "text-slate-500"}`}>
+                            {adminTfHasSelected ? `Для ${timeframe.toUpperCase()}` : "Не задан"}
+                          </span>
+                        </div>
+                      )}
+                      <div className="flex flex-col items-end gap-1.5">
                       <button
                         onClick={() => toggleActive(selectedIndicator.id)}
-                        className="px-3.5 py-1.5 font-bold text-[11px] rounded-lg cursor-pointer transition-all active:scale-[0.98] text-white bg-blue-650 hover:bg-blue-600/90"
+                        className="px-3 py-1.5 font-bold text-[11px] rounded-lg cursor-pointer transition-all active:scale-[0.98] text-white bg-blue-650 hover:bg-blue-600/90"
                       >
                         {selectedIndicator.isActive ? "Добавить еще" : "Активировать"}
                       </button>
                       <span className={`text-[10px] font-bold font-mono leading-none ${selectedIndicator.isActive ? isLight ? "text-emerald-600" : "text-emerald-400" : isLight ? "text-amber-600" : "text-amber-500"}`}>
                         {selectedIndicator.isActive ? "Активно: 1 шт." : "Деактивирован"}
                       </span>
+                      </div>
                     </div>
                   </div>
 
@@ -1273,6 +1753,28 @@ export default function IndicatorsModal({ isOpen, onClose, symbol = "", indicato
                             Дополнительные параметры конфигурирования будут добавлены в следующих обновлениях.
                           </div>
                         )}
+
+                      {/* Per-indicator "apply to all TFs" — pushes this id to the
+                          '*' row and every existing per-tf row of (symbol, market)
+                          on Apply. Default OFF on every open; never persisted. */}
+                      {onPropagateIndicator && (
+                        <div className={`mt-3 pt-3 border-t flex items-center gap-2 no-drag ${isLight ? "border-slate-200" : "border-white/5"}`}>
+                          <input
+                            type="checkbox"
+                            id={`propagate-${selectedIndicator.id}`}
+                            checked={propagateIds.has(selectedIndicator.id)}
+                            onChange={() => togglePropagate(selectedIndicator.id)}
+                            className="w-3.5 h-3.5 cursor-pointer accent-blue-500"
+                          />
+                          <label
+                            htmlFor={`propagate-${selectedIndicator.id}`}
+                            className={`text-[11px] font-medium cursor-pointer select-none ${isLight ? "text-slate-600 hover:text-slate-800" : "text-slate-400 hover:text-slate-200"}`}
+                            title="Применить настройки этого индикатора ко всем ТФ. Снимается при каждом открытии модалки."
+                          >
+                            Применить ко всем ТФ ({selectedIndicator.label.replace("(PROCLUSTER) ", "")})
+                          </label>
+                        </div>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -1310,7 +1812,7 @@ export default function IndicatorsModal({ isOpen, onClose, symbol = "", indicato
                 className="px-6 py-2 bg-[#2563eb] hover:bg-blue-600 text-white rounded-xl text-xs font-extrabold font-sans transition-all active:scale-[0.98] shadow-lg cursor-pointer flex items-center gap-1.5"
               >
                 <Activity className="w-3.5 h-3.5 text-blue-200" />
-                <span>Применить</span>
+                <span>Сохранить</span>
               </button>
             </div>
           </div>
