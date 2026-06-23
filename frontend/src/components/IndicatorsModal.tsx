@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback, useMemo } from "react"
 import { createPortal } from "react-dom"
 import { useTheme } from "@/contexts/ThemeContext"
 import type { Indicator, IndicatorSettings } from "@/chart2d/types"
-import { X, Search, Star, Trash2, Eye, EyeOff, Layers, Activity, ChevronDown, ArrowUp, ArrowDown, Info, Plus, Check, Pencil, Shield } from "lucide-react"
+import { X, Search, Star, Trash2, Eye, EyeOff, Layers, Activity, ChevronDown, ArrowUp, ArrowDown, Info, Plus, Check, Pencil, Shield, Lock } from "lucide-react"
 import { motion, AnimatePresence } from "motion/react"
 import { MODULAR_INDICATORS } from "@/chart2d/indicators"
 import { INDICATOR_DESCRIPTIONS } from "@/chart2d/indicators/descriptions"
@@ -22,7 +22,7 @@ interface IndicatorsModalProps {
   indicators?: Indicator[]
   source?: IndicatorsSource
   focusIndicatorId?: string | null
-  onApplyIndicators?: (indicators: Indicator[]) => void
+  onApplyIndicators?: (indicators: Indicator[], settingsChanged: boolean) => void
   onToggleVisibility?: (id: string) => void
   /**
    * Propagate ONE indicator (replace-or-append by id) into the '*' row and
@@ -65,6 +65,23 @@ export default function IndicatorsModal({ isOpen, onClose, symbol = "", market =
   const isAdmin = (user?.role ?? '').toLowerCase() === 'admin'
 
   const [draft, setDraft] = useState<Indicator[]>([])
+  // Variant B tier-overflow set: items past the tier max in the active-filtered
+  // order are "blocked by tier" — visible in the active list with settings
+  // preserved, but the eye toggle is disabled until the user frees a slot by
+  // removing one of the first N actives. Mirrors the backend rule (no
+  // mutation of isActive on read/write); FE and BE compute the set
+  // independently from the same array order.
+  const blockedIds = useMemo(() => {
+    const blocked = new Set<string>()
+    if (!Number.isFinite(maxIndicators)) return blocked
+    let activeIdx = 0
+    for (const ind of draft) {
+      if (!ind.isActive) continue
+      activeIdx++
+      if (activeIdx > maxIndicators) blocked.add(ind.id)
+    }
+    return blocked
+  }, [draft, maxIndicators])
   const [searchQuery, setSearchQuery] = useState("")
   const [selectedId, setSelectedId] = useState("clusterSearch")
   // Per-indicator "apply to all TFs" intent. Each id ticked on Apply is sent
@@ -148,6 +165,11 @@ export default function IndicatorsModal({ isOpen, onClose, symbol = "", market =
   const modalOffset = useRef({ x: 0, y: 0 })
 
   const prevIsOpen = useRef(isOpen)
+  // Snapshot of settings keyed by indicator id captured at seed time. Drives
+  // the 'add_only' vs 'settings_changed' intent on save: if no settings object
+  // changed compared to this snapshot, the request goes as 'add_only' so users
+  // with the custom_indicator_settings policy off can still edit composition.
+  const initialSettingsRef = useRef<Map<string, string>>(new Map())
 
   useEffect(() => {
     if (isOpen && !prevIsOpen.current) {
@@ -174,6 +196,9 @@ export default function IndicatorsModal({ isOpen, onClose, symbol = "", market =
         }
       })
       setDraft(seeded)
+      const snapshot = new Map<string, string>()
+      for (const ind of seeded) snapshot.set(ind.id, JSON.stringify(ind.settings))
+      initialSettingsRef.current = snapshot
       if (focusIndicatorId) setSelectedId(focusIndicatorId)
       setOffset({ x: 0, y: 0 })
       setSize({ width: 855, height: 800 })
@@ -353,12 +378,19 @@ export default function IndicatorsModal({ isOpen, onClose, symbol = "", market =
 
   const toggleActive = (id: string, e?: React.MouseEvent) => {
     if (e) e.stopPropagation()
-    // Adding to the list is no longer capped — users can keep more indicators
-    // around than their tier allows visible. The cap is enforced on the
-    // visibility step below (and on the backend) instead.
-    setDraft((prev) =>
-      prev.map((ind) => (ind.id === id ? { ...ind, isActive: !ind.isActive } : ind))
-    )
+    setDraft((prev) => {
+      const target = prev.find((ind) => ind.id === id)
+      if (!target) return prev
+      const turningOn = !target.isActive
+      if (turningOn) {
+        const activeCount = prev.filter((ind) => ind.isActive).length
+        if (activeCount >= maxIndicators) {
+          notify(`Лимит индикаторов: ${maxIndicators}. Удалите другой или выберите платный тариф.`, { kind: 'warn' })
+          return prev
+        }
+      }
+      return prev.map((ind) => (ind.id === id ? { ...ind, isActive: !ind.isActive } : ind))
+    })
   }
 
   const deactivateIndicator = (id: string, e: React.MouseEvent) => {
@@ -368,19 +400,17 @@ export default function IndicatorsModal({ isOpen, onClose, symbol = "", market =
 
   const toggleVisibility = (id: string, e: React.MouseEvent) => {
     e.stopPropagation()
-    setDraft((prev) => {
-      const target = prev.find((ind) => ind.id === id)
-      if (!target) return prev
-      const turningOn = target.isVisible === false
-      if (turningOn) {
-        const visibleCount = prev.filter((ind) => ind.isActive && ind.isVisible !== false).length
-        if (visibleCount >= maxIndicators) {
-          notify(`Лимит видимых индикаторов: ${maxIndicators}. Скройте другой или выберите платный тариф.`, { kind: 'warn' })
-          return prev
-        }
-      }
-      return prev.map((ind) => (ind.id === id ? { ...ind, isVisible: ind.isVisible === false ? true : false } : ind))
-    })
+    // Variant B: items past the tier cap are "blocked by tier" — the eye
+    // toggle is locked until the user frees a slot by removing one of the
+    // first N actives. Voluntarily hidden items within the cap stay
+    // togglable as before.
+    if (blockedIds.has(id)) {
+      notify(`Лимит тарифа: освободите место, чтобы показать этот индикатор.`, { kind: 'warn' })
+      return
+    }
+    setDraft((prev) =>
+      prev.map((ind) => (ind.id === id ? { ...ind, isVisible: ind.isVisible === false ? true : false } : ind))
+    )
   }
 
   const moveIndicator = (id: string, direction: "up" | "down", e: React.MouseEvent) => {
@@ -546,7 +576,13 @@ export default function IndicatorsModal({ isOpen, onClose, symbol = "", market =
     // per-tf save would race. Everything else flows through the normal per-tf
     // save.
     const perTfSave = draft.filter((ind) => !propagateIds.has(ind.id))
-    onApplyIndicators?.(perTfSave)
+    const initial = initialSettingsRef.current
+    const settingsChanged = draft.some((ind) => {
+      const before = initial.get(ind.id)
+      if (before === undefined) return false
+      return before !== JSON.stringify(ind.settings)
+    })
+    onApplyIndicators?.(perTfSave, settingsChanged)
     if (onPropagateIndicator) {
       for (const ind of draft) {
         if (propagateIds.has(ind.id)) onPropagateIndicator(ind)
@@ -672,11 +708,27 @@ export default function IndicatorsModal({ isOpen, onClose, symbol = "", market =
                                 <ArrowDown className="w-3.5 h-3.5" />
                               </button>
                               <button
-                                onClick={(e) => { toggleVisibility(ind.id, e); onToggleVisibility?.(ind.id) }}
-                                className={`p-1 rounded transition ${isLight ? "hover:bg-slate-200/80 text-slate-500 hover:text-slate-850" : "hover:bg-white/10 text-slate-400 hover:text-slate-200"}`}
-                                title={isVisible ? "Скрыть на графике" : "Показать на графике"}
+                                onClick={(e) => {
+                                  if (blockedIds.has(ind.id)) { toggleVisibility(ind.id, e); return }
+                                  toggleVisibility(ind.id, e); onToggleVisibility?.(ind.id)
+                                }}
+                                aria-disabled={blockedIds.has(ind.id)}
+                                className={`p-1 rounded transition ${
+                                  blockedIds.has(ind.id)
+                                    ? "cursor-not-allowed text-amber-500 hover:bg-amber-500/10"
+                                    : isLight ? "hover:bg-slate-200/80 text-slate-500 hover:text-slate-850" : "hover:bg-white/10 text-slate-400 hover:text-slate-200"
+                                }`}
+                                title={
+                                  blockedIds.has(ind.id)
+                                    ? "Лимит тарифа: освободите место, чтобы показать этот индикатор"
+                                    : isVisible ? "Скрыть на графике" : "Показать на графике"
+                                }
                               >
-                                {isVisible ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5 text-rose-500 font-bold" />}
+                                {blockedIds.has(ind.id)
+                                  ? <Lock className="w-3.5 h-3.5" />
+                                  : isVisible
+                                    ? <Eye className="w-3.5 h-3.5" />
+                                    : <EyeOff className="w-3.5 h-3.5 text-rose-500 font-bold" />}
                               </button>
                               <button
                                 onClick={(e) => deactivateIndicator(ind.id, e)}
@@ -1821,8 +1873,6 @@ export default function IndicatorsModal({ isOpen, onClose, symbol = "", market =
               </button>
               <button
                 onClick={handleApply}
-                disabled={!limits.customIndicatorSettings}
-                title={!limits.customIndicatorSettings ? "Доступно на платных тарифах" : undefined}
                 className="px-6 py-2 bg-[#2563eb] hover:bg-blue-600 text-white rounded-xl text-xs font-extrabold font-sans transition-all active:scale-[0.98] shadow-lg cursor-pointer flex items-center gap-1.5 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-[#2563eb]"
               >
                 <Activity className="w-3.5 h-3.5 text-blue-200" />

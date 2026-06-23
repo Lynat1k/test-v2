@@ -23,40 +23,46 @@ const (
 	maxIndicatorsRequest = 64 * 1024 // 64 KB hard ceiling on the whole request body
 )
 
-// applyVisibleCap walks arr in order and forces isVisible=false on every
-// active indicator past the tier's per-user max. Mutates arr in place.
-// Returns the number of items trimmed. max < 0 disables the cap.
+// countActiveOverflow counts active indicators past the tier cap WITHOUT
+// mutating arr. Returns the number of items in overflow positions (i.e. items
+// whose isActive=true appears at position >= max in the active-filtered order).
+// max < 0 disables the count (always 0).
 //
-// "Visibility" semantics mirror the frontend (storage.ts computeActiveIndicators):
-// chart renders an indicator iff isActive && isVisible !== false. We only
-// touch isVisible — isActive is left alone so users keep their list intact
-// and can delete the hidden ones manually after a downgrade.
-func applyVisibleCap(arr []map[string]interface{}, max int) int {
+// Tier limit semantics (variant B): on downgrade we keep overflow items in
+// the stored array with their original isActive=true so the UI can render
+// them as "blocked by tier" — the eye toggle is disabled until the user
+// frees a slot by removing one of the first N actives. The cap is no longer
+// applied as a mutation; FE and BE both compute the blocked set from array
+// order against the tier max.
+func countActiveOverflow(arr []map[string]interface{}, max int) int {
 	if max < 0 {
 		return 0
 	}
-	visible := 0
-	trimmed := 0
+	active := 0
+	overflow := 0
 	for _, it := range arr {
-		active, _ := it["isActive"].(bool)
-		if !active {
+		isActive, _ := it["isActive"].(bool)
+		if !isActive {
 			continue
 		}
-		isVisible := true
-		if v, ok := it["isVisible"].(bool); ok {
-			isVisible = v
-		}
-		if !isVisible {
-			continue
-		}
-		if visible >= max {
-			it["isVisible"] = false
-			trimmed++
+		if active >= max {
+			overflow++
 		} else {
-			visible++
+			active++
 		}
 	}
-	return trimmed
+	return overflow
+}
+
+// countActives returns the number of items with isActive=true.
+func countActives(arr []map[string]interface{}) int {
+	n := 0
+	for _, it := range arr {
+		if isActive, _ := it["isActive"].(bool); isActive {
+			n++
+		}
+	}
+	return n
 }
 
 // getMaxIndicatorsForRole reads tier_policies.max_indicators for the role.
@@ -134,19 +140,20 @@ func (h *Handler) handleGetUserIndicators(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	// Parse as a typed array of objects so we can apply the per-tier visible
-	// cap. Falls back to an empty array on corrupt rows so the UI keeps
-	// working. The cap is enforced on read to repair any dirty state saved
-	// before the cap landed (e.g. a freshly downgraded user whose previous-tier
-	// state still has too many visible indicators).
+	// Parse as a typed array of objects. Falls back to an empty array on
+	// corrupt rows so the UI keeps working. The persisted array is returned
+	// verbatim — variant B keeps tier-overflow items in the stored set with
+	// their isActive=true so the UI can render them as "blocked by tier"
+	// (eye disabled, position past the tier cap). FE and BE both compute the
+	// blocked set from array order against the role's max.
 	var arr []map[string]interface{}
 	if err := json.Unmarshal([]byte(jsonStr), &arr); err != nil {
 		log.Printf("[auth] resolve indicators: corrupt json for %s/%s/%s: %v", symbol, market, timeframe, err)
 		arr = nil
 	}
-	if trimmed := applyVisibleCap(arr, h.getMaxIndicatorsForRole(role)); trimmed > 0 {
-		log.Printf("[auth] visible cap on read: user=%s role=%s key=%s/%s/%s trimmed=%d",
-			userID, role, symbol, market, timeframe, trimmed)
+	if overflow := countActiveOverflow(arr, h.getMaxIndicatorsForRole(role)); overflow > 0 {
+		log.Printf("[auth] tier overflow on read: user=%s role=%s key=%s/%s/%s overflow=%d",
+			userID, role, symbol, market, timeframe, overflow)
 	}
 	var parsed interface{} = arr
 	if arr == nil {
@@ -313,20 +320,71 @@ func (h *Handler) handlePutUserIndicators(w http.ResponseWriter, r *http.Request
 			}
 		}
 
-		// Enforce per-tier visible cap silently: items past the cap get
-		// isVisible=false (active flag preserved so user can still delete
-		// them). Logged but never returned as an error — matches the plan's
-		// "молча обрезать" decision.
+		// Per-tier active cap (variant B): reject only when the request would
+		// strictly INCREASE the active count past the tier max. This preserves
+		// the "limit on add" rule (a raw API client trying to push more actives
+		// than the tier allows is refused) while letting a freshly-downgraded
+		// user save settings on the same set of indicators they already had —
+		// the overflow stays in the stored row and the UI renders the tail as
+		// "blocked by tier". propagate path is unaffected (single-indicator op).
 		role, _ := r.Context().Value(RoleKey).(string)
-		if trimmed := applyVisibleCap(arr, h.getMaxIndicatorsForRole(role)); trimmed > 0 {
-			log.Printf("[auth] visible cap on write: user=%s role=%s key=%s/%s/%s mode=%s trimmed=%d",
-				userID, role, symbol, market, timeframe, mode, trimmed)
+		tierMax := h.getMaxIndicatorsForRole(role)
+		if tierMax >= 0 {
+			storedJSON, _, gErr := GetUserIndicator(r.Context(), h.db, userID, symbol, market, timeframe)
+			if gErr != nil {
+				log.Printf("[auth] tier cap: read stored row: %v", gErr)
+				writeError(w, http.StatusInternalServerError, "DB_ERROR", "failed to read stored indicators")
+				return
+			}
+			var storedArr []map[string]interface{}
+			storedIDs := map[string]bool{}
+			storedActiveCount := 0
+			if storedJSON != "" {
+				if err := json.Unmarshal([]byte(storedJSON), &storedArr); err == nil {
+					for _, it := range storedArr {
+						if id, ok := it["id"].(string); ok && id != "" {
+							storedIDs[id] = true
+						}
+					}
+					storedActiveCount = countActives(storedArr)
+				}
+			}
+
+			var newActiveCount int
+			switch mode {
+			case "replace":
+				newActiveCount = countActives(arr)
+			case "merge-add":
+				newActiveCount = storedActiveCount
+				for _, it := range arr {
+					id, _ := it["id"].(string)
+					if storedIDs[id] {
+						continue
+					}
+					if isActive, _ := it["isActive"].(bool); isActive {
+						newActiveCount++
+					}
+				}
+			}
+
+			if newActiveCount > tierMax && newActiveCount > storedActiveCount {
+				writeError(w, http.StatusBadRequest, "TIER_LIMIT_EXCEEDED",
+					"indicators exceed tier limit")
+				log.Printf("[auth] tier limit exceeded: user=%s role=%s key=%s/%s/%s mode=%s active=%d stored=%d max=%d",
+					userID, role, symbol, market, timeframe, mode, newActiveCount, storedActiveCount, tierMax)
+				return
+			}
+
+			if overflow := countActiveOverflow(arr, tierMax); overflow > 0 {
+				log.Printf("[auth] tier overflow on write: user=%s role=%s key=%s/%s/%s mode=%s overflow=%d",
+					userID, role, symbol, market, timeframe, mode, overflow)
+			}
 		}
 
-		// Re-marshal arr after cap application so the persisted JSON reflects
-		// any isVisible mutations. Falls back to the original body on encoding
-		// errors (defensive — Marshal of a map already parsed via Unmarshal
-		// should never fail).
+		// Re-marshal arr to ensure stable serialization of the parsed payload
+		// (object key order, whitespace stripped). Falls back to the original
+		// body on encoding errors (defensive — Marshal of a map already parsed
+		// via Unmarshal should never fail).
 		indicatorsJSON := string(body.Indicators)
 		if reEncoded, err := json.Marshal(arr); err == nil {
 			indicatorsJSON = string(reEncoded)

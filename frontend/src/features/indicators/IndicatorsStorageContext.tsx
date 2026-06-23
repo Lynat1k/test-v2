@@ -82,8 +82,12 @@ interface IndicatorsStorageValue {
    * Indicator[].isFavorite field. Use this for IndicatorsModal "Apply": the
    * modal mutates isFavorite locally in its draft array, so a plain saveForKey
    * would drop those flags (they live outside the per-key row by design).
+   *
+   * `settingsChanged` decides the wire intent: false → 'add_only' (composition
+   * only, allowed for tiers without custom_indicator_settings); true →
+   * 'settings_changed' (gated by the policy, may 403).
    */
-  applyIndicatorsForKey(symbol: string, market: string, timeframe: string, visible: Indicator[]): Promise<void>
+  applyIndicatorsForKey(symbol: string, market: string, timeframe: string, visible: Indicator[], settingsChanged: boolean): Promise<void>
 
   /**
    * Push ONE indicator to every TF of (symbol, market): upserts the '*' row
@@ -398,7 +402,7 @@ export function IndicatorsStorageProvider({ children }: { children: ReactNode })
     }
   }, [isLoggedIn, bumpRevision])
 
-  const applyIndicatorsForKey = useCallback(async (symbol: string, market: string, timeframe: string, visible: Indicator[]) => {
+  const applyIndicatorsForKey = useCallback(async (symbol: string, market: string, timeframe: string, visible: Indicator[], settingsChanged: boolean) => {
     // Sync favorites (user-wide) BEFORE the per-key save so the next render
     // hydrates with the right star state.
     const wanted = new Set<string>()
@@ -439,7 +443,7 @@ export function IndicatorsStorageProvider({ children }: { children: ReactNode })
 
     if (!isLoggedIn) return
     try {
-      await putIndicators(cs, cm, ct, stored, 'settings_changed')
+      await putIndicators(cs, cm, ct, stored, settingsChanged ? 'settings_changed' : 'add_only')
     } catch (err) {
       console.warn('[indicators] PUT failed (apply), kept local cache', err)
       reportCustomSettingsForbidden(err)
@@ -742,8 +746,8 @@ export function useIndicatorsForKey(symbol: string, market: string, timeframe: s
         ),
       onRemoveIndicator: (id: string) =>
         save((cur) => cur.map((i) => (i.id === id ? { ...i, isActive: false } : i))),
-      onApplyIndicators: (updated: Indicator[]) =>
-        store.applyIndicatorsForKey(symbol, market, timeframe, updated),
+      onApplyIndicators: (updated: Indicator[], settingsChanged: boolean) =>
+        store.applyIndicatorsForKey(symbol, market, timeframe, updated, settingsChanged),
       refreshKey: () => store.refreshKey(symbol, market, timeframe),
     }
   }, [store, symbol, market, timeframe, view.indicators])
