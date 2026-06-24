@@ -122,7 +122,10 @@ export function adapter(
         low: raw.Low,
         close: raw.Close,
         volume: raw.TotalVolume,
-        delta: raw.TotalDelta,
+// Backend хранит дельту как bid-ask (SELL-BUY). Инвертируем в BUY-SELL,
+// чтобы candle.delta совпадал с футпринтом. НЕ инвертировать повторно
+// в индикаторах — источник уже нормализован здесь. См. CLAUDE.md.
+        delta: -raw.TotalDelta,
         pocPrice,
         cells,
         vah,
