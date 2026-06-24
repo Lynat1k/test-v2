@@ -49,7 +49,13 @@ export function UserSettingsProvider({ children }: { children: ReactNode }) {
         const local = readLocal()
 
         const hasLocal = Object.keys(local).length > 0
-        const merged = hasLocal ? { ...parsed, ...local } : parsed
+        const merged: Record<string, any> = hasLocal ? { ...parsed, ...local } : { ...parsed }
+        // Server-priority for per-symbol chart compression keys: stale guest LS must not
+        // overwrite the logged-in user's saved choices (handled per-key, leaving other
+        // settings local-wins as before).
+        for (const k of Object.keys(parsed)) {
+          if (k.startsWith('chartCompression_')) merged[k] = parsed[k]
+        }
 
         settingsRef.current = merged
         setSettings(merged)

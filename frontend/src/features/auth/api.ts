@@ -133,6 +133,16 @@ export async function apiGetLimitsPublic(): Promise<UserLimits> {
   return json.data as UserLimits
 }
 
+export interface PublicCompressionDefault {
+  market: string
+  timeframe: string
+  multiplier: number
+}
+
+export async function apiGetCompressionDefaults(symbol: string): Promise<PublicCompressionDefault[]> {
+  return request<PublicCompressionDefault[]>(`/compressions?symbol=${encodeURIComponent(symbol)}`)
+}
+
 export async function apiPutSettings(settingsJson: string) {
   await request('/user/settings', {
     method: 'PUT',

@@ -1,5 +1,7 @@
 import { createContext, useContext, useState, useEffect, useCallback, useRef, type ReactNode } from 'react'
 import type { CandleMode, VolumeMode } from '@/chart-engine'
+import { useUserSettings } from '@/contexts/UserSettingsContext'
+import { apiGetCompressionDefaults } from '@/features/auth/api'
 
 export type MarketType = 'futures' | 'spot'
 export type CandlePalette = 'default' | 'alternative'
@@ -33,6 +35,10 @@ export interface ChartSlot {
   palette: CandlePalette
   volumeMode: VolumeMode
   compression: number
+  // Per-slot mirror of user choices, keyed `${market}_${tf}` → level (1..N).
+  // Canonical source is UserSettings (`chartCompression_${symbol}`); this is a fallback
+  // for legacy localStorage and for when settings haven't hydrated yet.
+  compressionByTf: Record<string, number>
 }
 
 const DEFAULT_SLOT: ChartSlot = {
@@ -43,6 +49,7 @@ const DEFAULT_SLOT: ChartSlot = {
   palette: 'default',
   volumeMode: 'bidask',
   compression: 1,
+  compressionByTf: {},
 }
 
 // Shape returned by GET /api/v1/tickers — only the fields we care about here.
@@ -72,12 +79,14 @@ interface ChartControlsValue {
 
   getTickerConfig: () => TickerConfig
   getCompressionLevels: () => number[]
+  // Absolute admin-default multiplier for the active slot's symbol + given market+tf, or undefined.
+  getAdminDefaultCompression: (market: MarketType, tf: string) => number | undefined
 }
 
 const STORAGE_KEY = 'procluster_chart_controls'
 
 interface SavedState {
-  slots?: [ChartSlot, ChartSlot]
+  slots?: Array<Partial<ChartSlot> & { compressionByTf?: Record<string, number> }>
   activeSlot?: 0 | 1
   // legacy single-slot fields
   symbol?: string
@@ -89,36 +98,62 @@ interface SavedState {
   compression?: number
 }
 
+function normalizeByTf(raw: unknown): Record<string, number> {
+  if (!raw || typeof raw !== 'object') return {}
+  const out: Record<string, number> = {}
+  for (const [k, v] of Object.entries(raw as Record<string, unknown>)) {
+    if (typeof v === 'number' && Number.isFinite(v) && v > 0) out[k] = v
+  }
+  return out
+}
+
+function buildSlotFromSaved(src: Partial<ChartSlot> & { compressionByTf?: Record<string, number> } | undefined): ChartSlot {
+  const merged: ChartSlot = { ...DEFAULT_SLOT, ...(src ?? {}) }
+  let byTf = normalizeByTf(src?.compressionByTf)
+  // Seed the mirror for legacy LS where compressionByTf is absent — preserves the
+  // last-session compression for the slot's current (market, timeframe).
+  if (Object.keys(byTf).length === 0 && merged.compression > 0) {
+    byTf = { [`${merged.market}_${merged.timeframe}`]: merged.compression }
+  }
+  merged.compressionByTf = byTf
+  return merged
+}
+
 function loadSaved(): { slots: [ChartSlot, ChartSlot]; activeSlot: 0 | 1 } {
   try {
     const raw = localStorage.getItem(STORAGE_KEY)
     if (raw) {
       const data: SavedState = JSON.parse(raw)
-      if (data.slots) {
+      if (data.slots && Array.isArray(data.slots)) {
         return {
           slots: [
-            { ...DEFAULT_SLOT, ...data.slots[0] },
-            { ...DEFAULT_SLOT, ...data.slots[1] },
+            buildSlotFromSaved(data.slots[0]),
+            buildSlotFromSaved(data.slots[1]),
           ],
           activeSlot: data.activeSlot ?? 0,
         }
       }
       // Legacy migration: single slot → slots[0]
       if (data.symbol) {
-        const slot: ChartSlot = {
-          symbol: data.symbol ?? DEFAULT_SLOT.symbol,
-          market: data.market ?? DEFAULT_SLOT.market,
-          timeframe: data.timeframe ?? DEFAULT_SLOT.timeframe,
-          candleMode: data.candleMode ?? DEFAULT_SLOT.candleMode,
-          palette: data.palette ?? DEFAULT_SLOT.palette,
-          volumeMode: data.volumeMode ?? DEFAULT_SLOT.volumeMode,
-          compression: data.compression ?? DEFAULT_SLOT.compression,
-        }
-        return { slots: [slot, { ...DEFAULT_SLOT }], activeSlot: 0 }
+        const legacy: Partial<ChartSlot> = { symbol: data.symbol }
+        if (data.market !== undefined) legacy.market = data.market
+        if (data.timeframe !== undefined) legacy.timeframe = data.timeframe
+        if (data.candleMode !== undefined) legacy.candleMode = data.candleMode
+        if (data.palette !== undefined) legacy.palette = data.palette
+        if (data.volumeMode !== undefined) legacy.volumeMode = data.volumeMode
+        if (data.compression !== undefined) legacy.compression = data.compression
+        const slot = buildSlotFromSaved(legacy)
+        return { slots: [slot, { ...DEFAULT_SLOT, compressionByTf: {} }], activeSlot: 0 }
       }
     }
   } catch {}
-  return { slots: [{ ...DEFAULT_SLOT }, { ...DEFAULT_SLOT }], activeSlot: 0 }
+  return {
+    slots: [
+      { ...DEFAULT_SLOT, compressionByTf: {} },
+      { ...DEFAULT_SLOT, compressionByTf: {} },
+    ],
+    activeSlot: 0,
+  }
 }
 
 function saveToStorage(slots: [ChartSlot, ChartSlot], activeSlot: 0 | 1) {
@@ -137,17 +172,25 @@ export function ChartControlsProvider({ children }: { children: ReactNode }) {
   const [showIndicatorsModal, setShowIndicatorsModal] = useState(false)
   // Overrides fetched from /api/v1/tickers — keyed by symbol.
   const [tickerOverrides, setTickerOverrides] = useState<Record<string, Partial<TickerConfig>>>({})
-  const fetchedRef = useRef(false)
+  // Admin compression defaults per symbol: { symbol → { `${market}_${tf}` → absolute multiplier } }.
+  // A value of {} (empty object) means "fetched, nothing configured" — not "not yet fetched".
+  const [adminDefaults, setAdminDefaults] = useState<Record<string, Record<string, number>>>({})
+  // Per-session explicit user picks of (symbol, market, tf). Protects against late
+  // admin/server overrides from overwriting an in-session manual choice.
+  const explicitChoiceRef = useRef<Set<string>>(new Set())
+  const fetchedTickersRef = useRef(false)
+  const adminFetchInflightRef = useRef<Set<string>>(new Set())
+
+  const { settings, getSetting, setSetting } = useUserSettings()
 
   useEffect(() => {
     saveToStorage(slots, activeSlot)
   }, [slots, activeSlot])
 
   // Fetch ticker params from the server once on mount.
-  // Falls back silently to AVAILABLE_TICKERS hardcoded values if the call fails.
   useEffect(() => {
-    if (fetchedRef.current) return
-    fetchedRef.current = true
+    if (fetchedTickersRef.current) return
+    fetchedTickersRef.current = true
     fetch('/api/v1/tickers')
       .then(r => r.json())
       .then((json: { ok: boolean; data?: ServerTicker[] }) => {
@@ -167,6 +210,32 @@ export function ChartControlsProvider({ children }: { children: ReactNode }) {
       .catch(() => { /* silent fallback to hardcoded values */ })
   }, [])
 
+  // Fetch admin compression defaults for every symbol currently held by a slot.
+  // Each symbol fetched exactly once; an empty result is cached as {} (not undefined).
+  useEffect(() => {
+    const symbols = Array.from(new Set([slots[0].symbol, slots[1].symbol]))
+    for (const sym of symbols) {
+      if (adminDefaults[sym] !== undefined) continue
+      if (adminFetchInflightRef.current.has(sym)) continue
+      adminFetchInflightRef.current.add(sym)
+      apiGetCompressionDefaults(sym)
+        .then(rows => {
+          const map: Record<string, number> = {}
+          for (const r of rows ?? []) {
+            if (typeof r.multiplier === 'number' && r.multiplier > 0) {
+              map[`${r.market}_${r.timeframe}`] = r.multiplier
+            }
+          }
+          setAdminDefaults(prev => prev[sym] !== undefined ? prev : { ...prev, [sym]: map })
+        })
+        .catch(() => {
+          setAdminDefaults(prev => prev[sym] !== undefined ? prev : { ...prev, [sym]: {} })
+        })
+        .finally(() => { adminFetchInflightRef.current.delete(sym) })
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [slots[0].symbol, slots[1].symbol])
+
   const updateSlot = useCallback((index: 0 | 1, patch: Partial<ChartSlot>) => {
     setSlots(prev => {
       const next: [ChartSlot, ChartSlot] = [{ ...prev[0] }, { ...prev[1] }]
@@ -183,30 +252,106 @@ export function ChartControlsProvider({ children }: { children: ReactNode }) {
 
   const active = slots[activeSlot]
 
-  const setSymbol = useCallback((s: string) => {
-    const ticker = AVAILABLE_TICKERS.find(t => t.symbol === s)
-    const patch: Partial<ChartSlot> = { symbol: s }
-    if (ticker) {
-      const tfs = TIMEFRAMES_BY_MARKET[active.market]
-      if (!tfs.includes(active.timeframe)) {
-        patch.timeframe = tfs[0]!
+  // Single source of truth for compression resolution.
+  // Priority: user-saved (UserSettings: server > LS) → slot-local mirror → admin default → 1.
+  const resolveCompression = useCallback(
+    (symbol: string, market: MarketType, tf: string, slotByTf?: Record<string, number>): number => {
+      const tfKey = `${market}_${tf}`
+      // 1. User-saved value (server for auth, localStorage for guest, via UserSettings).
+      const saved = getSetting<Record<string, number>>(`chartCompression_${symbol}`, {})
+      const savedVal = saved && typeof saved === 'object' ? saved[tfKey] : undefined
+      if (typeof savedVal === 'number' && savedVal > 0) return savedVal
+      // 2. Slot-local mirror — used when settings hasn't hydrated yet, or for legacy LS.
+      const mirrorVal = slotByTf ? slotByTf[tfKey] : undefined
+      if (typeof mirrorVal === 'number' && mirrorVal > 0) return mirrorVal
+      // 3. Admin default — stored as absolute multiplier; convert to level via current base.
+      const absolute = adminDefaults[symbol]?.[tfKey]
+      if (typeof absolute === 'number' && absolute > 0) {
+        const baseTicker = AVAILABLE_TICKERS.find(t => t.symbol === symbol) ?? AVAILABLE_TICKERS[0]!
+        const override = tickerOverrides[symbol]
+        const merged = override ? { ...baseTicker, ...override } : baseTicker
+        const base = market === 'futures' ? merged.baseFutures : merged.baseSpot
+        if (base > 0) return Math.max(1, Math.round(absolute / base))
       }
-    }
-    updateSlot(activeSlot, patch)
-  }, [activeSlot, active.market, active.timeframe, updateSlot])
+      // 4. Fallback.
+      return 1
+    },
+    [getSetting, adminDefaults, tickerOverrides]
+  )
+
+  // Re-resolve compression when admin defaults or user settings arrive (or symbol/market/tf
+  // changes). Skip slots where the user has already made an explicit pick in this session.
+  // Deps deliberately reference primitive accessors only — slot object refs would loop.
+  useEffect(() => {
+    setSlots(prev => {
+      let changed = false
+      const next: [ChartSlot, ChartSlot] = [prev[0], prev[1]]
+      for (let i = 0; i < 2; i++) {
+        const idx = i as 0 | 1
+        const slot = prev[idx]
+        const tfKey = `${slot.market}_${slot.timeframe}`
+        const choiceKey = `${slot.symbol}_${tfKey}`
+        if (explicitChoiceRef.current.has(choiceKey)) continue
+        const lvl = resolveCompression(slot.symbol, slot.market, slot.timeframe, slot.compressionByTf)
+        if (lvl !== slot.compression) {
+          next[idx] = { ...slot, compression: lvl }
+          changed = true
+        }
+      }
+      return changed ? next : prev
+    })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    resolveCompression,
+    settings,
+    adminDefaults,
+    slots[0].symbol, slots[0].market, slots[0].timeframe,
+    slots[1].symbol, slots[1].market, slots[1].timeframe,
+  ])
+
+  const setSymbol = useCallback((s: string) => {
+    setSlots(prev => {
+      const slot = prev[activeSlot]
+      const tfs = TIMEFRAMES_BY_MARKET[slot.market]
+      const tf = tfs.includes(slot.timeframe) ? slot.timeframe : tfs[0]!
+      // Rebuild the slot's per-TF mirror from settings for the new symbol — previous
+      // symbol's cache is irrelevant.
+      const savedForNew = getSetting<Record<string, number>>(`chartCompression_${s}`, {})
+      const byTf = normalizeByTf(savedForNew)
+      const lvl = resolveCompression(s, slot.market, tf, byTf)
+      const next: [ChartSlot, ChartSlot] = [{ ...prev[0] }, { ...prev[1] }]
+      next[activeSlot] = {
+        ...slot,
+        symbol: s,
+        timeframe: tf,
+        compression: lvl,
+        compressionByTf: byTf,
+      }
+      return next
+    })
+  }, [activeSlot, getSetting, resolveCompression])
 
   const setMarket = useCallback((m: MarketType) => {
-    const tfs = TIMEFRAMES_BY_MARKET[m]
-    const patch: Partial<ChartSlot> = { market: m }
-    if (!tfs.includes(active.timeframe)) {
-      patch.timeframe = tfs[0]!
-    }
-    updateSlot(activeSlot, patch)
-  }, [activeSlot, active.timeframe, updateSlot])
+    setSlots(prev => {
+      const slot = prev[activeSlot]
+      const tfs = TIMEFRAMES_BY_MARKET[m]
+      const tf = tfs.includes(slot.timeframe) ? slot.timeframe : tfs[0]!
+      const lvl = resolveCompression(slot.symbol, m, tf, slot.compressionByTf)
+      const next: [ChartSlot, ChartSlot] = [{ ...prev[0] }, { ...prev[1] }]
+      next[activeSlot] = { ...slot, market: m, timeframe: tf, compression: lvl }
+      return next
+    })
+  }, [activeSlot, resolveCompression])
 
   const setTimeframe = useCallback((tf: string) => {
-    updateSlot(activeSlot, { timeframe: tf })
-  }, [activeSlot, updateSlot])
+    setSlots(prev => {
+      const slot = prev[activeSlot]
+      const lvl = resolveCompression(slot.symbol, slot.market, tf, slot.compressionByTf)
+      const next: [ChartSlot, ChartSlot] = [{ ...prev[0] }, { ...prev[1] }]
+      next[activeSlot] = { ...slot, timeframe: tf, compression: lvl }
+      return next
+    })
+  }, [activeSlot, resolveCompression])
 
   const setCandleMode = useCallback((mode: CandleMode) => {
     updateSlot(activeSlot, { candleMode: mode })
@@ -221,11 +366,20 @@ export function ChartControlsProvider({ children }: { children: ReactNode }) {
   }, [activeSlot, updateSlot])
 
   const setCompression = useCallback((level: number) => {
-    updateSlot(activeSlot, { compression: level })
-  }, [activeSlot, updateSlot])
+    const slot = slots[activeSlot]
+    const symbol = slot.symbol
+    const tfKey = `${slot.market}_${slot.timeframe}`
+    explicitChoiceRef.current.add(`${symbol}_${tfKey}`)
+    const existing = getSetting<Record<string, number>>(`chartCompression_${symbol}`, {})
+    const nextSaved = { ...normalizeByTf(existing), [tfKey]: level }
+    setSetting(`chartCompression_${symbol}`, nextSaved)
+    updateSlot(activeSlot, {
+      compression: level,
+      compressionByTf: { ...slot.compressionByTf, [tfKey]: level },
+    })
+  }, [activeSlot, slots, updateSlot, getSetting, setSetting])
 
   // Returns ticker config for active symbol, merging API overrides on top of hardcoded fallback.
-  // Never returns undefined — falls back to AVAILABLE_TICKERS[0] as last resort.
   const getTickerConfig = useCallback((): TickerConfig => {
     const base = AVAILABLE_TICKERS.find(t => t.symbol === active.symbol) ?? AVAILABLE_TICKERS[0]!
     const override = tickerOverrides[active.symbol]
@@ -238,11 +392,21 @@ export function ChartControlsProvider({ children }: { children: ReactNode }) {
     return Array.from({ length: 10 }, (_, i) => base * (i + 1))
   }, [getTickerConfig, active.market])
 
+  const getAdminDefaultCompression = useCallback(
+    (market: MarketType, tf: string): number | undefined => {
+      const map = adminDefaults[active.symbol]
+      if (!map) return undefined
+      const v = map[`${market}_${tf}`]
+      return typeof v === 'number' && v > 0 ? v : undefined
+    },
+    [active.symbol, adminDefaults]
+  )
+
   return (
     <ChartControlsContext.Provider value={{
       activeSlot, setActiveSlot, getSlot, showIndicatorsModal,
       setSymbol, setMarket, setTimeframe, setCandleMode, setPalette, setVolumeMode, setCompression, setShowIndicatorsModal,
-      getTickerConfig, getCompressionLevels,
+      getTickerConfig, getCompressionLevels, getAdminDefaultCompression,
     }}>
       {children}
     </ChartControlsContext.Provider>

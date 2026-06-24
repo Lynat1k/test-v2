@@ -51,7 +51,7 @@ export function ChartHeader({ fps = 0, showAnomalies = true, onToggleAnomalies }
     activeSlot, getSlot,
     setSymbol, setMarket, setTimeframe, setCandleMode, setPalette: setControlsPalette,
     setVolumeMode, setCompression, setShowIndicatorsModal, showIndicatorsModal,
-    getTickerConfig, getCompressionLevels,
+    getTickerConfig, getCompressionLevels, getAdminDefaultCompression,
   } = useChartControls()
   const { setActivePalette } = useCandlePalette()
   const slot = getSlot(activeSlot)
@@ -430,43 +430,52 @@ export function ChartHeader({ fps = 0, showAnomalies = true, onToggleAnomalies }
                 zIndex: 99999,
               }}
             >
-              {compressionLevels.map((level, idx) => {
-                const isBase = level === baseCompression
-                const isDisabled = compressionMax < 10 && (idx + 1) > compressionMax
-                return (
-                  <button
-                    key={level}
-                    title={isDisabled ? t('chart.compressionLocked') : undefined}
-                    onClick={() => {
-                      if (!isDisabled) {
-                        setCompression(idx + 1)
-                        setCompressionDropdownOpen(false)
-                      }
-                    }}
-                    disabled={isDisabled}
-                    className={`w-full flex items-center justify-between px-3 py-1.5 rounded-lg text-xs font-bold text-left transition ${
-                      compression === idx + 1
-                        ? 'bg-amber-500/15 text-amber-400'
-                        : isDisabled
-                          ? isLight ? 'text-slate-400 cursor-not-allowed' : 'text-slate-600 cursor-not-allowed'
-                          : isLight
-                            ? 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 cursor-pointer'
-                            : 'text-slate-300 hover:bg-white/5 hover:text-white cursor-pointer'
-                    }`}
-                  >
-                    <span className="font-mono text-[11px]">
-                      {level}
-                      {isBase && <span className="text-[9px] text-amber-500/70 ml-1">base</span>}
-                    </span>
-                    {isDisabled ? (
-                      <span className="flex items-center gap-1 text-[8px] text-slate-600 max-w-[90px] text-right leading-tight">
-                        <Lock className="w-2.5 h-2.5 shrink-0" />
-                        {t('chart.compressionLocked')}
+              {(() => {
+                const adminAbsolute = getAdminDefaultCompression(market, timeframe)
+                return compressionLevels.map((level, idx) => {
+                  const isBase = level === baseCompression
+                  const isRecommended = adminAbsolute !== undefined && level === adminAbsolute
+                  const isDisabled = compressionMax < 10 && (idx + 1) > compressionMax
+                  return (
+                    <button
+                      key={level}
+                      title={isDisabled ? t('chart.compressionLocked') : undefined}
+                      onClick={() => {
+                        if (!isDisabled) {
+                          setCompression(idx + 1)
+                          setCompressionDropdownOpen(false)
+                        }
+                      }}
+                      disabled={isDisabled}
+                      className={`w-full flex items-center justify-between px-3 py-1.5 rounded-lg text-xs font-bold text-left transition ${
+                        compression === idx + 1
+                          ? 'bg-amber-500/15 text-amber-400'
+                          : isDisabled
+                            ? isLight ? 'text-slate-400 cursor-not-allowed' : 'text-slate-600 cursor-not-allowed'
+                            : isLight
+                              ? 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 cursor-pointer'
+                              : 'text-slate-300 hover:bg-white/5 hover:text-white cursor-pointer'
+                      }`}
+                    >
+                      <span className="font-mono text-[11px] flex items-center gap-1">
+                        {level}
+                        {isBase && <span className="text-[9px] text-amber-500/70">base</span>}
+                        {isRecommended && (
+                          <span className="text-[9px] font-bold px-1 py-0.5 rounded bg-emerald-500/15 text-emerald-400 border border-emerald-500/25 leading-none">
+                            {t('chart.compressionRecommended')}
+                          </span>
+                        )}
                       </span>
-                    ) : null}
-                  </button>
-                )
-              })}
+                      {isDisabled ? (
+                        <span className="flex items-center gap-1 text-[8px] text-slate-600 max-w-[90px] text-right leading-tight">
+                          <Lock className="w-2.5 h-2.5 shrink-0" />
+                          {t('chart.compressionLocked')}
+                        </span>
+                      ) : null}
+                    </button>
+                  )
+                })
+              })()}
             </motion.div>
           )}
         </AnimatePresence>

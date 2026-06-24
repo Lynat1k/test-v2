@@ -296,6 +296,7 @@ const ru = {
     indicators: 'Индикаторы',
     upgradeHint: 'Доступно по подписке Pro',
     compressionLocked: 'Доступно на Pro и VIP',
+    compressionRecommended: 'рекомендуемое',
     layout: 'Макет',
     layoutSingle: '1 График',
     layoutHorizontal: '2 Графика H',

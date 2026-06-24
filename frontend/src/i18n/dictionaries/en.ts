@@ -296,6 +296,7 @@ const en = {
     indicators: 'Indicators',
     upgradeHint: 'Available with Pro subscription',
     compressionLocked: 'Available on Pro and VIP',
+    compressionRecommended: 'recommended',
     layout: 'Layout',
     layoutSingle: '1 Chart',
     layoutHorizontal: '2 Charts H',

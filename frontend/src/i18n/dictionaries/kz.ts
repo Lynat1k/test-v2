@@ -296,6 +296,7 @@ const kz = {
     indicators: 'Индикаторлар',
     upgradeHint: 'Pro жазылуымен қол жетімді',
     compressionLocked: 'Pro және VIP-те қол жетімді',
+    compressionRecommended: 'ұсынылған',
     layout: 'Жайма',
     layoutSingle: '1 График',
     layoutHorizontal: '2 График H',
