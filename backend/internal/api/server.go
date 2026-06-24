@@ -30,6 +30,7 @@ type Server struct {
 	tierHistoryLimits     map[string]time.Duration
 	tierCompressionLocked map[string]bool
 	activeTickers         []admin.Ticker
+	activeCompressions    map[string][]admin.DefaultCompression // key: symbol
 }
 
 func (s *Server) SetTierHistoryLimits(m map[string]time.Duration) {
@@ -42,6 +43,14 @@ func (s *Server) SetTierCompressionLocked(m map[string]bool) {
 
 func (s *Server) SetActiveTickers(tickers []admin.Ticker) {
 	s.activeTickers = tickers
+}
+
+func (s *Server) SetDefaultCompressions(compressions []admin.DefaultCompression) {
+	m := make(map[string][]admin.DefaultCompression, len(compressions))
+	for _, c := range compressions {
+		m[c.Symbol] = append(m[c.Symbol], c)
+	}
+	s.activeCompressions = m
 }
 
 type ServerConfig struct {
@@ -96,6 +105,7 @@ func NewServer(
 	mux.Handle("GET /api/v1/candles/{symbol}/clusters-batch", RateLimitMiddleware(restLimiter, withMiddleware(rdb, authCfg, clustersBatchHandler)))
 	mux.Handle("GET /api/v1/fng", RateLimitMiddleware(restLimiter, withMiddleware(rdb, authCfg, http.HandlerFunc(s.handleFNG))))
 	mux.Handle("GET /api/v1/tickers", withMiddleware(rdb, authCfg, http.HandlerFunc(s.handleGetTickers)))
+	mux.Handle("GET /api/v1/compressions", withMiddleware(rdb, authCfg, http.HandlerFunc(s.handleGetPublicCompressions)))
 	mux.Handle("GET /ws", WSRateLimitMiddleware(wsLimiter, withMiddleware(rdb, authCfg, wsHandler)))
 
 	s.httpServer = &http.Server{

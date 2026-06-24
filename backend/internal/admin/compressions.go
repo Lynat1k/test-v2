@@ -236,6 +236,34 @@ func SeedDefaultCompressionsForSymbol(ctx context.Context, db *sql.DB, symbol st
 	return nil
 }
 
+// GetAllDefaultCompressions returns all default compressions across all symbols.
+func GetAllDefaultCompressions(ctx context.Context, db *sql.DB) ([]DefaultCompression, error) {
+	rows, err := db.QueryContext(ctx, `
+		SELECT id, symbol, market, timeframe, multiplier, updated_at
+		FROM default_compressions
+		ORDER BY symbol, market, timeframe
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("query all default compressions: %w", err)
+	}
+	defer rows.Close()
+
+	var compressions []DefaultCompression
+	for rows.Next() {
+		var c DefaultCompression
+		var updatedAt string
+		if err := rows.Scan(&c.ID, &c.Symbol, &c.Market, &c.Timeframe, &c.Multiplier, &updatedAt); err != nil {
+			return nil, fmt.Errorf("scan default compression: %w", err)
+		}
+		c.UpdatedAt = parseTime(updatedAt)
+		compressions = append(compressions, c)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate all default compressions: %w", err)
+	}
+	return compressions, nil
+}
+
 // DeleteDefaultCompressionsForSymbol deletes all default compressions for a symbol.
 func DeleteDefaultCompressionsForSymbol(ctx context.Context, db *sql.DB, symbol string) error {
 	_, err := db.ExecContext(ctx, "DELETE FROM default_compressions WHERE symbol = ?", symbol)

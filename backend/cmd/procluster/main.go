@@ -191,6 +191,12 @@ func main() {
 			log.Printf("[main] set active tickers for public API: %d tickers", len(dbTickers))
 		}
 	}
+	if allCompr, comprErr := admin.GetAllDefaultCompressions(ctx, sqliteDB); comprErr != nil {
+		log.Printf("[main] failed to load default compressions: %v", comprErr)
+	} else {
+		srv.SetDefaultCompressions(allCompr)
+		log.Printf("[main] set default compressions for public API: %d entries", len(allCompr))
+	}
 	orderBooks := make(map[string]*depth.OrderBook)
 	for key, sc := range symbolConfigs {
 		orderBooks[key] = depth.NewOrderBook(sc.Symbol, sc.Market)
