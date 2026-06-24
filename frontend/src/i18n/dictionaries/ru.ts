@@ -297,6 +297,7 @@ const ru = {
     upgradeHint: 'Доступно по подписке Pro',
     compressionLocked: 'Доступно на Pro и VIP',
     compressionRecommended: 'рекомендуемое',
+    compressionRecommendedTooltip: 'это рекомендуемое сжатие для дефолтных настроек индикаторов от автора PROCLUSTER',
     layout: 'Макет',
     layoutSingle: '1 График',
     layoutHorizontal: '2 Графика H',

@@ -297,6 +297,7 @@ const en = {
     upgradeHint: 'Available with Pro subscription',
     compressionLocked: 'Available on Pro and VIP',
     compressionRecommended: 'recommended',
+    compressionRecommendedTooltip: 'this is the recommended compression for the default indicator settings by the PROCLUSTER author',
     layout: 'Layout',
     layoutSingle: '1 Chart',
     layoutHorizontal: '2 Charts H',

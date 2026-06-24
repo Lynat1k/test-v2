@@ -297,6 +297,7 @@ const kz = {
     upgradeHint: 'Pro жазылуымен қол жетімді',
     compressionLocked: 'Pro және VIP-те қол жетімді',
     compressionRecommended: 'ұсынылған',
+    compressionRecommendedTooltip: 'бұл PROCLUSTER авторының индикаторлар үшін ұсынылған сығу деңгейі',
     layout: 'Жайма',
     layoutSingle: '1 График',
     layoutHorizontal: '2 График H',
