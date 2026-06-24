@@ -228,7 +228,7 @@ func (a *Aggregator) processTrade(trade model.Trade, live *liveCandle, lastUpdat
 
 	level := aggregation.CompressPrice(trade.Price, config.BaseLevel*config.PriceTick)
 	side := aggregation.InterpretTrade(trade.IsBuyerMaker)
-	volume := aggregation.TruncateVolume(trade.Qty)
+	volume := trade.Qty
 
 	key := fmt.Sprintf("cluster:levels:%s:%s:1m:%d", trade.Symbol, trade.Market, candleOpen.UnixMilli())
 
@@ -413,8 +413,8 @@ func (a *Aggregator) pushTFUpdates(symbol, market string) {
 		for price, pl := range st.levels {
 			levels = append(levels, CandleLevel{
 				PriceLevel: price,
-				BidVolume:  pl.ask,
-				AskVolume:  pl.bid,
+				BidVolume:  aggregation.TruncateVolume(pl.ask),
+				AskVolume:  aggregation.TruncateVolume(pl.bid),
 			})
 		}
 
@@ -540,8 +540,8 @@ func (a *Aggregator) readLevelsFromRedis(key string) []CandleLevel {
 
 		levels = append(levels, CandleLevel{
 			PriceLevel: priceLevel,
-			BidVolume:  askVol,
-			AskVolume:  bidVol,
+			BidVolume:  aggregation.TruncateVolume(askVol),
+			AskVolume:  aggregation.TruncateVolume(bidVol),
 		})
 	}
 	return levels
@@ -594,8 +594,8 @@ func (a *Aggregator) tfStateToRows(st *tfLiveState, symbol, market string) []mod
 		rows = append(rows, model.ClusterRow{
 			Symbol:      symbol,
 			PriceLevel:  price,
-			BidVolume:   pl.ask,
-			AskVolume:   pl.bid,
+			BidVolume:   aggregation.TruncateVolume(pl.ask),
+			AskVolume:   aggregation.TruncateVolume(pl.bid),
 			Compression: uint16(config.BaseLevel),
 			OpenPrice:   st.live.open,
 			ClosePrice:  st.live.close,

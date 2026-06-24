@@ -53,11 +53,10 @@ func CompressTrades(trades []model.Trade, config CompressionConfig) []model.Clus
 			buckets[level] = row
 		}
 
-		volume := TruncateVolume(t.Qty)
 		if InterpretTrade(t.IsBuyerMaker) == model.SideSell {
-			row.BidVolume += volume
+			row.BidVolume += t.Qty
 		} else {
-			row.AskVolume += volume
+			row.AskVolume += t.Qty
 		}
 	}
 
