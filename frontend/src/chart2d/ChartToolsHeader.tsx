@@ -1,7 +1,7 @@
 // @ts-nocheck
 import React, { memo, useState, useRef, useEffect } from "react";
 import {
-  Layers, EyeOff, ZoomIn, ZoomOut, Globe, ChevronDown, Check, Settings, Move,
+  ZoomIn, ZoomOut, Globe, ChevronDown, Check, Settings, Move,
 } from "lucide-react";
 import type { CryptoPair, Indicator } from "./types";
 
@@ -113,32 +113,6 @@ function ChartToolsHeaderImpl({
           </button>
         </h3>
 
-        {/* Display active indicators on chart header */}
-        <div className="hidden md:flex items-center gap-1 ml-1 sm:ml-2 max-w-[120px] sm:max-w-[200px] md:max-w-[320px] lg:max-w-none overflow-x-auto whitespace-nowrap scrollbar-none py-0.5 shrink">
-          {indicators && indicators.filter(ind => ind.isActive).map(ind => {
-            const isVisible = ind.isVisible !== false;
-            return (
-              <span
-                key={ind.id}
-                className={`inline-flex items-center gap-1 px-1 py-0.5 rounded text-[8.5px] font-mono font-bold tracking-wider border shadow-sm transition-opacity duration-200 shrink-0 whitespace-nowrap ${
-                  !isVisible ? "opacity-40" : ""
-                } ${
-                  isLight
-                    ? "bg-slate-100 border-slate-250 text-slate-600"
-                    : "bg-white/5 border-white/5 text-slate-300"
-                }`}
-                title={`${ind.label} (${ind.type}) - ${isVisible ? "Видимый" : "Скрытый"}`}
-              >
-                {isVisible ? (
-                  <Layers className="w-2 h-2 text-blue-450 shrink-0" />
-                ) : (
-                  <EyeOff className="w-2 h-2 text-rose-500 shrink-0" />
-                )}
-                <span className={`whitespace-nowrap ${!isVisible ? "line-through" : ""}`}>{ind.label.replace("(PROCLUSTER) ", "")}</span>
-              </span>
-            );
-          })}
-        </div>
       </div>
 
       {/* Toolbar Controls */}
