@@ -3,6 +3,8 @@ import ClusterChart from "./ClusterChart";
 import { adapter, apiRowsToCells, mergeLiveUpdate, aggregateLevels, computeValueArea } from "./adapter";
 import type { ClusterCandle } from "./types";
 import type { ApiCandle, ApiClusterRow } from "./adapter";
+import { fetchClustersBatchImpl } from "./clusterCache";
+import type { ClustersChunkResponse } from "./clusterCache";
 import { useLiveChart } from "./useLiveChart";
 import type { LiveChartState } from "./useLiveChart";
 
@@ -114,7 +116,8 @@ export default function ClusterChartAdapter({
 
   const allHistoryLoadedRef = useRef(false);
   const historyLoadingRef = useRef(false);
-  const clusterLoadedTsRef = useRef<Set<number>>(new Set());
+  const clusterCacheRef = useRef<Map<number, ApiClusterRow[]>>(new Map());
+  const appliedLevelsRef = useRef<Map<number, ApiClusterRow[]>>(new Map());
   const accessTokenRef = useRef(accessToken);
   const candlesRef = useRef<ClusterCandle[]>(candles);
   const prependScrollRef = useRef<((addedCount: number) => void) | null>(null);
@@ -160,43 +163,32 @@ export default function ClusterChartAdapter({
   useEffect(() => {
     allHistoryLoadedRef.current = false;
     historyLoadingRef.current = false;
-    clusterLoadedTsRef.current = new Set();
+    clusterCacheRef.current = new Map();
+    appliedLevelsRef.current = new Map();
   }, [symbol, market, timeframe, compression]);
 
   const fetchClustersBatch = useCallback(async (timestamps: number[]): Promise<Map<number, ApiClusterRow[]>> => {
-    const clusterMap = new Map<number, ApiClusterRow[]>();
-    const unloaded = timestamps.filter(t => !clusterLoadedTsRef.current.has(t));
-    if (unloaded.length === 0) return clusterMap;
-
-    const chunks: number[][] = [];
-    for (let i = 0; i < unloaded.length; i += BATCH_SIZE) {
-      chunks.push(unloaded.slice(i, i + BATCH_SIZE));
-    }
-
-    for (let i = 0; i < chunks.length; i += PARALLEL_LIMIT) {
-      const batch = chunks.slice(i, i + PARALLEL_LIMIT);
-      await Promise.all(batch.map(async (chunk) => {
+    return fetchClustersBatchImpl({
+      timestamps,
+      cache: clusterCacheRef.current,
+      batchSize: BATCH_SIZE,
+      parallelLimit: PARALLEL_LIMIT,
+      fetchChunk: async (chunk): Promise<ClustersChunkResponse> => {
         const candleOpens = chunk.join(',');
-        try {
-          const resp = await fetch(
-            `/api/v1/candles/${symbol}/clusters-batch?timeframe=${timeframe}&market=${market}&candleOpens=${candleOpens}&priceStep=${priceStep}`,
-            { headers: authHeaders(accessTokenRef.current) }
-          );
-          if (!resp.ok) return;
-          const data = await resp.json();
-          if (data.ok && data.data?.clusters) {
-            for (const [ts, levels] of Object.entries(data.data.clusters)) {
-              const tsNum = Number(ts);
-              clusterLoadedTsRef.current.add(tsNum);
-              clusterMap.set(tsNum, levels as ApiClusterRow[]);
-            }
-          }
-        } catch (err) {
-          console.warn('[chart2d] clusters-batch fetch failed:', err);
+        const resp = await fetch(
+          `/api/v1/candles/${symbol}/clusters-batch?timeframe=${timeframe}&market=${market}&candleOpens=${candleOpens}&priceStep=${priceStep}`,
+          { headers: authHeaders(accessTokenRef.current) },
+        );
+        if (!resp.ok) return { ok: false, ts: new Map() };
+        const data = await resp.json();
+        if (!data.ok || !data.data?.clusters) return { ok: false, ts: new Map() };
+        const ts = new Map<number, ApiClusterRow[]>();
+        for (const [tsStr, levels] of Object.entries(data.data.clusters)) {
+          ts.set(Number(tsStr), levels as ApiClusterRow[]);
         }
-      }));
-    }
-    return clusterMap;
+        return { ok: true, ts };
+      },
+    });
   }, [symbol, market, timeframe, priceStep]);
 
   const handleNeedHistory = useCallback(async (oldestTimestamp: number) => {
@@ -221,6 +213,9 @@ export default function ClusterChartAdapter({
       const clusterMap = await fetchClustersBatch(
         apiCandles.map((c: ApiCandle) => new Date(c.CandleOpen).getTime())
       );
+      for (const [ts, levels] of clusterMap.entries()) {
+        appliedLevelsRef.current.set(ts, levels);
+      }
       const adapted = adapter(apiCandles, clusterMap);
 
       // Compute addedCount BEFORE setCandles (synchronous, before React batches the update)
@@ -250,10 +245,21 @@ export default function ClusterChartAdapter({
 
   const handleVisibleTimestampsChange = useCallback((timestamps: number[]) => {
     fetchClustersBatch(timestamps).then(clusterMap => {
-      if (clusterMap.size === 0) return;
+      let anyChanged = false;
+      for (const c of candlesRef.current) {
+        const levels = clusterMap.get(c.timestamp);
+        if (levels === undefined) continue;
+        if (appliedLevelsRef.current.get(c.timestamp) !== levels) {
+          anyChanged = true;
+          break;
+        }
+      }
+      if (!anyChanged) return;
       setCandles(prev => prev.map(c => {
         const levels = clusterMap.get(c.timestamp);
-        if (!levels) return c;
+        if (levels === undefined) return c;
+        if (appliedLevelsRef.current.get(c.timestamp) === levels) return c;
+        appliedLevelsRef.current.set(c.timestamp, levels);
         const cells = apiRowsToCells(levels);
         const pocCell = cells.find(cell => cell.isPoc);
         return {
@@ -293,6 +299,9 @@ export default function ClusterChartAdapter({
         const clusterMap = await fetchClustersBatch(timestamps);
 
         if (!cancelled) {
+          for (const [ts, levels] of clusterMap.entries()) {
+            appliedLevelsRef.current.set(ts, levels);
+          }
           const adapted = adapter(apiCandles, clusterMap);
           setCandles(adapted);
         }
@@ -309,7 +318,7 @@ export default function ClusterChartAdapter({
 
     load();
     return () => { cancelled = true; };
-  }, [symbol, market, timeframe, compression, accessToken]);
+  }, [symbol, market, timeframe, compression, !!accessToken]);
 
   const activePair = useMemo(() => makePair(symbol, market), [symbol, market]);
 
