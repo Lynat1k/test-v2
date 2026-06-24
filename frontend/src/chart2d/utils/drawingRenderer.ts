@@ -14,9 +14,13 @@ export type DrawingType =
 export interface DrawingItem {
   id: number;
   type: DrawingType;
-  startIdx: number;
+  // Domain X anchors (ms since epoch). Source of truth.
+  startTs?: number;
+  endTs?: number;
+  // Legacy bar-index anchors, kept only for migration of old persisted drawings.
+  startIdx?: number;
+  endIdx?: number;
   startPrice: number;
-  endIdx: number;
   endPrice: number;
   text: string;
   stage?: number;
@@ -69,6 +73,9 @@ interface RenderContext {
   candleSpacing: number;
   layer?: "background" | "foreground";
   language?: string;
+  // Domain<->pixel mapping helpers (timestamp-based, binary search).
+  tsToX: (ts: number) => number;
+  tsToIndex: (ts: number) => number;
 }
 
 export function drawDrawingObjects(ctx: CanvasRenderingContext2D, renderParams: RenderContext) {
@@ -89,10 +96,24 @@ export function drawDrawingObjects(ctx: CanvasRenderingContext2D, renderParams: 
     candleSpacing,
     layer = "foreground",
     language = "EN",
+    tsToX,
+    tsToIndex,
   } = renderParams;
 
   const candleWidthSpacing = candleWidth + candleSpacing;
   const indexToX = (idx: number) => margin.left + idx * candleWidthSpacing;
+  const resolveX = (d: DrawingItem, which: "start" | "end") => {
+    const ts = which === "start" ? d.startTs : d.endTs;
+    if (ts != null) return tsToX(ts);
+    const idx = which === "start" ? d.startIdx : d.endIdx;
+    return indexToX(idx ?? 0);
+  };
+  const resolveIndex = (d: DrawingItem, which: "start" | "end") => {
+    const ts = which === "start" ? d.startTs : d.endTs;
+    if (ts != null) return tsToIndex(ts);
+    const idx = which === "start" ? d.startIdx : d.endIdx;
+    return idx ?? 0;
+  };
 
   const allDrawings = [...drawings, ...(drawingInProgress ? [drawingInProgress] : [])];
 
@@ -103,8 +124,8 @@ export function drawDrawingObjects(ctx: CanvasRenderingContext2D, renderParams: 
 
     const y1 = priceToY(d.startPrice);
     const y2 = priceToY(d.endPrice);
-    const x1 = indexToX(d.startIdx);
-    const x2 = indexToX(d.endIdx);
+    const x1 = resolveX(d, "start");
+    const x2 = resolveX(d, "end");
 
     if (d.type === "trend") {
       ctx.beginPath();
@@ -198,7 +219,7 @@ export function drawDrawingObjects(ctx: CanvasRenderingContext2D, renderParams: 
       const absDiff = pEnd - pStart;
       const pctDiff = pStart !== 0 ? (absDiff / pStart) * 100 : 0;
 
-      const barCount = Math.max(1, Math.round(Math.abs(d.endIdx - d.startIdx)));
+      const barCount = Math.max(1, Math.round(Math.abs(resolveIndex(d, "end") - resolveIndex(d, "start"))));
 
       const cardW = 142;
       const cardH = 54;
@@ -510,8 +531,10 @@ export function drawDrawingObjects(ctx: CanvasRenderingContext2D, renderParams: 
 
       const minX = Math.min(x1, x2);
       const maxX = Math.max(x1, x2);
-      const startIndex = Math.max(0, Math.floor(Math.min(d.startIdx, d.endIdx)));
-      const endIndex = Math.min(candles.length - 1, Math.floor(Math.max(d.startIdx, d.endIdx)));
+      const sIdxRaw = resolveIndex(d, "start");
+      const eIdxRaw = resolveIndex(d, "end");
+      const startIndex = Math.max(0, Math.floor(Math.min(sIdxRaw, eIdxRaw)));
+      const endIndex = Math.min(candles.length - 1, Math.floor(Math.max(sIdxRaw, eIdxRaw)));
 
       if (startIndex <= endIndex) {
         const minPrice = Math.min(d.startPrice, d.endPrice);
@@ -679,8 +702,8 @@ export function drawDrawingObjects(ctx: CanvasRenderingContext2D, renderParams: 
     if (d) {
       const y1 = priceToY(d.startPrice);
       const y2 = priceToY(d.endPrice);
-      const x1 = indexToX(d.startIdx);
-      const x2 = indexToX(d.endIdx);
+      const x1 = resolveX(d, "start");
+      const x2 = resolveX(d, "end");
 
       if (d.type !== "horizontal" && d.type !== "channel" && d.type !== "long" && d.type !== "short") {
         ctx.save();

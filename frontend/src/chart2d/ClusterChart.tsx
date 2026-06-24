@@ -158,9 +158,9 @@ export default function ClusterChart({
   const [drawingDragState, setDrawingDragState] = useState<any | null>(null);
   const [textInputModal, setTextInputModal] = useState<{
     id: number;
-    startIdx: number;
+    startTs: number;
     startPrice: number;
-    endIdx: number;
+    endTs: number;
     endPrice: number;
   } | null>(null);
   const [textInputValue, setTextInputValue] = useState("");
@@ -322,6 +322,38 @@ export default function ClusterChart({
     return () => { cancelled = true; };
   }, [comboKey, accessToken]);
 
+  // Migrate legacy startIdx/endIdx -> startTs/endTs once candles are available.
+  // Idempotent: runs only on drawings that still lack startTs. Order-independent
+  // wrt initial drawings load and first setCandles — whichever lands later kicks
+  // it off. Returning the same array reference makes setDrawings bail, so this
+  // effect cannot loop on its own changes.
+  useEffect(() => {
+    if (candles.length === 0) return;
+    const needsMigration = drawings.some(d => d.startTs == null && d.startIdx != null);
+    if (!needsMigration) return;
+    setDrawings(prev => {
+      let changed = false;
+      const next = prev.map(d => {
+        if (d.startTs == null && d.startIdx != null) {
+          const i = Math.max(0, Math.min(candles.length - 1, Math.floor(d.startIdx)));
+          const j = Math.max(0, Math.min(candles.length - 1, Math.floor(d.endIdx ?? d.startIdx)));
+          const startTs = candles[i]?.timestamp;
+          const endTs = candles[j]?.timestamp;
+          if (startTs == null || endTs == null) return d;
+          if (i === 0 && d.startIdx < 0) console.warn("[Drawings] migrated anchor clamped to oldest candle (id=", d.id, ")");
+          if (i === candles.length - 1 && d.startIdx > candles.length - 1) console.warn("[Drawings] migrated anchor clamped to newest candle (id=", d.id, ")");
+          changed = true;
+          const migrated: any = { ...d, startTs, endTs };
+          delete migrated.startIdx;
+          delete migrated.endIdx;
+          return migrated;
+        }
+        return d;
+      });
+      return changed ? next : prev;
+    });
+  }, [candles, drawings]);
+
   // Phase 14 Step 2: auto-save drawings with 800ms debounce
   useEffect(() => {
     if (!accessToken || !drawingsLoadedRef.current) return;
@@ -407,6 +439,54 @@ export default function ClusterChart({
   const candleWidthSpacing = candleWidth + candleSpacing;
   const indexToX = (idx: number) => margin.left + idx * candleWidthSpacing;
   const xToIndex = (x: number) => (x - margin.left) / candleWidthSpacing;
+
+  // Domain time axis. intervalMs comes from the current TF — not from neighbor
+  // candle diffs, because real data has gaps (weekends/missing bars) that would
+  // poison extrapolation outside the loaded window.
+  const TF_MS: Record<string, number> = {
+    "1m": 60_000,
+    "5m": 5 * 60_000,
+    "15m": 15 * 60_000,
+    "30m": 30 * 60_000,
+    "1h": 60 * 60_000,
+    "4h": 4 * 60 * 60_000,
+    "1d": 24 * 60 * 60_000,
+  };
+  const intervalMs = TF_MS[timeframe ?? ""] ?? 60_000;
+
+  // Binary-search ts<->X mapping. Hot path: called per drawing per frame.
+  const tsToIndex = (ts: number): number => {
+    const n = candles.length;
+    if (n === 0) return 0;
+    const firstTs = candles[0]!.timestamp;
+    const lastTs = candles[n - 1]!.timestamp;
+    if (ts <= firstTs) return (ts - firstTs) / intervalMs;
+    if (ts >= lastTs) return (n - 1) + (ts - lastTs) / intervalMs;
+    let lo = 0, hi = n - 1;
+    while (lo < hi) {
+      const mid = (lo + hi + 1) >>> 1;
+      if (candles[mid]!.timestamp <= ts) lo = mid; else hi = mid - 1;
+    }
+    const tsLo = candles[lo]!.timestamp;
+    const tsHi = candles[lo + 1]!.timestamp;
+    const span = tsHi - tsLo || intervalMs;
+    return lo + (ts - tsLo) / span;
+  };
+  const tsToX = (ts: number): number => indexToX(tsToIndex(ts));
+  const xToTs = (x: number): number => {
+    const idx = xToIndex(x);
+    const n = candles.length;
+    if (n === 0) return idx * intervalMs;
+    const firstTs = candles[0]!.timestamp;
+    const lastTs = candles[n - 1]!.timestamp;
+    if (idx <= 0) return firstTs + idx * intervalMs;
+    if (idx >= n - 1) return lastTs + (idx - (n - 1)) * intervalMs;
+    const i = Math.floor(idx);
+    const frac = idx - i;
+    const tsLo = candles[i]!.timestamp;
+    const tsHi = candles[i + 1]!.timestamp;
+    return tsLo + frac * (tsHi - tsLo);
+  };
 
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -1229,9 +1309,11 @@ export default function ClusterChart({
 
           if (drawingInProgress && drawingInProgress.type === "channel" && drawingInProgress.stage === 2) {
             // COMPLETE THE CHANNEL DRAWING!
-            const cursorIdx = xToIndex(scrollRelativeX);
-            const baselinePriceAtX = drawingInProgress.startPrice + (drawingInProgress.endPrice - drawingInProgress.startPrice) * 
-              (drawingInProgress.endIdx === drawingInProgress.startIdx ? 0 : (cursorIdx - drawingInProgress.startIdx) / (drawingInProgress.endIdx - drawingInProgress.startIdx));
+            const cursorTs = xToTs(scrollRelativeX);
+            const sTs = drawingInProgress.startTs;
+            const eTs = drawingInProgress.endTs;
+            const baselinePriceAtX = drawingInProgress.startPrice + (drawingInProgress.endPrice - drawingInProgress.startPrice) *
+              (eTs === sTs ? 0 : (cursorTs - sTs) / (eTs - sTs));
             const finalOffsetPrice = price - baselinePriceAtX;
             
             const finalDrawing = {
@@ -1248,12 +1330,13 @@ export default function ClusterChart({
 
           if (activeDrawingTool === "horizontal") {
             // Horizontal level is placed instantly on one click!
+            const tsAtClick = xToTs(scrollRelativeX);
             const newDrawing = {
               id: Date.now(),
               type: "horizontal",
-              startIdx: xToIndex(scrollRelativeX),
+              startTs: tsAtClick,
               startPrice: price,
-              endIdx: xToIndex(scrollRelativeX),
+              endTs: tsAtClick,
               endPrice: price,
               text: "",
             };
@@ -1269,12 +1352,13 @@ export default function ClusterChart({
             } else if (activeDrawingTool === "long" || activeDrawingTool === "short") {
               inherited = { deposit: positionGlobalSettings.deposit, risk: positionGlobalSettings.risk, riskType: positionGlobalSettings.riskType, colorTarget: positionGlobalSettings.colorTarget, colorStop: positionGlobalSettings.colorStop, opacity: positionGlobalSettings.opacity, fontSize: positionGlobalSettings.fontSize, makerFee: positionGlobalSettings.makerFee, takerFee: positionGlobalSettings.takerFee, entryFeeType: positionGlobalSettings.entryFeeType, exitFeeType: positionGlobalSettings.exitFeeType };
             }
+            const tsAtClick = xToTs(scrollRelativeX);
             setDrawingInProgress({
               id: Date.now(),
               type: activeDrawingTool,
-              startIdx: xToIndex(scrollRelativeX),
+              startTs: tsAtClick,
               startPrice: price,
-              endIdx: xToIndex(scrollRelativeX),
+              endTs: tsAtClick,
               endPrice: price,
               stage: isChannel ? 1 : undefined,
               offsetPrice: isChannel ? 0 : undefined,
@@ -1303,8 +1387,8 @@ export default function ClusterChart({
           if (d) {
             const y1 = priceToY(d.startPrice);
             const y2 = priceToY(d.endPrice);
-            const x1 = indexToX(d.startIdx) - visibleScrollLeft;
-            const x2 = indexToX(d.endIdx) - visibleScrollLeft;
+            const x1 = (d.startTs != null ? tsToX(d.startTs) : indexToX(d.startIdx)) - visibleScrollLeft;
+            const x2 = (d.endTs != null ? tsToX(d.endTs) : indexToX(d.endIdx)) - visibleScrollLeft;
             
             let handles = [
               { x: x1, y: y1, idx: 1 },
@@ -1354,8 +1438,8 @@ export default function ClusterChart({
             const d = drawings[i];
             const y1 = priceToY(d.startPrice);
             const y2 = priceToY(d.endPrice);
-            const x1 = indexToX(d.startIdx) - visibleScrollLeft;
-            const x2 = indexToX(d.endIdx) - visibleScrollLeft;
+            const x1 = (d.startTs != null ? tsToX(d.startTs) : indexToX(d.startIdx)) - visibleScrollLeft;
+            const x2 = (d.endTs != null ? tsToX(d.endTs) : indexToX(d.endIdx)) - visibleScrollLeft;
             
             if (d.type === "volume" || d.type === "rect" || d.type === "ruler") {
               const minX = Math.min(x1, x2);
@@ -1448,9 +1532,9 @@ export default function ClusterChart({
               handleIndex: foundHandleIdx || undefined,
               initialX: clickX,
               initialY: clickY,
-              initialStartIdx: d.startIdx,
+              initialStartTs: d.startTs ?? (d.startIdx != null ? candles[Math.max(0, Math.min(candles.length - 1, Math.floor(d.startIdx)))]?.timestamp : 0),
               initialStartPrice: d.startPrice,
-              initialEndIdx: d.endIdx,
+              initialEndTs: d.endTs ?? (d.endIdx != null ? candles[Math.max(0, Math.min(candles.length - 1, Math.floor(d.endIdx)))]?.timestamp : 0),
               initialEndPrice: d.endPrice,
               initialStopPrice: d.stopPrice,
             });
@@ -1504,8 +1588,10 @@ export default function ClusterChart({
       setDrawingInProgress(prev => {
         if (!prev) return null;
         if (prev.type === "channel" && prev.stage === 2) {
-          const cursorIdx = xToIndex(scrollRelativeX);
-          const baselinePriceAtX = prev.startPrice + (prev.endPrice - prev.startPrice) * (prev.endIdx === prev.startIdx ? 0 : (cursorIdx - prev.startIdx) / (prev.endIdx - prev.startIdx));
+          const cursorTs = xToTs(scrollRelativeX);
+          const sTs = prev.startTs;
+          const eTs = prev.endTs;
+          const baselinePriceAtX = prev.startPrice + (prev.endPrice - prev.startPrice) * (eTs === sTs ? 0 : (cursorTs - sTs) / (eTs - sTs));
           const offsetPrice = price - baselinePriceAtX;
           return {
             ...prev,
@@ -1514,7 +1600,7 @@ export default function ClusterChart({
         }
         return {
           ...prev,
-          endIdx: xToIndex(scrollRelativeX),
+          endTs: xToTs(scrollRelativeX),
           endPrice: price,
         };
       });
@@ -1530,37 +1616,44 @@ export default function ClusterChart({
 
       setDrawings(prev => prev.map(d => {
         if (d.id === drawingDragState.id) {
+          // Pixel delta -> ts delta via current TF. Uniform mapping keeps drag
+          // visually 1:1 with cursor regardless of where the anchor falls in
+          // the candle array (or past its edges).
+          const deltaIdx = (mouseX - drawingDragState.initialX) / candleWidthSpacing;
+          const deltaTs = deltaIdx * intervalMs;
           if (drawingDragState.type === "move") {
-            const deltaIdx = (mouseX - drawingDragState.initialX) / candleWidthSpacing;
             const initialPrice = yToPrice(drawingDragState.initialY);
             const currentPrice = yToPrice(mouseY);
             const deltaPrice = currentPrice - initialPrice;
-            return {
+            const next: any = {
               ...d,
-              startIdx: drawingDragState.initialStartIdx + deltaIdx,
-              endIdx: drawingDragState.initialEndIdx + deltaIdx,
+              startTs: drawingDragState.initialStartTs + deltaTs,
+              endTs: drawingDragState.initialEndTs + deltaTs,
               startPrice: drawingDragState.initialStartPrice + deltaPrice,
               endPrice: drawingDragState.initialEndPrice + deltaPrice,
               stopPrice: drawingDragState.initialStopPrice !== undefined
                 ? drawingDragState.initialStopPrice + deltaPrice
                 : undefined,
             };
+            // Drop legacy idx fields so they don't outlive the migration.
+            delete next.startIdx;
+            delete next.endIdx;
+            return next;
           } else {
-            const deltaIdx = (mouseX - drawingDragState.initialX) / candleWidthSpacing;
             const currentPrice = yToPrice(mouseY);
-            let nextStartIdx = d.startIdx;
+            let nextStartTs = d.startTs ?? drawingDragState.initialStartTs;
             let nextStartPrice = d.startPrice;
-            let nextEndIdx = d.endIdx;
+            let nextEndTs = d.endTs ?? drawingDragState.initialEndTs;
             let nextEndPrice = d.endPrice;
             let nextOffsetPrice = d.offsetPrice;
             let nextStopPrice = d.stopPrice;
-            
+
             if (d.type === "channel") {
               if (drawingDragState.handleIndex === 1) {
-                nextStartIdx = drawingDragState.initialStartIdx + deltaIdx;
+                nextStartTs = drawingDragState.initialStartTs + deltaTs;
                 nextStartPrice = currentPrice;
               } else if (drawingDragState.handleIndex === 2) {
-                nextEndIdx = drawingDragState.initialEndIdx + deltaIdx;
+                nextEndTs = drawingDragState.initialEndTs + deltaTs;
                 nextEndPrice = currentPrice;
               } else if (drawingDragState.handleIndex === 3) {
                 nextOffsetPrice = currentPrice - d.endPrice;
@@ -1569,10 +1662,10 @@ export default function ClusterChart({
               }
             } else if (d.type === "long" || d.type === "short") {
               if (drawingDragState.handleIndex === 1) {
-                nextStartIdx = drawingDragState.initialStartIdx + deltaIdx;
+                nextStartTs = drawingDragState.initialStartTs + deltaTs;
                 nextStartPrice = currentPrice;
               } else if (drawingDragState.handleIndex === 2) {
-                nextEndIdx = drawingDragState.initialEndIdx + deltaIdx;
+                nextEndTs = drawingDragState.initialEndTs + deltaTs;
                 nextStartPrice = currentPrice;
               } else if (drawingDragState.handleIndex === 3) {
                 nextEndPrice = currentPrice;
@@ -1581,29 +1674,32 @@ export default function ClusterChart({
               }
             } else {
               if (drawingDragState.handleIndex === 1) {
-                nextStartIdx = drawingDragState.initialStartIdx + deltaIdx;
+                nextStartTs = drawingDragState.initialStartTs + deltaTs;
                 nextStartPrice = currentPrice;
               } else if (drawingDragState.handleIndex === 2) {
-                nextEndIdx = drawingDragState.initialEndIdx + deltaIdx;
+                nextEndTs = drawingDragState.initialEndTs + deltaTs;
                 nextEndPrice = currentPrice;
               } else if (drawingDragState.handleIndex === 3) {
-                nextEndIdx = drawingDragState.initialEndIdx + deltaIdx;
+                nextEndTs = drawingDragState.initialEndTs + deltaTs;
                 nextStartPrice = currentPrice;
               } else if (drawingDragState.handleIndex === 4) {
-                nextStartIdx = drawingDragState.initialStartIdx + deltaIdx;
+                nextStartTs = drawingDragState.initialStartTs + deltaTs;
                 nextEndPrice = currentPrice;
               }
             }
-            
-            return {
+
+            const next: any = {
               ...d,
-              startIdx: nextStartIdx,
+              startTs: nextStartTs,
               startPrice: nextStartPrice,
-              endIdx: nextEndIdx,
+              endTs: nextEndTs,
               endPrice: nextEndPrice,
               offsetPrice: nextOffsetPrice,
               stopPrice: nextStopPrice
             };
+            delete next.startIdx;
+            delete next.endIdx;
+            return next;
           }
         }
         return d;
@@ -1650,9 +1746,9 @@ export default function ClusterChart({
       if (drawingInProgress.type === "text") {
         setTextInputModal({
           id: drawingInProgress.id,
-          startIdx: drawingInProgress.startIdx,
+          startTs: drawingInProgress.startTs,
           startPrice: drawingInProgress.startPrice,
-          endIdx: drawingInProgress.endIdx,
+          endTs: drawingInProgress.endTs,
           endPrice: drawingInProgress.endPrice,
         });
         setTextInputValue("");
@@ -1692,8 +1788,8 @@ export default function ClusterChart({
           if (d.type !== "volume" && d.type !== "long" && d.type !== "short") continue;
           const y1 = priceToY(d.startPrice);
           const y2 = priceToY(d.endPrice);
-          const x1 = indexToX(d.startIdx) - visibleScrollLeft;
-          const x2 = indexToX(d.endIdx) - visibleScrollLeft;
+          const x1 = (d.startTs != null ? tsToX(d.startTs) : indexToX(d.startIdx)) - visibleScrollLeft;
+          const x2 = (d.endTs != null ? tsToX(d.endTs) : indexToX(d.endIdx)) - visibleScrollLeft;
 
           const minX = Math.min(x1, x2);
           const maxX = Math.max(x1, x2);
@@ -2668,6 +2764,31 @@ export default function ClusterChart({
     const indexToX = (idx: number) => margin.left + idx * candleWidthSpacing;
     const scrollWidth = candles.length * candleWidthSpacing + margin.left + margin.right + scrollRightPadding;
 
+    // Local ts<->px helpers built on the SAME shadow candleWidth as the candle
+    // render. Render-body tsToX/tsToIndex close over React-state candleWidth,
+    // which lags candleWidthRef by one frame during synchronous wheel zoom —
+    // mixing those into drawings produces a 1-frame opposite-direction drift.
+    // These are an exact clone of the render-body versions; formula must stay
+    // identical (edge extrapolation by intervalMs, `span = tsHi - tsLo || intervalMs`).
+    const tsToIndex_local = (ts: number): number => {
+      const n = candles.length;
+      if (n === 0) return 0;
+      const firstTs = candles[0]!.timestamp;
+      const lastTs = candles[n - 1]!.timestamp;
+      if (ts <= firstTs) return (ts - firstTs) / intervalMs;
+      if (ts >= lastTs) return (n - 1) + (ts - lastTs) / intervalMs;
+      let lo = 0, hi = n - 1;
+      while (lo < hi) {
+        const mid = (lo + hi + 1) >>> 1;
+        if (candles[mid]!.timestamp <= ts) lo = mid; else hi = mid - 1;
+      }
+      const tsLo = candles[lo]!.timestamp;
+      const tsHi = candles[lo + 1]!.timestamp;
+      const span = tsHi - tsLo || intervalMs;
+      return lo + (ts - tsLo) / span;
+    };
+    const tsToX_local = (ts: number): number => indexToX(tsToIndex_local(ts));
+
     // Scale canvas for ultra-crisp Retina/High-DPI support using the visible viewport size to avoid exceeding browser canvas limits
     const dpr = window.devicePixelRatio || 1;
     const viewportWidth = visibleClientWidth || 800;
@@ -2800,6 +2921,8 @@ export default function ClusterChart({
       candleSpacing,
       layer: "background",
       language,
+      tsToX: tsToX_local,
+      tsToIndex: tsToIndex_local,
     });
 
     const startIdx = Math.max(0, Math.floor((visibleScrollLeft - margin.left - candleWidth) / (candleWidth + candleSpacing)));
@@ -3732,6 +3855,8 @@ export default function ClusterChart({
       candleSpacing,
       layer: "foreground",
       language,
+      tsToX: tsToX_local,
+      tsToIndex: tsToIndex_local,
     });
 
     ctx.restore(); // Undoes translation of -visibleScrollLeft for viewport-wide elements
@@ -5215,9 +5340,9 @@ export default function ClusterChart({
                       {
                         id: textInputModal.id,
                         type: "text" as const,
-                        startIdx: textInputModal.startIdx,
+                        startTs: textInputModal.startTs,
                         startPrice: textInputModal.startPrice,
-                        endIdx: textInputModal.endIdx,
+                        endTs: textInputModal.endTs,
                         endPrice: textInputModal.endPrice,
                         text: textInputValue.trim(),
                         color: textInputColor,
