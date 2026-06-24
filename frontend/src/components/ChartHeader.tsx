@@ -461,8 +461,15 @@ export function ChartHeader({ fps = 0, showAnomalies = true, onToggleAnomalies }
                         {level}
                         {isBase && <span className="text-[9px] text-amber-500/70">base</span>}
                         {isRecommended && (
-                          <span className="text-[9px] font-bold px-1 py-0.5 rounded bg-emerald-500/15 text-emerald-400 border border-emerald-500/25 leading-none">
-                            {t('chart.compressionRecommended')}
+                          <span className="relative group">
+                            <span className="text-[9px] font-bold px-1 py-0.5 rounded bg-emerald-500/15 text-emerald-400 border border-emerald-500/25 leading-none cursor-help">
+                              {t('chart.compressionRecommended')}
+                            </span>
+                            <div className={`absolute bottom-full mb-1.5 left-1/2 -translate-x-1/2 z-50 hidden group-hover:block w-56 p-2.5 rounded-xl shadow-2xl border backdrop-blur-md pointer-events-none text-[10px] font-mono font-bold leading-tight ${
+                              isLight ? "bg-white border-slate-300 text-slate-700" : "bg-[#090d16]/98 border-white/10 text-slate-300"
+                            }`}>
+                              {t('chart.compressionRecommendedTooltip')}
+                            </div>
                           </span>
                         )}
                       </span>
