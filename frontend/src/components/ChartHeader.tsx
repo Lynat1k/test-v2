@@ -304,7 +304,6 @@ export function ChartHeader({ fps = 0, showAnomalies = true, onToggleAnomalies }
           <span className="font-mono text-[10px] text-slate-300">
             {compression * baseCompression}
           </span>
-          <span className="text-[10px] text-slate-500 hidden sm:inline">{t('chart.compression')}</span>
           <ChevronDown className={`w-3 h-3 text-slate-400 transition-transform ${compressionDropdownOpen ? 'rotate-180' : ''}`} />
         </button>
       </div>
