@@ -109,6 +109,12 @@ func main() {
 		log.Println("[main] seed tier_policies: ok")
 	}
 
+	if err := admin.InitSiteSettings(sqliteDB); err != nil {
+		log.Printf("[main] init site_settings: %v", err)
+	} else {
+		log.Println("[main] site_settings initialized")
+	}
+
 	sessionLimits, historyLimits, err := admin.LoadTierPolicies(sqliteDB)
 	if err != nil {
 		log.Printf("[main] load tier_policies: %v, using config defaults", err)
@@ -135,6 +141,7 @@ func main() {
 	fngFetcher := fng.NewFNGFetcher(rdb)
 
 	srv := api.NewServer(repo, candleCache, agg, sm, apiCfg, restLimiter, wsLimiter, fngFetcher, authCfg, rdb)
+	srv.SetBetaEnabled(admin.BetaModeEnabled)
 
 	if historyLimits != nil {
 		srv.SetTierHistoryLimits(historyLimits)

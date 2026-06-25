@@ -1,13 +1,16 @@
 import { createContext, useContext, useState, useEffect, useCallback, useRef, type ReactNode } from 'react'
 import type { AuthUser } from './api'
-import { apiRefresh, apiLogout, setApiAccessToken } from './api'
+import { apiRefresh, apiLogout, setApiAccessToken, apiGetSiteSettings } from './api'
 
 interface AuthContextValue {
   user: AuthUser | null
   accessToken: string | null
   loading: boolean
+  betaMode: boolean
+  betaLoaded: boolean
   setUser: (user: AuthUser | null) => void
   setAccessToken: (token: string | null) => void
+  setBetaMode: (mode: boolean) => void
   logout: () => Promise<void>
 }
 
@@ -17,6 +20,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<AuthUser | null>(null)
   const [accessToken, setAccessToken] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
+  const [betaMode, setBetaMode] = useState(false)
+  const [betaLoaded, setBetaLoaded] = useState(false)
   const refreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const scheduleRefresh = useCallback((expiresIn: number) => {
@@ -50,6 +55,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         if (!cancelled) setLoading(false)
       }
     })()
+    ;(async () => {
+      try {
+        const data = await apiGetSiteSettings()
+        if (cancelled) return
+        setBetaMode(data.betaMode)
+      } catch {
+        // fail-open: beta stays false
+      } finally {
+        if (!cancelled) setBetaLoaded(true)
+      }
+    })()
     return () => { cancelled = true }
   }, [scheduleRefresh])
 
@@ -69,7 +85,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [])
 
   return (
-    <AuthContext.Provider value={{ user, accessToken, loading, setUser, setAccessToken, logout }}>
+    <AuthContext.Provider value={{ user, accessToken, loading, betaMode, betaLoaded, setUser, setAccessToken, setBetaMode, logout }}>
       {children}
     </AuthContext.Provider>
   )

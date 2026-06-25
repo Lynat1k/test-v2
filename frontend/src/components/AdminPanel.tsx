@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import { useTheme } from '@/contexts/ThemeContext'
 import { useTranslation } from '@/i18n'
 import { useAuthContext } from '@/features/auth/AuthContext'
+import { apiUpdateBetaMode } from '@/features/auth/api'
 import { motion, AnimatePresence } from 'motion/react'
 import {
   ArrowLeft,
@@ -2001,9 +2002,64 @@ function TierPoliciesBlock({ isLight }: { isLight: boolean }) {
   )
 }
 
+function SiteSettingsBlock({ isLight }: { isLight: boolean }) {
+  const { t } = useTranslation()
+  const { betaMode, setBetaMode } = useAuthContext()
+  const [error, setError] = useState<string | null>(null)
+
+  const card = isLight ? 'bg-white border-slate-200' : 'liquid-glass-card'
+
+  return (
+    <div className={`p-5 rounded-2xl border flex flex-col gap-4 ${card}`}>
+      <div className="flex items-center gap-2 text-xs font-bold font-mono text-indigo-500 uppercase shrink-0">
+        <Settings className="w-4 h-4" />
+        {t('admin.policies.betaMode') || 'Закрытый бета-тест'}
+      </div>
+
+      {error && (
+        <div className="flex items-center justify-between px-4 py-2 rounded-lg bg-red-500/10 border border-red-500/20 text-xs text-red-400">
+          <span>{error}</span>
+          <button onClick={() => setError(null)} className="cursor-pointer"><X className="w-3 h-3" /></button>
+        </div>
+      )}
+
+      <div className={`p-4 rounded-xl border flex flex-col justify-between gap-3 ${isLight ? 'bg-slate-50 border-slate-200' : 'bg-white/[0.02] border-white/5'}`}>
+        <div>
+          <span className={`text-[10px] font-mono font-black uppercase block tracking-wider ${isLight ? 'text-slate-600' : 'text-slate-300'}`}>
+            {t('admin.policies.betaModeDesc') || 'Сайт доступен только авторизованным пользователям. Неавторизованные видят гейт с формой входа.'}
+          </span>
+        </div>
+        <label className="flex items-center gap-2.5 cursor-pointer mt-2 select-none">
+          <input
+            type="checkbox"
+            checked={betaMode}
+            onChange={async (e) => {
+              const newVal = e.target.checked
+              const prev = betaMode
+              setBetaMode(newVal)
+              setError(null)
+              try {
+                await apiUpdateBetaMode(newVal)
+              } catch {
+                setBetaMode(prev)
+                setError('Ошибка сохранения beta-режима')
+              }
+            }}
+            className={`w-4 h-4 rounded focus:ring-amber-500 focus:ring-2 cursor-pointer ${isLight ? 'bg-white border-slate-300 text-amber-600' : 'bg-slate-900 border-white/10 text-amber-500'}`}
+          />
+          <span className={`text-[10px] font-bold uppercase tracking-wider ${betaMode ? 'text-amber-500' : 'text-indigo-400'}`}>
+            {betaMode ? 'БЕТА ВКЛЮЧЕНА (GATE ACTIVE)' : 'БЕТА ОТКЛЮЧЕНА'}
+          </span>
+        </label>
+      </div>
+    </div>
+  )
+}
+
 function SettingsTab({ isLight }: { isLight: boolean }) {
   return (
     <div className="flex-1 flex flex-col gap-6 min-h-0 w-full overflow-y-auto">
+      <SiteSettingsBlock isLight={isLight} />
       <TierPoliciesBlock isLight={isLight} />
       <AdminIndicatorDefaultsBlock isLight={isLight} />
     </div>

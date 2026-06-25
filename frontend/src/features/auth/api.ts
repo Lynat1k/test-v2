@@ -150,6 +150,28 @@ export async function apiPutSettings(settingsJson: string) {
   })
 }
 
+// --- Site settings (beta mode) ---
+
+export async function apiGetSiteSettings(): Promise<{ betaMode: boolean }> {
+  try {
+    const res = await fetch(`${BASE}/site-settings`, {
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+    })
+    if (!res.ok) return { betaMode: false }
+    return res.json()
+  } catch {
+    return { betaMode: false }
+  }
+}
+
+export async function apiUpdateBetaMode(betaMode: boolean): Promise<{ ok: boolean; data: { betaMode: boolean } }> {
+  return request('/admin/site-settings', {
+    method: 'PUT',
+    body: JSON.stringify({ betaMode }),
+  })
+}
+
 // --- Phase 10: Profile API ---
 
 export async function apiGetMe() {

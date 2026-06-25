@@ -128,6 +128,9 @@ func (h *AdminHandler) RegisterAdminRoutes(mux *http.ServeMux) {
 	mux.Handle("POST /api/v1/admin/billing", wrap(h.handleCreatePayment))
 	mux.Handle("PUT /api/v1/admin/billing/{id}", wrap(h.handleUpdatePayment))
 	mux.Handle("DELETE /api/v1/admin/billing/{id}", wrap(h.handleDeletePayment))
+
+	// Site settings
+	mux.Handle("PUT /api/v1/admin/site-settings", wrap(h.handleUpdateSiteSettings))
 }
 
 // --- Tickers ---
@@ -861,4 +864,33 @@ func (h *AdminHandler) handleUpdatePayment(w http.ResponseWriter, r *http.Reques
 
 func (h *AdminHandler) handleDeletePayment(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, adminResponse{OK: true, Data: map[string]string{"status": "stub_delete_payment_phase4"}})
+}
+
+func (h *AdminHandler) handleUpdateSiteSettings(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		BetaMode *bool `json:"betaMode"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "INVALID_BODY", "invalid request body")
+		return
+	}
+	if req.BetaMode == nil {
+		writeError(w, http.StatusBadRequest, "INVALID_PARAMS", "betaMode is required")
+		return
+	}
+
+	if err := SetBetaMode(h.db, *req.BetaMode); err != nil {
+		log.Printf("[admin] set beta_mode error: %v", err)
+		writeError(w, http.StatusInternalServerError, "DB_ERROR", "failed to update beta_mode")
+		return
+	}
+
+	userID, _ := r.Context().Value(auth.UserIDKey).(string)
+	detail := "beta_mode=false"
+	if *req.BetaMode {
+		detail = "beta_mode=true"
+	}
+	LogAdminAction(r.Context(), h.db, userID, "site_settings.beta_mode", "beta_mode", detail, r.RemoteAddr)
+
+	writeJSON(w, http.StatusOK, adminResponse{OK: true, Data: map[string]bool{"betaMode": *req.BetaMode}})
 }

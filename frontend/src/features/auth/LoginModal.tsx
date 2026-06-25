@@ -10,9 +10,10 @@ interface LoginModalProps {
   open: boolean
   onClose: () => void
   onSwitchToRegister: () => void
+  betaMode?: boolean
 }
 
-export function LoginModal({ open, onClose, onSwitchToRegister }: LoginModalProps) {
+export function LoginModal({ open, onClose, onSwitchToRegister, betaMode }: LoginModalProps) {
   const { t } = useTranslation()
   const { theme } = useTheme()
   const isLight = theme === 'light'
@@ -107,17 +108,21 @@ export function LoginModal({ open, onClose, onSwitchToRegister }: LoginModalProp
                 {loading ? t('common.loading') : t('auth.loginTitle')}
               </button>
             </form>
-            <div className="mt-3">
-              <button disabled className={`w-full px-4 py-2 rounded-lg text-xs font-bold border cursor-not-allowed ${
-                isLight ? 'bg-slate-100 text-slate-400 border-slate-200' : 'bg-white/5 text-slate-500 border-white/5'
-              }`}>
-                Google
-              </button>
-            </div>
-            <div className={`mt-4 text-center text-xs ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
-              {t('auth.noAccount')}{' '}
-              <button onClick={onSwitchToRegister} className="text-amber-400 hover:underline cursor-pointer">{t('header.register')}</button>
-            </div>
+            {!betaMode && (
+              <div className="mt-3">
+                <button disabled className={`w-full px-4 py-2 rounded-lg text-xs font-bold border cursor-not-allowed ${
+                  isLight ? 'bg-slate-100 text-slate-400 border-slate-200' : 'bg-white/5 text-slate-500 border-white/5'
+                }`}>
+                  Google
+                </button>
+              </div>
+            )}
+            {!betaMode && (
+              <div className={`mt-4 text-center text-xs ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
+                {t('auth.noAccount')}{' '}
+                <button onClick={onSwitchToRegister} className="text-amber-400 hover:underline cursor-pointer">{t('header.register')}</button>
+              </div>
+            )}
           </motion.div>
         </motion.div>
       )}

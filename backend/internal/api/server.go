@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"encoding/json"
 	"log"
 	"net/http"
 	"time"
@@ -31,6 +32,7 @@ type Server struct {
 	tierCompressionLocked map[string]bool
 	activeTickers         []admin.Ticker
 	activeCompressions    map[string][]admin.DefaultCompression // key: symbol
+	betaEnabled           func() bool
 }
 
 func (s *Server) SetTierHistoryLimits(m map[string]time.Duration) {
@@ -51,6 +53,10 @@ func (s *Server) SetDefaultCompressions(compressions []admin.DefaultCompression)
 		m[c.Symbol] = append(m[c.Symbol], c)
 	}
 	s.activeCompressions = m
+}
+
+func (s *Server) SetBetaEnabled(fn func() bool) {
+	s.betaEnabled = fn
 }
 
 type ServerConfig struct {
@@ -100,13 +106,23 @@ func NewServer(
 	clustersBatchHandler := http.HandlerFunc(s.handleClustersBatch)
 	wsHandler := http.HandlerFunc(s.handleWebSocket)
 
-	mux.Handle("GET /api/v1/candles", RateLimitMiddleware(restLimiter, withMiddleware(rdb, authCfg, candlesHandler)))
-	mux.Handle("GET /api/v1/candles/{symbol}/clusters/{candleOpen}", RateLimitMiddleware(restLimiter, withMiddleware(rdb, authCfg, clusterHandler)))
-	mux.Handle("GET /api/v1/candles/{symbol}/clusters-batch", RateLimitMiddleware(restLimiter, withMiddleware(rdb, authCfg, clustersBatchHandler)))
-	mux.Handle("GET /api/v1/fng", RateLimitMiddleware(restLimiter, withMiddleware(rdb, authCfg, http.HandlerFunc(s.handleFNG))))
-	mux.Handle("GET /api/v1/tickers", withMiddleware(rdb, authCfg, http.HandlerFunc(s.handleGetTickers)))
-	mux.Handle("GET /api/v1/compressions", withMiddleware(rdb, authCfg, http.HandlerFunc(s.handleGetPublicCompressions)))
-	mux.Handle("GET /ws", WSRateLimitMiddleware(wsLimiter, withMiddleware(rdb, authCfg, wsHandler)))
+	betaEnabledFn := func() bool {
+		if s.betaEnabled != nil {
+			return s.betaEnabled()
+		}
+		return false
+	}
+	betaGate := auth.BetaGate(authCfg, betaEnabledFn)
+
+	mux.Handle("GET /api/v1/candles", RateLimitMiddleware(restLimiter, betaGate(withMiddleware(rdb, authCfg, candlesHandler))))
+	mux.Handle("GET /api/v1/candles/{symbol}/clusters/{candleOpen}", RateLimitMiddleware(restLimiter, betaGate(withMiddleware(rdb, authCfg, clusterHandler))))
+	mux.Handle("GET /api/v1/candles/{symbol}/clusters-batch", RateLimitMiddleware(restLimiter, betaGate(withMiddleware(rdb, authCfg, clustersBatchHandler))))
+	mux.Handle("GET /api/v1/fng", RateLimitMiddleware(restLimiter, betaGate(withMiddleware(rdb, authCfg, http.HandlerFunc(s.handleFNG)))))
+	mux.Handle("GET /api/v1/tickers", betaGate(withMiddleware(rdb, authCfg, http.HandlerFunc(s.handleGetTickers))))
+	mux.Handle("GET /api/v1/compressions", betaGate(withMiddleware(rdb, authCfg, http.HandlerFunc(s.handleGetPublicCompressions))))
+	mux.Handle("GET /ws", WSRateLimitMiddleware(wsLimiter, betaGate(withMiddleware(rdb, authCfg, wsHandler))))
+
+	mux.Handle("GET /api/v1/site-settings", withMiddleware(rdb, authCfg, http.HandlerFunc(s.handleGetSiteSettings)))
 
 	s.httpServer = &http.Server{
 		Addr:         cfg.Addr,
@@ -160,5 +176,12 @@ func withMiddleware(rdb *redis.Client, authCfg auth.AuthConfig, next http.Handle
 		}
 
 		next.ServeHTTP(w, r)
+	})
+}
+
+func (s *Server) handleGetSiteSettings(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	json.NewEncoder(w).Encode(map[string]bool{
+		"betaMode": admin.BetaModeEnabled(),
 	})
 }

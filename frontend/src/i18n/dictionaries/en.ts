@@ -252,6 +252,8 @@ const en = {
       anomaliesEnabledDesc: 'Allow users of this tier to enable the "Show anomalies" option on the chart.',
       sessionLimit: 'Session limit',
       sessionLimitDesc: 'Max concurrent WS sessions per user. -1 = unlimited, ≥100 = unlimited.',
+      betaMode: 'Closed Beta',
+      betaModeDesc: 'Site accessible to authorized users only. Unauthorized users see a login gate.',
       saveAll: 'Save all limits',
       active: 'ACTIVE',
       inactive: 'LOCKED',
@@ -309,6 +311,10 @@ const en = {
   fng: {
     title: 'Fear & Greed',
     loading: 'Loading F&G...',
+  },
+  beta: {
+    gateTitle: 'Closed Beta',
+    gateSubtitle: 'Sign in to access the platform',
   },
   dom: {
     bidSize: 'Bid',

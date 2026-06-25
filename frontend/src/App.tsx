@@ -6,7 +6,7 @@ import { ChartControlsProvider, useChartControls, AVAILABLE_TICKERS, TIMEFRAMES_
 import type { MarketType } from '@/contexts/ChartControlsContext'
 import { LayoutProvider, useLayout } from '@/contexts/LayoutContext'
 import { UserSettingsProvider } from '@/contexts/UserSettingsContext'
-import { AuthProvider } from '@/features/auth/AuthContext'
+import { AuthProvider, useAuthContext } from '@/features/auth/AuthContext'
 import { LimitsProvider, useUserLimits } from '@/contexts/LimitsContext'
 import { DrawingDefaultsProvider } from '@/contexts/DrawingDefaultsContext'
 import { LoginModal } from '@/features/auth/LoginModal'
@@ -39,6 +39,7 @@ function AppShell() {
   const { showIndicatorsModal, setShowIndicatorsModal, getSlot, activeSlot, setActiveSlot, setSymbol, setMarket, setTimeframe, setCandleMode, setVolumeMode, setPalette, setCompression, getTickerConfig } = useChartControls()
   const { layoutMode, setLayoutMode, splitRatio, setSplitRatio } = useLayout()
   const useCanvas2d = import.meta.env['VITE_USE_CANVAS2D'] === 'true'
+  const { user: authUser, loading: authLoading, betaMode, betaLoaded } = useAuthContext()
   const [currentView, setCurrentView] = useState<View>('terminal')
   const [fps, setFps] = useState(0)
   const [focusIndicatorId, setFocusIndicatorId] = useState<string | null>(null)
@@ -143,6 +144,34 @@ function AppShell() {
   useEffect(() => {
     if (layoutMode === 'single') setActiveSlot(0);
   }, [layoutMode, setActiveSlot]);
+
+  // Beta gate — before main app render
+  if (authLoading || !betaLoaded) return null
+  if (betaMode && !authUser) {
+    return (
+      <div className={`h-screen w-screen flex flex-col items-center justify-center ${
+        isLight ? 'light bg-[#cbd5e1] text-slate-900' : 'bg-[#030712]/92 text-white terminal-grid'
+      }`}>
+        <div className="absolute inset-0 overflow-hidden pointer-events-none z-0">
+          <div className={`absolute top-[5%] left-[3%] w-[450px] h-[450px] rounded-full liquid-blob-cyan blur-[100px] transition-all duration-300 ${isLight ? 'opacity-15' : 'opacity-40'}`} />
+          <div className={`absolute top-[50%] right-[5%] w-[550px] h-[550px] rounded-full liquid-blob-magenta blur-[120px] transition-all duration-300 ${isLight ? 'opacity-10' : 'opacity-35'}`} />
+          <div className={`absolute top-[30%] left-[45%] -translate-x-1/2 w-[420px] h-[420px] rounded-full liquid-blob-emerald blur-[90px] transition-all duration-300 ${isLight ? 'opacity-10' : 'opacity-20'}`} />
+          <div className={`absolute bottom-[2%] left-[10%] w-[380px] h-[380px] rounded-full liquid-blob-gold blur-[100px] transition-all duration-300 ${isLight ? 'opacity-10' : 'opacity-30'}`} />
+        </div>
+        <div className="relative z-10 flex flex-col items-center gap-4 mb-8">
+          <h1 className={`text-2xl font-black tracking-wider ${isLight ? 'text-slate-900' : 'text-white'}`}>
+            {t('beta.gateTitle')}
+          </h1>
+          <p className={`text-sm ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
+            {t('beta.gateSubtitle')}
+          </p>
+        </div>
+        <div className="relative z-10">
+          <LoginModal open={true} onClose={() => {}} onSwitchToRegister={() => {}} betaMode />
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className={`h-screen w-screen flex flex-col overflow-hidden transition-all duration-300 ${
