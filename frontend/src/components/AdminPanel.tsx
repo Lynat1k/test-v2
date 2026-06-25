@@ -697,11 +697,11 @@ function TickerBlock({ isLight }: { isLight: boolean }) {
                       <button onClick={() => handleDelete(tk.id, tk.symbol)} className="p-1 rounded cursor-pointer hover:bg-red-500/10 text-red-400"><Trash2 className="w-3 h-3" /></button>
                     </div>
                   </div>
-                  <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-[10px]">
-                    <span className="text-slate-500">Tick Spot:</span><span className="font-bold">{tk.priceTickSpot}</span>
-                    <span className="text-slate-500">Tick Futures:</span><span className="font-bold">{tk.priceTickFutures}</span>
-                    <span className="text-slate-500">Comp Spot:</span><span className="font-bold">{tk.compressionSpot}</span>
-                    <span className="text-slate-500">Comp Futures:</span><span className="font-bold">{tk.compressionFutures}</span>
+                  <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px]">
+                    <span><span className={isLight ? 'text-slate-600' : 'text-slate-400'}>Tick Spot:</span> <span className="font-bold">{tk.priceTickSpot}</span></span>
+                    <span><span className={isLight ? 'text-slate-600' : 'text-slate-400'}>Tick Futures:</span> <span className="font-bold">{tk.priceTickFutures}</span></span>
+                    <span><span className={isLight ? 'text-slate-600' : 'text-slate-400'}>Comp Spot:</span> <span className="font-bold">{tk.compressionSpot}</span></span>
+                    <span><span className={isLight ? 'text-slate-600' : 'text-slate-400'}>Comp Futures:</span> <span className="font-bold">{tk.compressionFutures}</span></span>
                   </div>
                 </>
               )}
