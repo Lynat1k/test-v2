@@ -5,6 +5,7 @@ interface UseDOMOptions {
   symbol: string
   market: string
   accessToken?: string | null
+  enabled?: boolean
 }
 
 interface UseDOMResult {
@@ -14,7 +15,7 @@ interface UseDOMResult {
   connected: boolean
 }
 
-export function useDOM({ symbol, market, accessToken }: UseDOMOptions): UseDOMResult {
+export function useDOM({ symbol, market, accessToken, enabled = true }: UseDOMOptions): UseDOMResult {
   const [levels, setLevels] = useState<DOMLevel[]>([])
   const [lastPrice, setLastPrice] = useState(0)
   const [fng, setFng] = useState<FNGData | null>(null)
@@ -22,6 +23,7 @@ export function useDOM({ symbol, market, accessToken }: UseDOMOptions): UseDOMRe
   const wsRef = useRef<WebSocket | null>(null)
 
   useEffect(() => {
+    if (!enabled) return
     const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
     const tokenParam = accessToken ? `?token=${encodeURIComponent(accessToken)}` : ""
     const wsUrl = `${wsProtocol}//${window.location.host}/ws${tokenParam}`
@@ -56,9 +58,10 @@ export function useDOM({ symbol, market, accessToken }: UseDOMOptions): UseDOMRe
       ws.close()
       wsRef.current = null
     }
-  }, [symbol, market, accessToken])
+  }, [symbol, market, accessToken, enabled])
 
   useEffect(() => {
+    if (!enabled) return
     const fetchFNG = async () => {
       try {
         const resp = await fetch('/api/v1/fng', {
@@ -76,7 +79,8 @@ export function useDOM({ symbol, market, accessToken }: UseDOMOptions): UseDOMRe
     fetchFNG()
     const interval = setInterval(fetchFNG, 3600000)
     return () => clearInterval(interval)
-  }, [accessToken])
+  }, [accessToken, enabled])
 
+  if (!enabled) return { levels: [], lastPrice: 0, fng: null, connected: false }
   return { levels, lastPrice, fng, connected }
 }

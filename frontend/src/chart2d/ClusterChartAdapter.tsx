@@ -2,12 +2,13 @@ import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import ClusterChart from "./ClusterChart";
 import { ChartLoader } from "@/components/ChartLoader";
 import { adapter, apiRowsToCells, mergeLiveUpdate, aggregateLevels, computeValueArea } from "./adapter";
-import type { ClusterCandle } from "./types";
+import type { ClusterCandle, OrderBook } from "./types";
 import type { ApiCandle, ApiClusterRow } from "./adapter";
 import { fetchClustersBatchImpl } from "./clusterCache";
 import type { ClustersChunkResponse } from "./clusterCache";
 import { useLiveChart } from "./useLiveChart";
 import type { LiveChartState } from "./useLiveChart";
+import { useDOM } from "@/hooks/useDOM";
 
 const NOOP = () => {};
 
@@ -326,6 +327,13 @@ export default function ClusterChartAdapter({
 
   const activePair = useMemo(() => makePair(symbol, market), [symbol, market]);
 
+  const domEnabled = useMemo(() => !!activeIndicators?.['depthOfMarket'], [activeIndicators]);
+  const { levels: domLevels } = useDOM({ symbol, market, accessToken: accessToken ?? null, enabled: domEnabled });
+  const orderBook = useMemo<OrderBook>(() => ({
+    bids: domLevels.filter(l => l.bidSize > 0).map(l => ({ price: l.priceLevel, amount: l.bidSize, total: 0, percentage: 0 })),
+    asks: domLevels.filter(l => l.askSize > 0).map(l => ({ price: l.priceLevel, amount: l.askSize, total: 0, percentage: 0 })),
+  }), [domLevels]);
+
   const inner = loading ? (
     <ChartLoader theme={theme} />
   ) : error ? (
@@ -364,6 +372,7 @@ export default function ClusterChartAdapter({
       onChangeShowAnomalies={onChangeShowAnomalies}
       theme={theme}
       {...(userRole !== undefined ? { userRole } : {})}
+      {...(domEnabled ? { orderBook } : {})}
     />
   );
 
