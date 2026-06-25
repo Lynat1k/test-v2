@@ -312,8 +312,15 @@ const en = {
     zoomHorizontal: 'horizontal zoom',
   },
   fng: {
-    title: 'Fear & Greed',
+    title: 'Fear & Greed Index',
     loading: 'Loading F&G...',
+    now: 'Now:',
+    score: 'Score:',
+    extFear: 'Ext. Fear',
+    fear: 'Fear',
+    neutral: 'Neutral',
+    greed: 'Greed',
+    extGreed: 'Ext. Greed',
   },
   beta: {
     gateTitle: 'Closed Beta',

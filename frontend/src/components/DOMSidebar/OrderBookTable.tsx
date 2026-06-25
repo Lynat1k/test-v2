@@ -44,12 +44,12 @@ export function OrderBookTable({ levels, lastPrice }: OrderBookTableProps) {
   useEffect(() => {
     if (autoCenter && containerRef.current && lastPrice > 0) {
       const container = containerRef.current
-      const askCount = asks.length
-      const midIdx = askCount
-      const rowH = 18
-      const midElementCenter = midIdx * rowH + rowH / 2
-      const scrollTarget = midElementCenter - container.clientHeight / 2
-      container.scrollTo({ top: Math.max(0, scrollTarget), behavior: 'smooth' })
+      const asksCount = asks.length
+      const midElementCenter = asksCount * 18 + 28
+      const visibleHeight = container.clientHeight
+      if (visibleHeight <= 0) return
+      const midPoint = midElementCenter - visibleHeight / 2
+      container.scrollTo({ top: Math.max(0, midPoint), behavior: 'smooth' })
     }
   }, [autoCenter, asks.length, lastPrice, levels])
 
@@ -63,11 +63,11 @@ export function OrderBookTable({ levels, lastPrice }: OrderBookTableProps) {
     p.toLocaleString(undefined, { minimumFractionDigits: 1, maximumFractionDigits: 2 })
 
   return (
-    <div className={`flex flex-col h-full rounded-xl border overflow-hidden ${
+    <div id="dom-ladder-container" className={`flex flex-col h-full rounded-xl border overflow-hidden ${
       isLight ? 'bg-white/90 border-slate-200' : 'bg-[#06080e]/90 border-white/5'
     }`}>
       {/* Header */}
-      <div className={`grid grid-cols-[1fr_1.2fr] gap-3 border-b py-1.5 px-2 text-[8.5px] font-mono font-black uppercase tracking-widest shrink-0 ${
+      <div id="dom-table-header" className={`grid grid-cols-[1fr_1.2fr] gap-3 border-b py-1.5 px-2 text-[8.5px] font-mono font-black uppercase tracking-widest shrink-0 ${
         isLight ? 'bg-slate-100 border-slate-200 text-slate-500' : 'bg-slate-950 border-white/5 text-slate-500'
       }`}>
         <div className="text-right pr-2">Size</div>
@@ -120,7 +120,7 @@ export function OrderBookTable({ levels, lastPrice }: OrderBookTableProps) {
         })}
 
         {/* --- MID ROW / LAST PRICE --- */}
-        <div className={`flex justify-center items-center border-y border-amber-500/25 relative z-20 shrink-0 h-14 ${isLight ? 'bg-slate-100' : 'bg-[#090b11]'}`}>
+        <div id="dom-mid-price-row" className={`flex justify-center items-center border-y border-amber-500/25 relative z-20 shrink-0 h-14 ${isLight ? 'bg-slate-100' : 'bg-[#090b11]'}`}>
           <div
             className="font-mono text-[30px] font-black tracking-widest leading-none text-center select-all text-amber-500"
             style={{

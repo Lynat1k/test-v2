@@ -13,11 +13,13 @@ import { buildDOMCompressionLevels, getDomBaseStep, aggregateDOMLevels } from '.
 
 interface DOMSidebarProps {
   collapsed: boolean
+  fngCollapsed: boolean
+  onToggleFng: () => void
 }
 
 const DOM_COMPRESSION_KEY = 'dom_compression_level'
 
-export function DOMSidebar({ collapsed }: DOMSidebarProps) {
+export function DOMSidebar({ collapsed, fngCollapsed, onToggleFng }: DOMSidebarProps) {
   const { t } = useTranslation()
   const { theme } = useTheme()
   const isLight = theme === 'light'
@@ -74,7 +76,7 @@ export function DOMSidebar({ collapsed }: DOMSidebarProps) {
           </div>
 
           <div className="shrink-0">
-            <FearGreedPanel data={fng} />
+            <FearGreedPanel data={fng} collapsed={fngCollapsed} onToggle={onToggleFng} />
           </div>
 
           {/* Section header: "СТАКАН" title + compression selector.

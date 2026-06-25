@@ -65,6 +65,66 @@ function AppShell() {
       return next
     })
   }, [])
+  const [isFearGreedCollapsed, setIsFearGreedCollapsed] = useState<boolean>(() => {
+    try { return localStorage.getItem('procluster_fng_collapsed') === 'true' } catch { return false }
+  })
+  const toggleFearGreed = useCallback(() => {
+    setIsFearGreedCollapsed(prev => {
+      const next = !prev
+      try { localStorage.setItem('procluster_fng_collapsed', String(next)) } catch {}
+      return next
+    })
+  }, [])
+  const [domCenterOffset, setDomCenterOffset] = useState<number | null>(null)
+
+  useEffect(() => {
+    const measure = () => {
+      const sidebar = document.getElementById('dom-sidebar-outer')
+      const priceRow = document.getElementById('dom-mid-price-row')
+      const button = document.getElementById('dom-collapse-chip')
+      if (!sidebar || !priceRow) {
+        setDomCenterOffset(null)
+        return
+      }
+      const sidebarRect = sidebar.getBoundingClientRect()
+      const priceRect = priceRow.getBoundingClientRect()
+      const buttonHeight = button?.clientHeight ?? 56
+      const centerInSidebar = priceRect.top + priceRect.height / 2 - sidebarRect.top - buttonHeight / 2
+      setDomCenterOffset(centerInSidebar)
+    }
+
+    measure()
+
+    const ladder = document.getElementById('dom-ladder-container')
+    const priceRow = document.getElementById('dom-mid-price-row')
+    let observer: ResizeObserver | null = null
+    let scrollContainer: HTMLElement | null = null
+    let scrollHandler: (() => void) | null = null
+    let fallbackTimer: number | null = null
+
+    if (priceRow) {
+      observer = new ResizeObserver(() => measure())
+      observer.observe(priceRow)
+      if (ladder) observer.observe(ladder)
+      scrollContainer = (ladder?.querySelector('[class*="overflow-y-auto"]') as HTMLElement | null) ?? null
+      if (scrollContainer) {
+        scrollHandler = () => measure()
+        scrollContainer.addEventListener('scroll', scrollHandler, { passive: true })
+      }
+      fallbackTimer = window.setInterval(measure, 500)
+    }
+
+    window.addEventListener('resize', measure)
+
+    return () => {
+      if (observer) observer.disconnect()
+      window.removeEventListener('resize', measure)
+      if (fallbackTimer !== null) window.clearInterval(fallbackTimer)
+      if (scrollContainer && scrollHandler) {
+        scrollContainer.removeEventListener('scroll', scrollHandler)
+      }
+    }
+  }, [domCollapsed, isFearGreedCollapsed])
 
   const [showAnomalies0, setShowAnomalies0] = useState<boolean>(() => {
     try { return (localStorage.getItem('procluster_show_anomalies_0') ?? localStorage.getItem('chart_settings_show_anomalies')) !== 'false' } catch { return true }
@@ -772,19 +832,26 @@ function AppShell() {
                   )}
                 </div>
                 <div
-                  className={`relative flex min-h-0 flex-col transition-all duration-300 ease-in-out shrink-0 min-w-[24px] ${activeMobileTab === 'chart' ? 'hidden lg:block' : 'max-lg:flex-1 lg:shrink-0 max-lg:[&>div]:!w-full'}`}
+                  id="dom-sidebar-outer"
+                  className={`relative flex min-h-0 flex-col transition-all duration-300 ease-in-out shrink-0 min-w-[24px] ${activeMobileTab === 'chart' ? 'hidden lg:block' : 'max-lg:flex max-lg:flex-1 max-lg:h-full max-lg:min-h-0 lg:shrink-0 max-lg:[&>div]:!w-full'}`}
                 >
-                  <DOMSidebar collapsed={domCollapsed} />
+                  <DOMSidebar collapsed={domCollapsed} fngCollapsed={isFearGreedCollapsed} onToggleFng={toggleFearGreed} />
                 </div>
 
                 {/* DOMSidebar collapse chip — absolute inside chart row, overflow-hidden won't clip (chip within bounds) */}
                 <button
+                  id="dom-collapse-chip"
                   onClick={toggleDomCollapsed}
-                  className={`hidden lg:flex absolute top-1/2 -translate-y-1/2 z-50 items-center justify-center w-6 h-12 rounded-md border transition-all duration-200 cursor-pointer ${
+                  className={`hidden lg:flex absolute z-50 items-center justify-center w-6 h-12 rounded-md border transition-all duration-200 cursor-pointer ${
                     isLight
                       ? 'bg-white hover:bg-slate-50 text-slate-600 border-slate-200 shadow-sm hover:text-slate-900'
                       : 'liquid-glass-card hover:bg-white/5 border-white/5 text-white/40 hover:text-white/70'
                   } ${domCollapsed ? 'right-0' : 'right-[268px]'}`}
+                  style={
+                    domCenterOffset !== null
+                      ? { top: `${domCenterOffset}px` }
+                      : { top: '50%', transform: 'translateY(-50%)' }
+                  }
                   title={domCollapsed ? t('dom.expand') : t('dom.collapse')}
                 >
                   {domCollapsed ? <ChevronLeft className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
