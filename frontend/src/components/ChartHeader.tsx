@@ -77,10 +77,7 @@ export function ChartHeader({ fps = 0, showAnomalies = true, onToggleAnomalies }
   const chartCompressionLocked = compressionMax < 10
   const baseCompression = market === 'futures' ? tickerConfig.baseFutures : tickerConfig.baseSpot
 
-  const resolvedMode = candleMode === 'auto' ? 'japanese' : candleMode
-
-  const showVolumeMode = candleMode === 'clusters' || candleMode === 'footprint' ||
-    (candleMode === 'auto' && (resolvedMode === 'clusters' || resolvedMode === 'footprint'))
+  const showVolumeMode = candleMode === 'clusters' || candleMode === 'footprint' || candleMode === 'auto'
 
   const openTickerDropdown = useCallback(() => {
     if (tickerRef.current) {

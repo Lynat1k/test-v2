@@ -1284,6 +1284,10 @@ export default function ClusterChart({
         ? true
         : isDetailedModeCalculated);
 
+  const effectiveCandleType = candleType === "auto"
+    ? (isDetailedMode ? "footprint" : "japanese")
+    : candleType;
+
   const finalShowAnomalies = showAnomalies;
 
   // Panning drag-to-scroll handlers (supports 2D movement)
@@ -3116,7 +3120,7 @@ export default function ClusterChart({
 
       // A. Zoomed out simple candlestick or OHLC bar
       if (!isDetailedMode) {
-        if (candleType === "bars") {
+        if (effectiveCandleType === "bars") {
           const barCenterX = Math.round(x + candleWidth / 2) + 0.5;
           const barHighY = Math.round(priceToY(candle.high)) + 0.5;
           const barLowY = Math.round(priceToY(candle.low)) + 0.5;
