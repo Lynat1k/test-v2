@@ -839,6 +839,25 @@ export default function ClusterChart({
   const zoomAnchorIndexRef = useRef<number | null>(null);
   const zoomAnchorClickXRef = useRef<number>(0);
 
+  // Touch gesture refs (mobile pan / pinch-zoom / timescale drag).
+  // Mirror reference impl in PROCLUSTER3 (handleTouchStart/Move/End). Mouse path
+  // is untouched. Drawing tools intentionally not wired to touch in v1.
+  const touchStartRef = useRef<{
+    x: number;
+    y: number;
+    scrollLeft: number;
+    priceCenterOffset: number;
+  } | null>(null);
+  const touchZoomRef = useRef<{
+    initialDistance: number;
+    initialCandleWidth: number;
+    initialVerticalScale: number;
+    initialPriceCenterOffset: number;
+    initialScrollLeft: number;
+    touchCenterX: number;
+    touchCenterY: number;
+  } | null>(null);
+
   // Dynamically measure container dimensions with ResizeObserver so CVD/delta are pinned perfectly to the bottom
   useEffect(() => {
     if (!containerRef.current) return;
@@ -1777,6 +1796,226 @@ export default function ClusterChart({
     }
 
     setIsDragging(false);
+  };
+
+  // ────────────────────────────────────────────────────────────────────────
+  // Touch handlers (mobile)
+  // 1 finger on main area = pan X (scroll) + pan Y (price center).
+  // 1 finger on bottom timescale strip = candle resize drag.
+  // 2 fingers = pinch zoom (horizontal candleWidth + vertical verticalScale).
+  // Tap on canvas = crosshair (reuses handleSvgMouseMove via synthetic event).
+  // TODO(v2): integrate drawing tools with touch — currently we bail when
+  //           activeDrawingTool / drawingDragState is non-null so the existing
+  //           mouse-driven drawing pipeline stays the canonical path.
+  // ────────────────────────────────────────────────────────────────────────
+  const handleTouchStart = (e: React.TouchEvent<HTMLDivElement>) => {
+    const target = e.target as HTMLElement;
+    if (target.closest("button") || target.closest("select") || target.closest("input") || target.closest("textarea") || target.closest("[role='dialog']")) {
+      return;
+    }
+    // v1: drawing tools stay mouse-only.
+    if (activeDrawingTool || drawingDragState) return;
+
+    if (e.touches.length === 1) {
+      const touch = e.touches[0];
+      const rect = containerRef.current?.getBoundingClientRect();
+      if (!rect) return;
+      const clickY = touch.clientY - rect.top;
+
+      if (clickY >= totalSvgHeight - margin.bottom) {
+        // Timescale strip → candle-width drag.
+        setIsDraggingTimeScale(true);
+        startTimeScaleXRef.current = touch.clientX;
+        startCandleWidthRef.current = candleWidth;
+
+        const clickXInContainer = touch.clientX - rect.left;
+        const currentScroll = containerRef.current?.scrollLeft || 0;
+        const absoluteX = currentScroll + clickXInContainer;
+        const xFromLeft = absoluteX - margin.left;
+        zoomAnchorIndexRef.current = xFromLeft / (candleWidth + candleSpacing);
+        zoomAnchorClickXRef.current = clickXInContainer;
+        return;
+      }
+
+      setIsDragging(true);
+      touchStartRef.current = {
+        x: touch.clientX,
+        y: touch.clientY,
+        scrollLeft: containerRef.current?.scrollLeft || 0,
+        priceCenterOffset: priceCenterOffset,
+      };
+    } else if (e.touches.length === 2) {
+      const t0 = e.touches[0];
+      const t1 = e.touches[1];
+      const dx = t0.clientX - t1.clientX;
+      const dy = t0.clientY - t1.clientY;
+      const initialDistance = Math.sqrt(dx * dx + dy * dy);
+      const rect = containerRef.current?.getBoundingClientRect();
+      if (rect && initialDistance > 10) {
+        const cx = ((t0.clientX - rect.left) + (t1.clientX - rect.left)) / 2;
+        const cy = ((t0.clientY - rect.top) + (t1.clientY - rect.top)) / 2;
+        touchZoomRef.current = {
+          initialDistance,
+          initialCandleWidth: candleWidth,
+          initialVerticalScale: verticalScale,
+          initialPriceCenterOffset: priceCenterOffset,
+          initialScrollLeft: containerRef.current?.scrollLeft || 0,
+          touchCenterX: cx,
+          touchCenterY: cy,
+        };
+      }
+    }
+  };
+
+  const handleTouchMove = (e: React.TouchEvent<HTMLDivElement>) => {
+    if (activeDrawingTool || drawingDragState) return;
+
+    // 1-finger pan
+    if (e.touches.length === 1 && touchStartRef.current && containerRef.current) {
+      if (e.cancelable) e.preventDefault();
+      const touch = e.touches[0];
+      const deltaX = touch.clientX - touchStartRef.current.x;
+      const nextScroll = touchStartRef.current.scrollLeft - deltaX;
+      containerRef.current.scrollLeft = nextScroll;
+      setVisibleScrollLeftSync(nextScroll);
+
+      const deltaY = touch.clientY - touchStartRef.current.y;
+      const currentPriceRange = maxPrice - minPrice;
+      const priceChange = (deltaY / Math.max(1, chartHeight)) * currentPriceRange;
+      const nextOffset = touchStartRef.current.priceCenterOffset + priceChange;
+      setPriceCenterOffset(nextOffset);
+      priceCenterOffsetRef.current = nextOffset;
+      return;
+    }
+
+    // 2-finger pinch
+    if (e.touches.length === 2 && touchZoomRef.current && containerRef.current) {
+      if (e.cancelable) e.preventDefault();
+      const t0 = e.touches[0];
+      const t1 = e.touches[1];
+      const dx = t0.clientX - t1.clientX;
+      const dy = t0.clientY - t1.clientY;
+      const currentDistance = Math.sqrt(dx * dx + dy * dy);
+      if (currentDistance <= 10) return;
+
+      const ratio = currentDistance / touchZoomRef.current.initialDistance;
+
+      // Horizontal: candleWidth scale, pivot scrollLeft so touchCenterX stays on the same chart X.
+      const minW = (candleType === "japanese" || candleType === "auto" || candleType === "bars") ? 2 : 8;
+      const nextWidth = touchZoomRef.current.initialCandleWidth * ratio;
+      const nextWidthClamped = Math.min(100, Math.max(minW, nextWidth));
+
+      if (nextWidthClamped !== candleWidth) {
+        const mouseRelativeX = touchZoomRef.current.touchCenterX;
+        const currentScrollLeft = touchZoomRef.current.initialScrollLeft;
+        const chartCursorX = currentScrollLeft + mouseRelativeX;
+        const activeChartX = chartCursorX - margin.left;
+
+        const prevSpacing = Math.max(1, touchZoomRef.current.initialCandleWidth < 30
+          ? Math.floor(touchZoomRef.current.initialCandleWidth * 0.35) : 12);
+        const nextSpacing = Math.max(1, nextWidthClamped < 30
+          ? Math.floor(nextWidthClamped * 0.35) : 12);
+
+        const widthRatio = (nextWidthClamped + nextSpacing) / (touchZoomRef.current.initialCandleWidth + prevSpacing);
+        const newChartCursorX = margin.left + activeChartX * widthRatio;
+        const nextScrollLeft = Math.max(0, newChartCursorX - mouseRelativeX);
+
+        const currentScrollRightPadding = Math.round(Number(containerRef.current.clientWidth || 800) * 0.85);
+        const nextScrollWidth = candles.length * (nextWidthClamped + nextSpacing) + margin.left + margin.right + currentScrollRightPadding;
+        const spacer = containerRef.current.querySelector("#procluster-chart-spacer") as HTMLElement | null;
+        if (spacer) spacer.style.width = `${nextScrollWidth}px`;
+
+        setCandleWidth(nextWidthClamped);
+        candleWidthRef.current = nextWidthClamped;
+        containerRef.current.scrollLeft = nextScrollLeft;
+        setVisibleScrollLeftSync(nextScrollLeft);
+      }
+
+      // Vertical: verticalScale scale, pivot priceCenterOffset so price under touchCenterY stays put.
+      const relativeY = touchZoomRef.current.touchCenterY;
+      if (relativeY >= margin.top && relativeY <= margin.top + chartHeight) {
+        // Inline (do not refactor wheel): same formula as extractPriceFromY at line ~952.
+        const initScale = touchZoomRef.current.initialVerticalScale;
+        const initOffset = touchZoomRef.current.initialPriceCenterOffset;
+        const zoomedRange = priceRange / Math.max(0.1, initScale);
+        const centerPriceInit = basePriceCenter + initOffset;
+        const maxP = centerPriceInit + zoomedRange * 0.58;
+        const minP = centerPriceInit - zoomedRange * 0.58;
+        const yRange = maxP - minP || 1;
+        const mousePrice = minP + (1 - (relativeY - margin.top) / Math.max(1, chartHeight)) * yRange;
+
+        const nextVerticalScale = Math.min(2000.0, Math.max(0.1, initScale * ratio));
+        const actualMultiplier = nextVerticalScale / initScale;
+        if (actualMultiplier !== 1) {
+          const currentPriceCenter = basePriceCenter + initOffset;
+          const newPriceCenter = mousePrice - (mousePrice - currentPriceCenter) / actualMultiplier;
+          const nextPriceCenterOffset = newPriceCenter - basePriceCenter;
+          setVerticalScale(nextVerticalScale);
+          setPriceCenterOffset(nextPriceCenterOffset);
+          verticalScaleRef.current = nextVerticalScale;
+          priceCenterOffsetRef.current = nextPriceCenterOffset;
+        }
+      }
+      return;
+    }
+
+    // 1-finger timescale drag
+    if (isDraggingTimeScale && containerRef.current && e.touches.length >= 1) {
+      if (e.cancelable) e.preventDefault();
+      const touch = e.touches[0];
+      const deltaX = touch.clientX - startTimeScaleXRef.current;
+      const speed = 0.55;
+      const nextWidth = startCandleWidthRef.current + deltaX * speed;
+      const minW = (candleType === "japanese" || candleType === "auto" || candleType === "bars") ? 2 : 8;
+      const nextWidthClamped = Math.min(100, Math.max(minW, nextWidth));
+
+      if (nextWidthClamped !== candleWidth && zoomAnchorIndexRef.current !== null) {
+        const nextSpacing = Math.max(1, nextWidthClamped < 30 ? Math.floor(nextWidthClamped * 0.35) : 12);
+        const newAnchorAbsoluteX = margin.left + zoomAnchorIndexRef.current * (nextWidthClamped + nextSpacing);
+        const nextScrollLeft = Math.max(0, newAnchorAbsoluteX - zoomAnchorClickXRef.current);
+
+        const currentScrollRightPadding = Math.round(Number(containerRef.current.clientWidth || 800) * 0.85);
+        const nextScrollWidth = candles.length * (nextWidthClamped + nextSpacing) + margin.left + margin.right + currentScrollRightPadding;
+        const spacer = containerRef.current.querySelector("#procluster-chart-spacer") as HTMLElement | null;
+        if (spacer) spacer.style.width = `${nextScrollWidth}px`;
+
+        setCandleWidth(nextWidthClamped);
+        candleWidthRef.current = nextWidthClamped;
+        containerRef.current.scrollLeft = nextScrollLeft;
+        setVisibleScrollLeftSync(nextScrollLeft);
+      }
+    }
+  };
+
+  const handleTouchEnd = () => {
+    setIsDragging(false);
+    setIsDraggingTimeScale(false);
+    touchStartRef.current = null;
+    touchZoomRef.current = null;
+    zoomAnchorIndexRef.current = null;
+  };
+
+  // Canvas tap → crosshair. Reuses handleSvgMouseMove via a minimal synthetic
+  // event since that handler reads only currentTarget + clientX + clientY.
+  const handleSvgTouch = (e: React.TouchEvent<HTMLCanvasElement>) => {
+    if (activeDrawingTool) return;
+    if (e.touches.length !== 1) return;
+    const touch = e.touches[0];
+    const synthetic = {
+      currentTarget: e.currentTarget,
+      clientX: touch.clientX,
+      clientY: touch.clientY,
+    } as unknown as React.MouseEvent<HTMLCanvasElement>;
+    handleSvgMouseMove(synthetic);
+  };
+
+  const handleSvgTouchEnd = () => {
+    crosshairRef.current = null;
+    hoveredCellRef.current = null;
+    hoveredClusterSearchRef.current = null;
+    drawOverlay();
+    updateCrosshairDom(null, null, null);
+    updateClusterTooltipDom(null);
   };
 
   const handleDoubleClick = (e: React.MouseEvent) => {
@@ -4332,6 +4571,10 @@ export default function ClusterChart({
           onMouseUp={handleMouseUpOrLeave}
           onMouseLeave={handleMouseUpOrLeave}
           onDoubleClick={handleDoubleClick}
+          onTouchStart={handleTouchStart}
+          onTouchMove={handleTouchMove}
+          onTouchEnd={handleTouchEnd}
+          onTouchCancel={handleTouchEnd}
           onScroll={(e) => {
             // S3: hot path — write to ref + schedule one rAF draw. NO setState here
             // (used to fire on every scroll-event and re-render the whole monolith
@@ -4348,7 +4591,7 @@ export default function ClusterChart({
           className={`flex-1 overflow-x-auto overflow-y-hidden select-none terminal-grid relative transition-all duration-300 chart-scroll-container ${
             isLight ? "bg-[#f8fafc]" : "bg-[#06080f]"
           } ${isDraggingTimeScale ? "cursor-ew-resize" : (isDragging ? "cursor-grabbing" : "cursor-grab")}`}
-          style={{ scrollBehavior: "auto" }}
+          style={{ scrollBehavior: "auto", touchAction: isMobile ? "none" : "auto" }}
         >
           {candles.length === 0 ? (
             <div className="absolute inset-0 flex items-center justify-center bg-[#06080f]/80 z-25">
@@ -4370,6 +4613,9 @@ export default function ClusterChart({
                   ref={canvasRef}
                   onMouseMove={handleSvgMouseMove}
                   onMouseLeave={handleSvgMouseLeave}
+                  onTouchStart={handleSvgTouch}
+                  onTouchMove={handleSvgTouch}
+                  onTouchEnd={handleSvgTouchEnd}
                   className="absolute left-0 top-0 block"
                 />
                 {/* Overlay canvas — crosshair lines, hovered timestamp box, column highlights.
