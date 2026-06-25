@@ -259,11 +259,13 @@ function AppShell() {
             <Logo />
             <button
               onClick={() => setIsRoadmapOpen(true)}
-              className="ml-1 hidden lg:flex group items-center gap-1.5 px-3 py-1.5 rounded-full border text-[10px] font-black uppercase tracking-widest cursor-pointer transition-all duration-300 hover:scale-105 active:scale-98 select-none bg-amber-500/10 hover:bg-amber-500/20 border-amber-500/30 text-amber-500 shadow-md shadow-amber-500/5 animate-pulse"
-              style={{ animationDuration: '2.5s' }}
+              className={`ml-1 hidden lg:flex px-3 py-1 rounded-full border text-[9.5px] font-extrabold uppercase tracking-widest cursor-pointer transition-all duration-200 hover:scale-[1.03] active:scale-97 select-none ${
+                isLight
+                  ? 'bg-slate-100 hover:bg-slate-200 border-slate-200 text-slate-600 shadow-sm'
+                  : 'bg-white/5 hover:bg-white/10 border-white/10 text-slate-400 shadow-sm'
+              }`}
             >
-              <Sparkles className="w-3.5 h-3.5 text-amber-500 group-hover:scale-110 group-hover:rotate-12 transition-transform duration-300" />
-              <span>BETA</span>
+              BETA
             </button>
           </div>
           <div className="flex items-center gap-2 relative z-10">

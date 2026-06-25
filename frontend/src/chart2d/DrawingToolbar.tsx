@@ -107,6 +107,27 @@ function DrawingToolbarImpl({
                   <circle cx="4" cy="21" r="1.5" />
                   <line x1="6" y1="21" x2="20" y2="21" />
                 </svg>
+              ) : tool.id === "volume" ? (
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4">
+                  <line x1="4" y1="4" x2="4" y2="20" strokeWidth="1.5" opacity="0.6" />
+                  <line x1="4" y1="6" x2="10" y2="6" strokeWidth="1.8" />
+                  <line x1="4" y1="9" x2="16" y2="9" strokeWidth="1.8" />
+                  <line x1="4" y1="12" x2="21" y2="12" strokeWidth="2.2" />
+                  <line x1="4" y1="15" x2="16" y2="15" strokeWidth="1.8" />
+                  <line x1="4" y1="18" x2="10" y2="18" strokeWidth="1.8" />
+                </svg>
+              ) : tool.id === "fibonacci" ? (
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4">
+                  <line x1="3" y1="4" x2="21" y2="4" strokeWidth="1.5" opacity="0.9" />
+                  <line x1="3" y1="7.5" x2="21" y2="7.5" strokeWidth="1" opacity="0.4" />
+                  <line x1="3" y1="11" x2="21" y2="11" strokeWidth="1" opacity="0.65" />
+                  <line x1="3" y1="14.5" x2="21" y2="14.5" strokeWidth="1" opacity="0.4" />
+                  <line x1="3" y1="17.5" x2="21" y2="17.5" strokeWidth="1" opacity="0.4" />
+                  <line x1="3" y1="21" x2="21" y2="21" strokeWidth="1.5" opacity="0.9" />
+                  <line x1="5" y1="21" x2="19" y2="4" strokeWidth="1" strokeDasharray="2 2" opacity="0.6" />
+                  <circle cx="5" cy="21" r="1.5" fill="currentColor" />
+                  <circle cx="19" cy="4" r="1.5" fill="currentColor" stroke="none" />
+                </svg>
               ) : (
                 <IconComp className="w-4 h-4" />
               )}
