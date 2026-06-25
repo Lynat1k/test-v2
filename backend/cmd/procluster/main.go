@@ -171,6 +171,7 @@ func main() {
 
 	adminHandler := admin.NewAdminHandler(sqliteDB, authCfg, repo, rdb, logBuf, metricsHist)
 	adminHandler.RegisterAdminRoutes(srv.Mux())
+	adminHandler.RegisterPublicRoutes(srv.Mux())
 
 	hub := srv.Hub()
 	go hub.Run(ctx)

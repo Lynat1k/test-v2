@@ -67,8 +67,7 @@ func countActives(arr []map[string]interface{}) int {
 
 // getMaxIndicatorsForRole reads tier_policies.max_indicators for the role.
 // Returns -1 (no cap) for unknown roles or query failures — the global
-// maxIndicatorsPerKey ceiling still applies as a hard DoS guard. Values >= 100
-// are treated as unlimited, matching the frontend convention.
+// maxIndicatorsPerKey ceiling still applies as a hard DoS guard.
 func (h *Handler) getMaxIndicatorsForRole(role string) int {
 	if role == "" {
 		role = "guest"
@@ -83,9 +82,6 @@ func (h *Handler) getMaxIndicatorsForRole(role string) int {
 	}
 	if err != nil {
 		log.Printf("[auth] visible cap: query for %s: %v", role, err)
-		return -1
-	}
-	if maxN >= 100 {
 		return -1
 	}
 	return maxN

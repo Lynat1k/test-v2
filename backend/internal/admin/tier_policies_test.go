@@ -60,7 +60,7 @@ func TestSeedTierPolicies_EmptyDB_Creates5Rows(t *testing.T) {
 		{"free", 1, 180, 1, 1, 1},
 		{"pro", 2, -1, 3, 5, 2},
 		{"vip", 2, -1, 6, 15, 2},
-		{"admin", -1, -1, 10, 100, 2},
+		{"admin", -1, -1, 10, -1, 2},
 	}
 	for _, r := range rows {
 		var sessionLimit, historyDays, compMax, maxInd, workspaces int
@@ -229,7 +229,7 @@ func TestGetPolicies_SeedValues(t *testing.T) {
 		{"free", 1, 1, 0, 1, 0, 0},
 		{"pro", 3, 5, 0, 2, 1, 1},
 		{"vip", 6, 15, 1, 2, 1, 1},
-		{"admin", 10, 100, 1, 2, 1, 1},
+		{"admin", 10, -1, 1, 2, 1, 1},
 	}
 	for _, c := range checks {
 		p := policies[c.tier]

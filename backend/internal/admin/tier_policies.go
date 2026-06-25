@@ -41,7 +41,7 @@ var defaultTierPolicies = []struct {
 	{"free", 1, 180, 1, 1, 0, 0, 1, 0, `{"1m":1,"5m":1,"15m":1,"30m":1,"1h":1,"4h":1}`},
 	{"pro", 2, -1, 3, 5, 1, 0, 2, 1, `{"1m":3,"5m":7,"15m":14,"30m":30,"1h":60,"4h":180}`},
 	{"vip", 2, -1, 6, 15, 1, 1, 2, 1, `{"1m":7,"5m":14,"15m":30,"30m":60,"1h":120,"4h":360}`},
-	{"admin", -1, -1, 10, 100, 1, 1, 2, 1, `{"1m":14,"5m":30,"15m":60,"30m":120,"1h":240,"4h":720}`},
+	{"admin", -1, -1, 10, -1, 1, 1, 2, 1, `{"1m":14,"5m":30,"15m":60,"30m":120,"1h":240,"4h":720}`},
 }
 
 func SeedTierPolicies(db *sql.DB) error {
@@ -184,6 +184,50 @@ func GetPolicies(db *sql.DB) (map[string]TierPolicy, error) {
 		return nil, fmt.Errorf("rows err: %w", err)
 	}
 	return policies, nil
+}
+
+// PublicTierPolicy is the subset of TierPolicy fields exposed to
+// unauthenticated callers (plan comparison cards). Omits timestamps.
+type PublicTierPolicy struct {
+	Tier                    string         `json:"tier"`
+	SessionLimit            int            `json:"sessionLimit"`
+	HistoryMaxDays          int            `json:"historyMaxDays"`
+	CompressionMax          int            `json:"compressionMax"`
+	MaxIndicators           int            `json:"maxIndicators"`
+	CustomIndicatorSettings int            `json:"customIndicatorSettings"`
+	TelegramEnabled         int            `json:"telegramEnabled"`
+	WorkspacesCount         int            `json:"workspacesCount"`
+	AnomaliesEnabled        int            `json:"anomaliesEnabled"`
+	HistoryDaysPerTf        map[string]int `json:"historyDaysPerTf"`
+}
+
+// GetPublicPolicies returns only free/pro/vip tiers with fields needed by the
+// plan-comparison cards. No auth required. Omits admin/guest and timestamps.
+func GetPublicPolicies(db *sql.DB) (map[string]PublicTierPolicy, error) {
+	all, err := GetPolicies(db)
+	if err != nil {
+		return nil, err
+	}
+	public := make(map[string]PublicTierPolicy, 3)
+	for _, tier := range []string{"free", "pro", "vip"} {
+		p, ok := all[tier]
+		if !ok {
+			continue
+		}
+		public[tier] = PublicTierPolicy{
+			Tier:                    p.Tier,
+			SessionLimit:            p.SessionLimit,
+			HistoryMaxDays:          p.HistoryMaxDays,
+			CompressionMax:          p.CompressionMax,
+			MaxIndicators:           p.MaxIndicators,
+			CustomIndicatorSettings: p.CustomIndicatorSettings,
+			TelegramEnabled:         p.TelegramEnabled,
+			WorkspacesCount:         p.WorkspacesCount,
+			AnomaliesEnabled:        p.AnomaliesEnabled,
+			HistoryDaysPerTf:        p.HistoryDaysPerTf,
+		}
+	}
+	return public, nil
 }
 
 func UpsertPolicies(db *sql.DB, policies map[string]TierPolicy) error {

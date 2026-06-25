@@ -133,6 +133,22 @@ func (h *AdminHandler) RegisterAdminRoutes(mux *http.ServeMux) {
 	mux.Handle("PUT /api/v1/admin/site-settings", wrap(h.handleUpdateSiteSettings))
 }
 
+// RegisterPublicRoutes registers endpoints that are accessible without admin
+// auth (used for plan-comparison cards visible to guests).
+func (h *AdminHandler) RegisterPublicRoutes(mux *http.ServeMux) {
+	mux.HandleFunc("GET /api/v1/tiers", h.handleGetPublicPolicies)
+}
+
+func (h *AdminHandler) handleGetPublicPolicies(w http.ResponseWriter, r *http.Request) {
+	policies, err := GetPublicPolicies(h.db)
+	if err != nil {
+		log.Printf("[admin] get public policies error: %v", err)
+		writeError(w, http.StatusInternalServerError, "DB_ERROR", "failed to get tier policies")
+		return
+	}
+	writeJSON(w, http.StatusOK, adminResponse{OK: true, Data: policies})
+}
+
 // --- Tickers ---
 
 func (h *AdminHandler) handleAddTicker(w http.ResponseWriter, r *http.Request) {
