@@ -69,6 +69,7 @@ interface ClusterChartProps {
   onChangeShowAnomalies?: ((show: boolean) => void) | undefined;
   userRole?: string;
   prependScrollRef?: React.MutableRefObject<((addedCount: number) => void) | null>;
+  isLoadingHistory?: boolean;
 }
 
 export default function ClusterChart({
@@ -106,6 +107,7 @@ export default function ClusterChart({
   onChangeShowAnomalies,
   userRole,
   prependScrollRef,
+  isLoadingHistory = false,
 }: ClusterChartProps) {
   
   const isLight = theme === "light";
@@ -4618,6 +4620,14 @@ export default function ClusterChart({
           } ${isDraggingTimeScale ? "cursor-ew-resize" : (isDragging ? "cursor-grabbing" : "cursor-grab")}`}
           style={{ scrollBehavior: "auto", touchAction: "none" }}
         >
+          {isLoadingHistory && candles.length > 0 && (
+            <div className="absolute top-1/2 left-3 -translate-y-1/2 z-30 flex items-center gap-2 px-3 py-1.5 rounded-full bg-[#06080f]/85 border border-yellow-500/30 backdrop-blur-sm pointer-events-none">
+              <div className="animate-spin rounded-full h-3.5 w-3.5 border-b-2 border-yellow-500"></div>
+              <span className="text-[10px] font-mono font-bold text-yellow-500 uppercase tracking-wider">
+                {language === 'RU' ? 'Загрузка...' : language === 'KZ' ? 'Жүктелуде...' : 'Loading...'}
+              </span>
+            </div>
+          )}
           {candles.length === 0 ? (
             <div className="absolute inset-0 flex items-center justify-center bg-[#06080f]/80 z-25">
               <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-yellow-500"></div>

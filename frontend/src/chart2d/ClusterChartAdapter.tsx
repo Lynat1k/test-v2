@@ -117,6 +117,7 @@ export default function ClusterChartAdapter({
 
   const allHistoryLoadedRef = useRef(false);
   const historyLoadingRef = useRef(false);
+  const [isLoadingHistory, setIsLoadingHistory] = useState(false);
   const clusterCacheRef = useRef<Map<number, ApiClusterRow[]>>(new Map());
   const appliedLevelsRef = useRef<Map<number, ApiClusterRow[]>>(new Map());
   const accessTokenRef = useRef(accessToken);
@@ -196,6 +197,7 @@ export default function ClusterChartAdapter({
     if (allHistoryLoadedRef.current) return;
     if (historyLoadingRef.current) return;
     historyLoadingRef.current = true;
+    setIsLoadingHistory(true);
 
     try {
       const limit = TF_LIMIT[timeframe] ?? 200;
@@ -241,6 +243,7 @@ export default function ClusterChartAdapter({
       console.warn('[chart2d] history fetch failed:', err);
     } finally {
       historyLoadingRef.current = false;
+      setIsLoadingHistory(false);
     }
   }, [symbol, market, timeframe, fetchClustersBatch]);
 
@@ -356,6 +359,7 @@ export default function ClusterChartAdapter({
       onNeedHistory={handleNeedHistory}
       onVisibleTimestampsChange={handleVisibleTimestampsChange}
       prependScrollRef={prependScrollRef}
+      isLoadingHistory={isLoadingHistory}
       showAnomalies={showAnomalies}
       onChangeShowAnomalies={onChangeShowAnomalies}
       theme={theme}
