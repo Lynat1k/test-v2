@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import ClusterChart from "./ClusterChart";
+import { ChartLoader } from "@/components/ChartLoader";
 import { adapter, apiRowsToCells, mergeLiveUpdate, aggregateLevels, computeValueArea } from "./adapter";
 import type { ClusterCandle } from "./types";
 import type { ApiCandle, ApiClusterRow } from "./adapter";
@@ -323,9 +324,7 @@ export default function ClusterChartAdapter({
   const activePair = useMemo(() => makePair(symbol, market), [symbol, market]);
 
   const inner = loading ? (
-    <div className="flex items-center justify-center w-full h-full text-zinc-500 text-sm">
-      Loading chart…
-    </div>
+    <ChartLoader theme={theme} />
   ) : error ? (
     <div className="flex items-center justify-center w-full h-full text-red-400 text-sm">
       {error}
