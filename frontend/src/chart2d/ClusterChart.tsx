@@ -842,6 +842,13 @@ export default function ClusterChart({
   // Touch gesture refs (mobile pan / pinch-zoom / timescale drag).
   // Mirror reference impl in PROCLUSTER3 (handleTouchStart/Move/End). Mouse path
   // is untouched. Drawing tools intentionally not wired to touch in v1.
+  // isDraggingPriceScaleRef is SEPARATE from the isDraggingPriceScale state
+  // (820) because the state setter triggers a window-level mousemove listener
+  // (2855) that's wrong for touch — touch tracks its own deltaY via the ref.
+  // Same separation for Delta/CVD scales — touch tracks via refs, mouse via state.
+  const isDraggingPriceScaleRef = useRef<boolean>(false);
+  const isDraggingDeltaScaleRefTouch = useRef<boolean>(false);
+  const isDraggingCvdScaleRefTouch = useRef<boolean>(false);
   const touchStartRef = useRef<{
     x: number;
     y: number;
@@ -1834,6 +1841,8 @@ export default function ClusterChart({
         const xFromLeft = absoluteX - margin.left;
         zoomAnchorIndexRef.current = xFromLeft / (candleWidth + candleSpacing);
         zoomAnchorClickXRef.current = clickXInContainer;
+        // Block native scroll/zoom so subsequent touchmove events stay cancelable.
+        if (e.cancelable) e.preventDefault();
         return;
       }
 
@@ -1844,6 +1853,7 @@ export default function ClusterChart({
         scrollLeft: containerRef.current?.scrollLeft || 0,
         priceCenterOffset: priceCenterOffset,
       };
+      if (e.cancelable) e.preventDefault();
     } else if (e.touches.length === 2) {
       const t0 = e.touches[0];
       const t1 = e.touches[1];
@@ -1863,12 +1873,26 @@ export default function ClusterChart({
           touchCenterX: cx,
           touchCenterY: cy,
         };
+        if (e.cancelable) e.preventDefault();
       }
     }
   };
 
   const handleTouchMove = (e: React.TouchEvent<HTMLDivElement>) => {
     if (activeDrawingTool || drawingDragState) return;
+
+    // Price scale vertical zoom (1 finger on right strip).
+    // Same exponential feel as mouse path at 2861 (Math.exp(deltaY/200)).
+    if (isDraggingPriceScaleRef.current && e.touches.length === 1 && !touchZoomRef.current) {
+      if (e.cancelable) e.preventDefault();
+      const touch = e.touches[0];
+      const deltaY = startPriceScaleYRef.current - touch.clientY;
+      const multiplier = Math.exp(deltaY / 200);
+      const nextScale = Math.min(2000.0, Math.max(0.1, startVerticalScaleRef.current * multiplier));
+      setVerticalScale(nextScale);
+      verticalScaleRef.current = nextScale;
+      return;
+    }
 
     // 1-finger pan
     if (e.touches.length === 1 && touchStartRef.current && containerRef.current) {
@@ -1990,6 +2014,7 @@ export default function ClusterChart({
   const handleTouchEnd = () => {
     setIsDragging(false);
     setIsDraggingTimeScale(false);
+    isDraggingPriceScaleRef.current = false;
     touchStartRef.current = null;
     touchZoomRef.current = null;
     zoomAnchorIndexRef.current = null;
@@ -4591,7 +4616,7 @@ export default function ClusterChart({
           className={`flex-1 overflow-x-auto overflow-y-hidden select-none terminal-grid relative transition-all duration-300 chart-scroll-container ${
             isLight ? "bg-[#f8fafc]" : "bg-[#06080f]"
           } ${isDraggingTimeScale ? "cursor-ew-resize" : (isDragging ? "cursor-grabbing" : "cursor-grab")}`}
-          style={{ scrollBehavior: "auto", touchAction: isMobile ? "none" : "auto" }}
+          style={{ scrollBehavior: "auto", touchAction: "none" }}
         >
           {candles.length === 0 ? (
             <div className="absolute inset-0 flex items-center justify-center bg-[#06080f]/80 z-25">
@@ -4676,10 +4701,62 @@ export default function ClusterChart({
             startVerticalScaleRef.current = verticalScale;
           }
         }}
+        onTouchStart={(e) => {
+          if (e.touches.length !== 1) return;
+          if (e.cancelable) e.preventDefault();
+          const t = e.touches[0];
+          const rect = e.currentTarget.getBoundingClientRect();
+          const clickY = t.clientY - rect.top;
+          if (activeIndicators.delta && clickY >= deltaTopY && clickY < cvdTopY) {
+            isDraggingDeltaScaleRefTouch.current = true;
+            startDeltaScaleYRef.current = t.clientY;
+            startDeltaScaleRef.current = deltaScale;
+          } else if (activeIndicators.cvd && clickY >= cvdTopY) {
+            isDraggingCvdScaleRefTouch.current = true;
+            startCvdScaleYRef.current = t.clientY;
+            startCvdScaleRef.current = cvdScale;
+          } else {
+            isDraggingPriceScaleRef.current = true;
+            startPriceScaleYRef.current = t.clientY;
+            startVerticalScaleRef.current = verticalScale;
+          }
+        }}
+        onTouchMove={(e) => {
+          if (e.touches.length !== 1) return;
+          if (e.cancelable) e.preventDefault();
+          const t = e.touches[0];
+          if (isDraggingPriceScaleRef.current) {
+            const deltaY = startPriceScaleYRef.current - t.clientY;
+            const multiplier = Math.exp(deltaY / 200);
+            const nextScale = Math.min(2000.0, Math.max(0.1, startVerticalScaleRef.current * multiplier));
+            setVerticalScale(nextScale);
+            verticalScaleRef.current = nextScale;
+          } else if (isDraggingDeltaScaleRefTouch.current) {
+            const deltaY = startDeltaScaleYRef.current - t.clientY;
+            const multiplier = Math.exp(deltaY / 200);
+            const nextScale = Math.min(2000.0, Math.max(0.1, startDeltaScaleRef.current * multiplier));
+            setDeltaScale(nextScale);
+          } else if (isDraggingCvdScaleRefTouch.current) {
+            const deltaY = startCvdScaleYRef.current - t.clientY;
+            const multiplier = Math.exp(deltaY / 200);
+            const nextScale = Math.min(2000.0, Math.max(0.1, startCvdScaleRef.current * multiplier));
+            setCvdScale(nextScale);
+          }
+        }}
+        onTouchEnd={() => {
+          isDraggingPriceScaleRef.current = false;
+          isDraggingDeltaScaleRefTouch.current = false;
+          isDraggingCvdScaleRefTouch.current = false;
+        }}
+        onTouchCancel={() => {
+          isDraggingPriceScaleRef.current = false;
+          isDraggingDeltaScaleRefTouch.current = false;
+          isDraggingCvdScaleRefTouch.current = false;
+        }}
         className={`flex-none border-l select-none transition-all duration-300 relative flex flex-col justify-between cursor-ns-resize ${
           isLight ? "bg-[#f8fafc] border-slate-200" : "bg-[#06080f] border-white/5"
         }`}
-        style={{ height: totalSvgHeight, width: isMobile ? "58px" : "90px" }}
+        style={{ height: totalSvgHeight, width: isMobile ? "58px" : "90px", touchAction: "none" }}
       >
         {(() => {
           const scaleWidth = isMobile ? 58 : 90;
@@ -5186,6 +5263,7 @@ export default function ClusterChart({
           </span>
         </div>
       )}
+
 
     </div>
 
