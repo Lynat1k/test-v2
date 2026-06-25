@@ -1109,16 +1109,16 @@ function HistoryBlock({ isLight }: { isLight: boolean }) {
                 <span className={`font-black ${isLight ? 'text-slate-900' : 'text-white'}`}>{job.symbol} <span className="text-slate-400 font-normal">{job.market}</span></span>
                 <span className={`text-[10px] font-bold uppercase ${statusColor(job.status)}`}>{t(`admin.database.${job.status}` as any) || job.status}</span>
               </div>
-              <div className="text-[10px] text-slate-500">{job.startDate} → {job.endDate}</div>
+              <div className={`text-[11px] font-medium ${isLight ? 'text-slate-700' : 'text-slate-300'}`}>{job.startDate} → {job.endDate}</div>
               {isActiveStatus(job.status) && (
                 <div className={`h-1.5 w-full rounded-full overflow-hidden ${isLight ? 'bg-slate-200' : 'bg-slate-800'}`}>
                   <div className="h-full bg-amber-500 transition-all duration-300 rounded-full" style={{ width: `${Math.min(job.progress, 100)}%` }} />
                 </div>
               )}
               <div className="text-[10px] text-slate-500 font-mono">{Math.round(job.progress)}%</div>
-              {job.stepDetail && <div className="text-[10px] text-slate-500 truncate">{t('admin.database.stepDetail')}: {job.stepDetail}</div>}
+              {job.stepDetail && <div className={`text-[11px] font-medium ${isLight ? 'text-slate-700' : 'text-slate-300'} truncate`}>{t('admin.database.stepDetail')}: {job.stepDetail}</div>}
               {job.error && <div className="text-[10px] text-red-400 truncate">{job.error}</div>}
-              {job.totalTicks > 0 && <div className="text-[10px] text-slate-500">{t('admin.database.totalTicks')}: {job.totalTicks.toLocaleString()}</div>}
+              {job.totalTicks > 0 && <div className={`text-[11px] font-medium ${isLight ? 'text-slate-700' : 'text-slate-300'}`}>{t('admin.database.totalTicks')}: {job.totalTicks.toLocaleString()}</div>}
             </div>
           ))
         )}
