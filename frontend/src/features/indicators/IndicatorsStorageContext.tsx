@@ -112,6 +112,9 @@ interface IndicatorsStorageValue {
    */
   refreshKey(symbol: string, market: string, timeframe: string): Promise<void>
 
+  /** Trigger a lazy fetch for the given key if missing or stale. Safe to call from useEffect. */
+  ensureFetched(symbol: string, market: string, timeframe: string): void
+
   /** User-wide favorites set. */
   favorites: ReadonlySet<string>
   toggleFavorite(id: string): Promise<void>
@@ -293,14 +296,17 @@ export function IndicatorsStorageProvider({ children }: { children: ReactNode })
     }
   }, [limits.maxIndicators, bumpRevision])
 
-  /** Lazy server fetch with dedup; updates the cache + bumps revision when done. */
+  /** Lazy server fetch with dedup + staleness guard; updates the cache + bumps revision when done. */
   const ensureFetched = useCallback((symbol: string, market: string, timeframe: string) => {
     const { comboKey, symbol: cs, market: cm, timeframe: ct } = canonKey(symbol, market, timeframe)
     if (inFlightRef.current.has(comboKey)) return
+
+    const existing = storeRef.current.get(comboKey)
+    if (existing && !existing.loading && !shouldRefresh(existing)) return
+
     inFlightRef.current.add(comboKey)
 
     // Mark loading on the existing entry (or create a placeholder).
-    const existing = storeRef.current.get(comboKey)
     if (existing) {
       storeRef.current.set(comboKey, { ...existing, loading: true })
     } else {
@@ -324,9 +330,13 @@ export function IndicatorsStorageProvider({ children }: { children: ReactNode })
       },
       (err: unknown) => {
         console.warn('[indicators] fetch failed', { comboKey, err })
+        // Stamp updatedAt=now on failure so shouldRefresh() doesn't immediately
+        // re-trigger another fetch on the next effect run. Next retry happens
+        // after the normal staleness window (5 min).
+        const nowIso = new Date().toISOString()
         const cached = storeRef.current.get(comboKey)
         if (cached) {
-          storeRef.current.set(comboKey, { ...cached, loading: false })
+          storeRef.current.set(comboKey, { ...cached, loading: false, updatedAt: nowIso })
         } else {
           storeRef.current.set(comboKey, systemDefaultsEntry())
         }
@@ -338,19 +348,13 @@ export function IndicatorsStorageProvider({ children }: { children: ReactNode })
   }, [bumpRevision])
 
   const getForKey = useCallback((symbol: string, market: string, timeframe: string) => {
-    const { comboKey, symbol: cs, market: cm, timeframe: ct } = canonKey(symbol, market, timeframe)
+    const { comboKey } = canonKey(symbol, market, timeframe)
 
     let entry = storeRef.current.get(comboKey)
     if (!entry) {
       const cached = readCachedEntry(comboKey)
       entry = cached ? { ...cached, loading: false } : null as unknown as StoreEntry | undefined
       if (entry) storeRef.current.set(comboKey, entry)
-    }
-
-    // Kick off a refresh on first access (lazy load), but never block the
-    // caller — return whatever we have right now (cache or system defaults).
-    if (!entry || (!entry.loading && shouldRefresh(entry))) {
-      ensureFetched(cs, cm, ct)
     }
 
     const render: StoreEntry = entry ?? systemDefaultsEntry()
@@ -369,7 +373,7 @@ export function IndicatorsStorageProvider({ children }: { children: ReactNode })
       adminDefaultsTf: render.adminDefaultsTf ?? [],
       adminDefaultsAllTf: render.adminDefaultsAllTf ?? [],
     }
-  }, [favorites, ensureFetched, revision]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [favorites, revision]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const isLoading = useCallback((symbol: string, market: string, timeframe: string): boolean => {
     const { comboKey } = canonKey(symbol, market, timeframe)
@@ -699,6 +703,7 @@ export function IndicatorsStorageProvider({ children }: { children: ReactNode })
     propagateIndicator,
     resetKey,
     refreshKey,
+    ensureFetched,
     favorites,
     toggleFavorite,
     isLoading,
@@ -710,7 +715,7 @@ export function IndicatorsStorageProvider({ children }: { children: ReactNode })
     applyPresetToCurrent,
   }), [
     getForKey, saveForKey, applyIndicatorsForKey, propagateIndicator, resetKey, refreshKey,
-    favorites, toggleFavorite, isLoading,
+    ensureFetched, favorites, toggleFavorite, isLoading,
     listPresets, savePreset, renamePreset, updatePresetSettings, deletePreset, applyPresetToCurrent,
   ])
 
@@ -732,6 +737,16 @@ export function useIndicatorsStorage() {
 export function useIndicatorsForKey(symbol: string, market: string, timeframe: string) {
   const store = useIndicatorsStorage()
   const view = store.getForKey(symbol, market, timeframe)
+
+  // Read ensureFetched via ref so the effect deps stay primitive-only.
+  // Without this, `store` (context value) mutates on every bumpRevision and
+  // would re-fire this effect each time — only the in-flight guard inside
+  // ensureFetched would prevent a fetch storm, which is fragile.
+  const ensureRef = useRef(store.ensureFetched)
+  ensureRef.current = store.ensureFetched
+  useEffect(() => {
+    ensureRef.current(symbol, market, timeframe)
+  }, [symbol, market, timeframe])
 
   const handlers = useMemo(() => {
     const save = (updater: (current: Indicator[]) => Indicator[]) =>
