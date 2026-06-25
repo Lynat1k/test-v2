@@ -46,7 +46,7 @@ const DEFAULT_SLOT: ChartSlot = {
   market: 'futures',
   timeframe: '1m',
   candleMode: 'auto',
-  palette: 'default',
+  palette: 'alternative',
   volumeMode: 'bidask',
   compression: 1,
   compressionByTf: {},

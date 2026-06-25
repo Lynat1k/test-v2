@@ -33,10 +33,12 @@ function applyPaletteCSS(palette: CandlePalette, prefix: string) {
 export function CandlePaletteProvider({ children }: { children: ReactNode }) {
   const [palette0, setPalette0State] = useState<CandlePalette>(() => {
     const stored = localStorage.getItem(STORAGE_KEY_0)
+    if (stored === null) return 'alternative'
     return stored === 'alternative' ? 'alternative' : 'default'
   })
   const [palette1, setPalette1State] = useState<CandlePalette>(() => {
     const stored = localStorage.getItem(STORAGE_KEY_1)
+    if (stored === null) return 'alternative'
     return stored === 'alternative' ? 'alternative' : 'default'
   })
 
