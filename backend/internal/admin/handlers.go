@@ -843,8 +843,8 @@ func (h *AdminHandler) handleUpdatePolicies(w http.ResponseWriter, r *http.Reque
 				writeError(w, http.StatusBadRequest, "INVALID_TF", fmt.Sprintf("invalid timeframe %s for tier %s", tf, tier))
 				return
 			}
-			if days < 0 {
-				writeError(w, http.StatusBadRequest, "INVALID_RANGE", fmt.Sprintf("history_days_per_tf[%s] must be >= 0 for tier %s", tf, tier))
+			if days < -1 {
+				writeError(w, http.StatusBadRequest, "INVALID_RANGE", fmt.Sprintf("history_days_per_tf[%s] must be >= -1 for tier %s (-1 = unlimited)", tf, tier))
 				return
 			}
 		}

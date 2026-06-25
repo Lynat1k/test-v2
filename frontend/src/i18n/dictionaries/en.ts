@@ -104,6 +104,7 @@ const en = {
     propsAnomalies: 'Anomaly display',
     propsMaxHistory: 'History depth',
     propsSessionLimit: 'Session limit',
+    historyDaySuffix: 'd',
     yes: 'Yes',
     no: 'No',
     unlimited: 'Unlimited',

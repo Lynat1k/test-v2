@@ -104,6 +104,7 @@ const kz = {
     propsAnomalies: 'Аномалияларды көрсету',
     propsMaxHistory: 'Тарих тереңдігі',
     propsSessionLimit: 'Сессия шегі',
+    historyDaySuffix: 'күн',
     yes: 'Иә',
     no: 'Жоқ',
     unlimited: 'Шексіз',

@@ -104,6 +104,7 @@ const ru = {
     propsAnomalies: 'Отображение аномалий',
     propsMaxHistory: 'Глубина истории',
     propsSessionLimit: 'Лимит сессий',
+    historyDaySuffix: 'дн.',
     yes: 'Да',
     no: 'Нет',
     unlimited: 'Безлимитно',

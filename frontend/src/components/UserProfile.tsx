@@ -502,6 +502,12 @@ function InfoRow({ label, value, highlight, amber }: { label: string; value: str
   )
 }
 
+function formatHistoryValue(days: number | undefined, t: (key: string) => string): number | string {
+  if (days === undefined) return '—'
+  if (days < 0) return days  // LimitRow renders < 0 numbers as 'Безлимитно' (no suffix)
+  return `${days} ${t('profile.historyDaySuffix')}`
+}
+
 function LimitRow({ label, value, t }: {
   label: string; value: number | string | boolean; t: (key: string) => string
 }) {
@@ -596,7 +602,7 @@ function PlanCard({
         </div>
         <p className={`text-[11.5px] leading-relaxed min-h-[32px] ${isLight ? 'text-slate-500' : 'text-[#8B949E]'}`}>{desc}</p>
         <div className={`flex flex-col gap-2 font-mono text-[11px] pt-4 mt-2 border-t ${isLight ? 'border-slate-200' : 'border-white/[0.06]'}`}>
-          <LimitRow label={t('profile.propsMaxHistory')} value={policy.historyMaxDays} t={t} />
+          <LimitRow label={t('profile.propsMaxHistory')} value={formatHistoryValue(policy.historyDaysPerTf?.['4h'], t)} t={t} />
           <LimitRow label={t('profile.propsCharts')} value={policy.workspacesCount} t={t} />
           <LimitRow label={t('profile.propsIndicators')} value={policy.maxIndicators} t={t} />
           <LimitRow label={t('profile.propsCustomSettings')} value={policy.customIndicatorSettings === 1} t={t} />

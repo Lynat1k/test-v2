@@ -1769,26 +1769,32 @@ function TierPoliciesBlock({ isLight }: { isLight: boolean }) {
                   1. {t('admin.policies.maxHistoryPerTf') || 'Макс. история по таймфреймам (дни)'}
                 </span>
                 <p className="text-[10.5px] text-slate-400 mt-1 leading-snug">
-                  {t('admin.policies.maxHistoryPerTfDesc') || 'Лимит истории свечей для каждого таймфрейма. ≥100 = безлимит.'}
+                  {t('admin.policies.maxHistoryPerTfDesc') || 'Лимит истории свечей для каждого таймфрейма. -1 = безлимит.'}
                 </p>
               </div>
               <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-3.5 mt-2">
-                {TIMEFRAMES.map(tf => (
-                  <div key={tf} className="flex flex-col gap-1">
-                    <span className={`text-[10px] font-mono font-bold uppercase ${isLight ? 'text-amber-800' : 'text-amber-500'}`}>{tf}</span>
-                    <div className="flex items-center gap-1.5">
-                      <input
-                        type="number"
-                        min="-1"
-                        max="10000"
-                        value={current.historyDaysPerTf?.[tf] ?? 1}
-                        onChange={e => updateHistoryTf(current.tier, tf, parseInt(e.target.value) || 0)}
-                        className={`w-full rounded-lg px-2.5 py-1.5 font-mono font-black text-xs border ${input}`}
-                      />
-                      <span className="text-[9px] font-mono text-slate-400">дн.</span>
+                {TIMEFRAMES.map(tf => {
+                  const v = current.historyDaysPerTf?.[tf] ?? 1
+                  const isUnlimited = v === -1
+                  return (
+                    <div key={tf} className="flex flex-col gap-1">
+                      <span className={`text-[10px] font-mono font-bold uppercase ${isLight ? 'text-amber-800' : 'text-amber-500'}`}>{tf}</span>
+                      <div className="flex items-center gap-1.5">
+                        <input
+                          type="number"
+                          min="-1"
+                          max="10000"
+                          value={v}
+                          onChange={e => updateHistoryTf(current.tier, tf, parseInt(e.target.value) || 0)}
+                          className={`w-full rounded-lg px-2.5 py-1.5 font-mono font-black text-xs border ${input}`}
+                        />
+                        <span className={`text-[9px] font-mono ${isUnlimited ? 'text-emerald-500 font-bold' : 'text-slate-400'}`}>
+                          {isUnlimited ? 'безлимит' : 'дн.'}
+                        </span>
+                      </div>
                     </div>
-                  </div>
-                ))}
+                  )
+                })}
               </div>
             </div>
 
@@ -1841,7 +1847,7 @@ function TierPoliciesBlock({ isLight }: { isLight: boolean }) {
                   3. {t('admin.policies.maxIndicators') || 'Индикаторов на графике'}
                 </span>
                 <p className="text-[10.5px] text-slate-400 mt-1 leading-snug">
-                  {t('admin.policies.maxIndicatorsDesc') || 'Макс. количество активных индикаторов. ≥100 = безлимит.'}
+                  {t('admin.policies.maxIndicatorsDesc') || 'Макс. количество активных индикаторов. -1 = безлимит.'}
                 </p>
               </div>
               <div className="flex flex-col gap-2 mt-2">
@@ -1960,7 +1966,7 @@ function TierPoliciesBlock({ isLight }: { isLight: boolean }) {
                   8. {t('admin.policies.sessionLimit') || 'Лимит сессий'}
                 </span>
                 <p className="text-[10.5px] text-slate-400 mt-1 leading-snug">
-                  {t('admin.policies.sessionLimitDesc') || 'Макс. одновременных WS-сессий. -1 = безлимит, ≥100 = безлимит.'}
+                  {t('admin.policies.sessionLimitDesc') || 'Макс. одновременных WS-сессий. -1 = безлимит.'}
                 </p>
               </div>
               <div className="flex flex-col gap-2 mt-2">
@@ -1973,7 +1979,7 @@ function TierPoliciesBlock({ isLight }: { isLight: boolean }) {
                   className={`w-full max-w-[120px] rounded-lg px-3 py-1.5 font-mono font-black text-xs border ${input}`}
                 />
                 <span className={`text-[10px] font-mono ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
-                  {current.sessionLimit === -1 ? 'Безлимит' : current.sessionLimit >= 100 ? 'Безлимит' : `${current.sessionLimit} сессий`}
+                  {current.sessionLimit < 0 ? 'Безлимит' : `${current.sessionLimit} сессий`}
                 </span>
               </div>
             </div>
