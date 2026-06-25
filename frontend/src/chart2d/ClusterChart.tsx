@@ -3183,11 +3183,11 @@ export default function ClusterChart({
         
         ctx.strokeStyle = isGreen 
           ? (useAltPalette
-              ? (isLight ? "rgba(47, 47, 47, 0.45)" : "rgba(213, 213, 213, 0.55)")
-              : (isLight ? "rgba(16, 185, 129, 0.45)" : "rgba(16, 185, 129, 0.55)"))
+              ? (isLight ? "rgba(47, 47, 47, 0.45)" : "rgba(213, 213, 213, 0.40)")
+              : (isLight ? "rgba(16, 185, 129, 0.45)" : "rgba(16, 185, 129, 0.40)"))
           : (useAltPalette
-              ? (isLight ? "rgba(58, 58, 58, 0.45)" : "rgba(174, 167, 167, 0.55)")
-              : (isLight ? "rgba(239, 68, 68, 0.45)" : "rgba(239, 68, 68, 0.55)"));
+              ? (isLight ? "rgba(58, 58, 58, 0.45)" : "rgba(174, 167, 167, 0.40)")
+              : (isLight ? "rgba(239, 68, 68, 0.45)" : "rgba(239, 68, 68, 0.40)"));
         ctx.lineWidth = 1.0;
         if (showCandleOutline) {
           ctx.strokeRect(xL + 0.5, outlineTopY + 0.5, candleW, outlineH);
