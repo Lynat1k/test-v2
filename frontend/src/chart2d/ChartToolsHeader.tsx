@@ -142,7 +142,7 @@ function ChartToolsHeaderImpl({
         </div>
 
         {/* Vertical Price Scale Buttons */}
-        <div className={`flex rounded-lg sm:rounded-xl p-[2px] sm:p-[3px] border backdrop-blur-sm shadow-inner gap-0.5 transition-all duration-300 ${
+        <div className={`hidden sm:flex rounded-lg sm:rounded-xl p-[2px] sm:p-[3px] border backdrop-blur-sm shadow-inner gap-0.5 transition-all duration-300 ${
           isLight ? "bg-slate-100 border-slate-200" : "bg-slate-950/60 border-white/5"
         }`} title="Vertical Price Scale">
           <button
@@ -175,7 +175,7 @@ function ChartToolsHeaderImpl({
         </div>
 
         {/* Timezone Select Control */}
-        <div className={`border px-1.5 sm:px-2.5 py-0.5 sm:py-1 rounded-lg sm:rounded-xl text-[9px] sm:text-[10px] font-mono font-bold flex items-center gap-1 sm:gap-1.5 shadow-inner transition-all duration-300 ${
+        <div className={`border px-1.5 sm:px-2.5 py-0.5 sm:py-1 rounded-lg sm:rounded-xl text-[9px] sm:text-[10px] font-mono font-bold hidden sm:flex items-center gap-1 sm:gap-1.5 shadow-inner transition-all duration-300 ${
           isLight ? "bg-slate-100 border-slate-200/60 text-slate-600" : "bg-slate-950/60 border-white/5 text-slate-400"
         }`}>
           <Globe className={`w-3 sm:w-3.5 h-3 sm:h-3.5 shrink-0 hidden lg:inline ${isLight ? "text-slate-500" : "text-slate-400"}`} />
@@ -256,7 +256,7 @@ function ChartToolsHeaderImpl({
 
             {showWorkspaceMenu && (
               <div
-                className={`absolute right-0 mt-1.5 w-44 rounded-xl p-1.5 z-50 text-left select-none shadow-2xl border ${
+                className={`absolute right-0 mt-1.5 w-44 max-w-[calc(100vw-16px)] rounded-xl p-1 sm:p-1.5 z-50 text-left select-none shadow-2xl border ${
                   isLight
                     ? "bg-white border-slate-300 text-slate-900 shadow-xl"
                     : "bg-[#090d16]/98 border border-white/10 text-slate-100"
@@ -280,7 +280,7 @@ function ChartToolsHeaderImpl({
                           onWorkspaceLayoutChange(item.id as any);
                           setShowWorkspaceMenu(false);
                         }}
-                        className={`flex items-center justify-between px-2 py-1.5 rounded-lg text-left transition-all w-full ${
+                        className={`flex items-center justify-between px-2 py-1 sm:py-1.5 rounded-lg text-left transition-all w-full ${
                           isLocked
                             ? "opacity-50 cursor-not-allowed text-slate-500"
                             : isSelected

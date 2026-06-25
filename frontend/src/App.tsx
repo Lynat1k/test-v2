@@ -169,7 +169,7 @@ function AppShell() {
   // Refresh tier limits on every active symbol/market navigation. Without a
   // WS push for tier changes this is the cheapest way to keep the UI honest
   // after a downgrade — one extra GET /user/limits per ticker switch.
-  const { refresh: refreshLimits } = useUserLimits()
+  const { limits, refresh: refreshLimits } = useUserLimits()
   useEffect(() => {
     void refreshLimits()
   }, [activeSlotData.symbol, activeSlotData.market, refreshLimits])
@@ -355,25 +355,25 @@ function AppShell() {
                 : 'bg-slate-950/95 border-slate-900/60 text-slate-100'
             }`}
           >
-            <div className="p-4 flex flex-col gap-4 max-h-[80vh] overflow-y-auto">
-              <div className={`flex items-center justify-between border-b pb-2 ${isLight ? 'border-slate-200' : 'border-white/5'}`}>
-                <span className="text-sm font-black uppercase tracking-wider flex items-center gap-2">
+            <div className="p-3 flex flex-col gap-3 max-h-[85vh] overflow-y-auto">
+              <div className={`flex items-center justify-between border-b pb-1.5 ${isLight ? 'border-slate-200' : 'border-white/5'}`}>
+                <span className="text-xs font-black uppercase tracking-wider flex items-center gap-2">
                   <Sliders className="w-4 h-4 text-yellow-500" />
                   <span>{language === 'RU' ? 'Настройки графика' : language === 'KZ' ? 'График реттеулері' : 'Chart settings'}</span>
                 </span>
                 <button
                   onClick={() => setIsMobileSettingsOpen(false)}
-                  className={`p-1.5 rounded-lg border transition ${
+                  className={`p-1 rounded-lg border transition ${
                     isLight
                       ? 'hover:bg-slate-200 border-slate-300 text-slate-800'
                       : 'hover:bg-white/10 border-white/5 text-slate-400'
                   }`}
                 >
-                  <X className="w-4 h-4" />
+                  <X className="w-3.5 h-3.5" />
                 </button>
               </div>
 
-              <div className="grid grid-cols-2 gap-3.5 sm:grid-cols-3">
+              <div className="grid grid-cols-2 gap-2 sm:gap-3 sm:grid-cols-3">
                 {(() => {
                   const active = getSlot(activeSlot)
                   const tickerInfo = getTickerConfig()
@@ -381,14 +381,14 @@ function AppShell() {
                   return (
                     <>
                       {/* Ticker */}
-                      <div className="flex flex-col gap-1">
+                      <div className="flex flex-col gap-0.5">
                         <span className={`text-[10px] uppercase font-mono tracking-widest font-bold ${isLight ? 'text-slate-500' : 'text-slate-400/80'}`}>
                           {language === 'EN' ? 'Active Ticker' : 'Пара (Ticker)'}
                         </span>
                         <select
                           value={active.symbol}
                           onChange={(e) => setSymbol(e.target.value)}
-                          className={`px-2.5 py-1.5 rounded-lg text-xs font-bold font-mono cursor-pointer h-[35px] border focus:outline-none transition-all duration-200 outline-none w-full ${
+                          className={`px-2 py-1 rounded-lg text-xs font-bold font-mono cursor-pointer h-[30px] border focus:outline-none transition-all duration-200 outline-none w-full ${
                             isLight
                               ? 'bg-slate-100 border-slate-300 text-slate-900 shadow-inner'
                               : 'bg-slate-900 border-white/5 text-yellow-500'
@@ -403,11 +403,11 @@ function AppShell() {
                       </div>
 
                       {/* Market Type */}
-                      <div className="flex flex-col gap-1">
+                      <div className="flex flex-col gap-0.5">
                         <span className={`text-[10px] uppercase font-mono tracking-widest font-bold ${isLight ? 'text-slate-500' : 'text-slate-400/80'}`}>
                           {language === 'EN' ? 'Market Type' : 'Тип рынка (Market)'}
                         </span>
-                        <div className={`grid grid-cols-2 gap-0.5 p-[2px] rounded-lg h-[35px] items-center select-none border ${
+                        <div className={`grid grid-cols-2 gap-0.5 p-[2px] rounded-lg h-[30px] items-center select-none border ${
                           isLight ? 'bg-slate-200 border-slate-300' : 'bg-slate-950/60 border-white/5'
                         }`}>
                           {(['SPOT', 'FUTURES'] as const).map((type) => {
@@ -416,7 +416,7 @@ function AppShell() {
                               <button
                                 key={type}
                                 onClick={() => setMarket(mkt)}
-                                className={`py-1 rounded-md text-[10px] font-bold font-mono transition-colors duration-200 cursor-pointer text-center leading-none h-[29px] ${
+                                className={`py-0.5 rounded-md text-[10px] font-bold font-mono transition-colors duration-200 cursor-pointer text-center leading-none h-[24px] ${
                                   active.market === mkt
                                     ? isLight
                                       ? 'bg-white text-slate-900 font-extrabold border border-slate-300 shadow-sm'
@@ -434,14 +434,14 @@ function AppShell() {
                       </div>
 
                       {/* Interval */}
-                      <div className="flex flex-col gap-1">
+                      <div className="flex flex-col gap-0.5">
                         <span className={`text-[10px] uppercase font-mono tracking-widest font-bold ${isLight ? 'text-slate-500' : 'text-slate-400/80'}`}>
                           {language === 'EN' ? 'Interval' : 'Таймфрейм / Interval'}
                         </span>
                         <select
                           value={active.timeframe}
                           onChange={(e) => setTimeframe(e.target.value)}
-                          className={`px-2.5 py-1.5 rounded-lg text-xs font-bold font-mono cursor-pointer h-[35px] border focus:outline-none transition-all duration-200 outline-none w-full ${
+                          className={`px-2 py-1 rounded-lg text-xs font-bold font-mono cursor-pointer h-[30px] border focus:outline-none transition-all duration-200 outline-none w-full ${
                             isLight
                               ? 'bg-slate-100 border-slate-300 text-slate-900 shadow-inner'
                               : 'bg-slate-900 border-white/5 text-slate-300 liquid-glass-button'
@@ -456,14 +456,14 @@ function AppShell() {
                       </div>
 
                       {/* Candle Type */}
-                      <div className="flex flex-col gap-1">
+                      <div className="flex flex-col gap-0.5">
                         <span className={`text-[10px] uppercase font-mono tracking-widest font-bold ${isLight ? 'text-slate-500' : 'text-slate-400/80'}`}>
                           {language === 'EN' ? 'Candle Type' : 'Тип Свечей'}
                         </span>
                         <select
                           value={active.candleMode}
                           onChange={(e) => setCandleMode(e.target.value as any)}
-                          className={`px-2.5 py-1.5 rounded-lg text-xs font-bold font-sans cursor-pointer h-[35px] border focus:outline-none transition-all duration-200 outline-none w-full ${
+                          className={`px-2 py-1 rounded-lg text-xs font-bold font-sans cursor-pointer h-[30px] border focus:outline-none transition-all duration-200 outline-none w-full ${
                             isLight
                               ? 'bg-slate-100 border-slate-300 text-slate-800 shadow-inner'
                               : 'bg-slate-900 border-white/5 text-slate-300 liquid-glass-button'
@@ -478,14 +478,14 @@ function AppShell() {
                       </div>
 
                       {/* Palette */}
-                      <div className="flex flex-col gap-1">
+                      <div className="flex flex-col gap-0.5">
                         <span className={`text-[10px] uppercase font-mono tracking-widest font-bold ${isLight ? 'text-slate-500' : 'text-slate-400/80'}`}>
                           {language === 'EN' ? 'Palette' : 'Палитра'}
                         </span>
                         <select
                           value={active.palette}
                           onChange={(e) => setPalette(e.target.value as any)}
-                          className={`px-2.5 py-1.5 rounded-lg text-xs font-bold font-sans cursor-pointer h-[35px] border focus:outline-none transition-all duration-200 outline-none w-full ${
+                          className={`px-2 py-1 rounded-lg text-xs font-bold font-sans cursor-pointer h-[30px] border focus:outline-none transition-all duration-200 outline-none w-full ${
                             isLight
                               ? 'bg-slate-100 border-slate-300 text-slate-800 shadow-inner'
                               : 'bg-slate-900 border-white/5 text-slate-300 liquid-glass-button'
@@ -497,14 +497,14 @@ function AppShell() {
                       </div>
 
                       {/* Candle Data (Volume Mode) */}
-                      <div className="flex flex-col gap-1">
+                      <div className="flex flex-col gap-0.5">
                         <span className={`text-[10px] uppercase font-mono tracking-widest font-bold ${isLight ? 'text-slate-500' : 'text-slate-400/80'}`}>
                           {language === 'EN' ? 'Candle Data' : 'Данные свечей'}
                         </span>
                         <select
                           value={active.volumeMode}
                           onChange={(e) => setVolumeMode(e.target.value as VolumeMode)}
-                          className={`px-2.5 py-1.5 rounded-lg text-xs font-bold font-sans cursor-pointer h-[35px] border focus:outline-none transition-all duration-200 outline-none w-full ${
+                          className={`px-2 py-1 rounded-lg text-xs font-bold font-sans cursor-pointer h-[30px] border focus:outline-none transition-all duration-200 outline-none w-full ${
                             isLight
                               ? 'bg-slate-100 border-slate-300 text-slate-800 shadow-inner'
                               : 'bg-slate-900 border-white/5 text-slate-300 liquid-glass-button'
@@ -517,14 +517,14 @@ function AppShell() {
                       </div>
 
                       {/* Compression */}
-                      <div className="flex flex-col gap-1">
+                      <div className="flex flex-col gap-0.5">
                         <span className={`text-[10px] uppercase font-mono tracking-widest font-bold ${isLight ? 'text-slate-500' : 'text-slate-400/80'}`}>
                           {language === 'EN' ? 'Compression' : 'Сжатие шага'}
                         </span>
                         <select
                           value={active.compression}
                           onChange={(e) => setCompression(parseInt(e.target.value))}
-                          className={`px-2.5 py-1.5 rounded-lg text-xs font-bold font-mono cursor-pointer h-[35px] border focus:outline-none transition-all duration-200 outline-none w-full ${
+                          className={`px-2 py-1 rounded-lg text-xs font-bold font-mono cursor-pointer h-[30px] border focus:outline-none transition-all duration-200 outline-none w-full ${
                             isLight
                               ? 'bg-slate-100 border-slate-300 text-slate-800 shadow-inner'
                               : 'bg-slate-900 border-white/5 text-slate-300 liquid-glass-button'
@@ -541,14 +541,41 @@ function AppShell() {
                         </select>
                       </div>
 
+                      {/* Anomalies toggle (mirrors desktop ChartHeader 4b) */}
+                      {/* TODO i18n: extract 'Аномалии' / 'Anomalies' / 'Ауытқулар' to chart.anomalies */}
+                      <div className="flex flex-col gap-0.5 justify-end">
+                        <span className={`text-[10px] uppercase font-mono tracking-widest font-bold ${isLight ? 'text-slate-500' : 'text-slate-400/80'}`}>
+                          {language === 'RU' ? 'Аномалии' : language === 'KZ' ? 'Ауытқулар' : 'Anomalies'}
+                        </span>
+                        <button
+                          onClick={limits.anomaliesEnabled ? () => setShowAnomalies(!showAnomalies) : undefined}
+                          disabled={!limits.anomaliesEnabled}
+                          title={!limits.anomaliesEnabled ? t('chart.compressionLocked') : undefined}
+                          className={`flex items-center justify-center gap-1.5 px-3 py-1 rounded-lg text-xs h-[30px] border transition-all select-none ${
+                            !limits.anomaliesEnabled
+                              ? 'opacity-40 cursor-not-allowed text-slate-600 border-white/5'
+                              : showAnomalies
+                                ? isLight
+                                  ? 'bg-emerald-50 border-emerald-300 text-emerald-700 font-extrabold shadow-sm cursor-pointer'
+                                  : 'bg-emerald-500/10 border-emerald-500/25 text-emerald-400 font-extrabold cursor-pointer'
+                                : isLight
+                                  ? 'bg-slate-100 hover:bg-slate-200 border-slate-300 text-slate-600 cursor-pointer'
+                                  : 'liquid-glass-button text-slate-400 hover:text-slate-200 border-white/5 cursor-pointer'
+                          }`}
+                        >
+                          <Sparkles className="w-3.5 h-3.5" />
+                          <span>{language === 'RU' ? 'Аномалии' : language === 'KZ' ? 'Ауытқулар' : 'Anomalies'}</span>
+                        </button>
+                      </div>
+
                       {/* Indicators trigger */}
-                      <div className="flex flex-col gap-1 justify-end">
+                      <div className="flex flex-col gap-0.5 justify-end">
                         <button
                           onClick={() => {
                             setShowIndicatorsModal(true)
                             setIsMobileSettingsOpen(false)
                           }}
-                          className={`flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg font-black text-xs cursor-pointer h-[35px] hover:scale-[1.01] active:scale-[0.99] transition-all border ${
+                          className={`flex items-center justify-center gap-1.5 px-3 py-1 rounded-lg font-black text-xs cursor-pointer h-[30px] hover:scale-[1.01] active:scale-[0.99] transition-all border ${
                             isLight
                               ? 'bg-slate-200 hover:bg-slate-300 border-slate-300 text-slate-800 shadow-sm'
                               : 'liquid-glass-button text-slate-300 hover:text-white border-white/5'

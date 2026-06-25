@@ -1956,12 +1956,21 @@ export default function ClusterChart({
       root.style.display = "none";
       return;
     }
-    const offsetHorizontal = 90;
+    const TOOLTIP_WIDTH = 265;
+    const TOOLTIP_HEIGHT = 220;
+    const SAFE_MARGIN = 8;
     const vw = visibleClientWidth || 800;
-    const isLeftIdx = cs.x > vw - 390;
-    const isTopIdx = cs.y > (totalSvgHeight || 550) - 220;
-    const leftPos = isLeftIdx ? cs.x - 265 - offsetHorizontal : cs.x + offsetHorizontal;
-    const topPos = isTopIdx ? cs.y - 180 : cs.y + 15;
+    const vh = totalSvgHeight || 550;
+    const offsetHorizontal = vw < 640 ? 20 : 90;
+    const offsetVertical = vw < 640 ? 12 : 15;
+    const isLeftIdx = cs.x > vw - (TOOLTIP_WIDTH + offsetHorizontal + SAFE_MARGIN);
+    const isTopIdx = cs.y > vh - (TOOLTIP_HEIGHT + offsetVertical + SAFE_MARGIN);
+    let leftPos = isLeftIdx ? cs.x - TOOLTIP_WIDTH - offsetHorizontal : cs.x + offsetHorizontal;
+    let topPos = isTopIdx ? cs.y - TOOLTIP_HEIGHT - offsetVertical : cs.y + offsetVertical;
+    const maxLeft = vw - TOOLTIP_WIDTH - SAFE_MARGIN;
+    const maxTop = vh - TOOLTIP_HEIGHT - SAFE_MARGIN;
+    leftPos = Math.max(SAFE_MARGIN, Math.min(leftPos, maxLeft));
+    topPos = Math.max(SAFE_MARGIN, Math.min(topPos, maxTop));
 
     root.style.display = "flex";
     root.style.left = `${leftPos}px`;
@@ -4230,7 +4239,7 @@ export default function ClusterChart({
                         >
                           {/* Label & Pair Info */}
                           <div className="flex items-center gap-1.5 font-mono text-[9.5px] sm:text-[10px] select-text min-w-0 font-bold flex-nowrap whitespace-nowrap">
-                            <span className={`font-bold shrink-0 whitespace-nowrap ${
+                            <span className={`hidden sm:inline font-bold shrink-0 whitespace-nowrap ${
                               isLight ? "text-[#4f46e5]" : "text-cyan-400"
                             }`}>&lt;ProCluster&gt;</span>
 
@@ -4239,7 +4248,7 @@ export default function ClusterChart({
                             } ${!isVisible ? "line-through text-slate-500" : ""}`}>
                               {label}
                             </span>
-                            <span className={`text-[8px] sm:text-[8.5px] shrink-0 font-medium whitespace-nowrap ${
+                            <span className={`hidden sm:inline text-[8px] sm:text-[8.5px] shrink-0 font-medium whitespace-nowrap ${
                               isLight ? "text-slate-500" : "text-slate-400"
                             }`}>
                               ({activePair.symbol.replace("/", "")}, {timeframe || "30m"})
