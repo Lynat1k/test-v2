@@ -2940,6 +2940,7 @@ export default function ClusterChart({
     // not in detailed/cluster/footprint mode (japanese / bars don't read them).
     let visibleMaxCellVol = 1;
     let visibleMaxSingleVol = 1;
+    let visibleMaxAbsDelta = 1;
     if (isDetailedMode) {
       for (let cIdx = startIdx; cIdx <= endIdx; cIdx++) {
         const cells = candles[cIdx]?.cells;
@@ -2949,6 +2950,8 @@ export default function ClusterChart({
           if (cell.volume > visibleMaxCellVol) visibleMaxCellVol = cell.volume;
           if (cell.bid > visibleMaxSingleVol) visibleMaxSingleVol = cell.bid;
           if (cell.ask > visibleMaxSingleVol) visibleMaxSingleVol = cell.ask;
+          const absDelta = Math.abs(cell.ask - cell.bid);
+          if (absDelta > visibleMaxAbsDelta) visibleMaxAbsDelta = absDelta;
         }
       }
     }
@@ -3269,29 +3272,11 @@ export default function ClusterChart({
             ctx.lineWidth = 1.0;
             ctx.strokeRect(xL + 0.5, yTopR + 0.5, candleW, cellHR);
           } else if (candleDataType === "delta") {
-            const cellDeltaVal = cell.ask - cell.bid;
-            const deltaRatio = Math.abs(cellDeltaVal) / maxValSingle;
-            const deltaOpacity = 0.04 + deltaRatio * 0.45;
-            const isBuyDelta = cellDeltaVal > 0;
-
-            ctx.fillStyle = useAltPalette
-              ? (isBuyDelta ? "#10b981" : "#f43f5e")
-              : isBuyDelta
-                ? (isLight ? `rgba(34, 197, 94, ${deltaOpacity * 0.70})` : `rgba(4, 120, 87, ${deltaOpacity})`)
-                : (isLight ? `rgba(239, 68, 68, ${deltaOpacity * 0.70})` : `rgba(220, 38, 38, ${deltaOpacity})`);
-            ctx.fillRect(xL, yTopR, candleW, cellHR);
-
-            ctx.strokeStyle = isLight ? "rgba(0, 0, 0, 0.04)" : "rgba(255, 255, 255, 0.03)";
+            ctx.strokeStyle = isLight ? "rgba(0, 0, 0, 0.02)" : "rgba(255, 255, 255, 0.02)";
             ctx.lineWidth = 1.0;
             ctx.strokeRect(xL + 0.5, yTopR + 0.5, candleW, cellHR);
           } else if (candleDataType === "volume") {
-            const volOpacity = 0.04 + volRatio * 0.45;
-            ctx.fillStyle = isLight
-              ? `rgba(100, 116, 139, ${volOpacity * 0.70})`
-              : `rgba(148, 163, 184, ${volOpacity * 0.6})`;
-            ctx.fillRect(xL, yTopR, candleW, cellHR);
-
-            ctx.strokeStyle = isLight ? "rgba(0, 0, 0, 0.04)" : "rgba(255, 255, 255, 0.03)";
+            ctx.strokeStyle = isLight ? "rgba(0, 0, 0, 0.02)" : "rgba(255, 255, 255, 0.02)";
             ctx.lineWidth = 1.0;
             ctx.strokeRect(xL + 0.5, yTopR + 0.5, candleW, cellHR);
           }
@@ -3316,13 +3301,77 @@ export default function ClusterChart({
               ctx.fillRect(Math.round(sepX - bidBarWidth), yTopR, Math.max(1, Math.round(bidBarWidth)), cellHR);
             }
             if (askBarWidth > 0) {
-              const op = isLight 
-                ? (0.06 + askRatioClamped * 0.68) 
+              const op = isLight
+                ? (0.06 + askRatioClamped * 0.68)
                 : (0.10 + askRatioClamped * 0.85);
               ctx.fillStyle = useAltPalette
                 ? `rgba(16, 185, 129, ${op})`
                 : (isLight ? `rgba(22, 163, 74, ${op})` : `rgba(16, 185, 129, ${op})`);
               ctx.fillRect(sepX, yTopR, Math.max(1, Math.round(askBarWidth)), cellHR);
+            }
+          } else if (isClustersMode && candleDataType === "volume") {
+            const maxBarWidth = Math.round((candleW / 2) * 0.90);
+            const volRatioBar = visibleMaxCellVol > 0 && cell.volume > 0
+              ? cell.volume / visibleMaxCellVol
+              : 0;
+            const halfWidth = volRatioBar * maxBarWidth;
+            if (halfWidth > 0) {
+              const cellDeltaVal = cell.ask - cell.bid;
+              const barIsBuy = cellDeltaVal >= 0;
+              const op = isLight
+                ? (0.06 + volRatioBar * 0.68)
+                : (0.10 + volRatioBar * 0.95);
+              ctx.fillStyle = useAltPalette
+                ? (barIsBuy ? `rgba(16, 185, 129, ${op})` : `rgba(244, 63, 94, ${op})`)
+                : barIsBuy
+                  ? (isLight ? `rgba(22, 163, 74, ${op})` : `rgba(16, 185, 129, ${op})`)
+                  : (isLight ? `rgba(220, 38, 38, ${op})` : `rgba(239, 68, 68, ${op})`);
+              const w = Math.max(1, Math.round(halfWidth));
+              ctx.fillRect(Math.round(sepX - halfWidth), yTopR, w, cellHR);
+              ctx.fillRect(sepX, yTopR, w, cellHR);
+            }
+          } else if (isClustersMode && candleDataType === "delta") {
+            const cellDeltaVal = cell.ask - cell.bid;
+            const absDelta = Math.abs(cellDeltaVal);
+            const maxBarWidth = Math.round((candleW / 2) * 0.90);
+            const deltaRatioBar = visibleMaxAbsDelta > 0 && absDelta > 0
+              ? absDelta / visibleMaxAbsDelta
+              : 0;
+            const barWidth = deltaRatioBar * maxBarWidth;
+            if (barWidth > 0 && cellDeltaVal !== 0) {
+              const barIsBuy = cellDeltaVal > 0;
+              const op = isLight
+                ? (0.06 + deltaRatioBar * 0.68)
+                : (0.10 + deltaRatioBar * 0.95);
+              ctx.fillStyle = useAltPalette
+                ? (barIsBuy ? `rgba(16, 185, 129, ${op})` : `rgba(244, 63, 94, ${op})`)
+                : barIsBuy
+                  ? (isLight ? `rgba(22, 163, 74, ${op})` : `rgba(16, 185, 129, ${op})`)
+                  : (isLight ? `rgba(220, 38, 38, ${op})` : `rgba(239, 68, 68, ${op})`);
+              const w = Math.max(1, Math.round(barWidth));
+              if (barIsBuy) {
+                ctx.fillRect(sepX, yTopR, w, cellHR);
+              } else {
+                ctx.fillRect(Math.round(sepX - barWidth), yTopR, w, cellHR);
+              }
+            }
+          } else if (candleDataType === "delta") {
+            const cellDeltaVal = cell.ask - cell.bid;
+            const absDelta = Math.abs(cellDeltaVal);
+            const maxBarWidth = candleW - 2;
+            const deltaRatioBar = visibleMaxAbsDelta > 0 ? absDelta / visibleMaxAbsDelta : 0;
+            const barWidth = absDelta > 0 ? deltaRatioBar * maxBarWidth : 0;
+            if (barWidth > 0) {
+              const barIsBuy = cellDeltaVal > 0;
+              const op = isLight
+                ? (0.06 + deltaRatioBar * 0.68)
+                : (0.10 + deltaRatioBar * 0.95);
+              ctx.fillStyle = useAltPalette
+                ? (barIsBuy ? `rgba(16, 185, 129, ${op})` : `rgba(244, 63, 94, ${op})`)
+                : barIsBuy
+                  ? (isLight ? `rgba(22, 163, 74, ${op})` : `rgba(16, 185, 129, ${op})`)
+                  : (isLight ? `rgba(220, 38, 38, ${op})` : `rgba(239, 68, 68, ${op})`);
+              ctx.fillRect(xL + 1, yTopR, Math.max(1, Math.round(barWidth)), cellHR);
             }
           } else {
             const maxBarWidth = candleW - 2;
