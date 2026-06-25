@@ -2,6 +2,7 @@ import { createContext, useContext, useState, useEffect, useCallback, useRef, ty
 import type { CandleMode, VolumeMode } from '@/chart-engine'
 import { useUserSettings } from '@/contexts/UserSettingsContext'
 import { apiGetCompressionDefaults } from '@/features/auth/api'
+import { useAuthContext } from '@/features/auth/AuthContext'
 
 export type MarketType = 'futures' | 'spot'
 export type CandlePalette = 'default' | 'alternative'
@@ -182,6 +183,7 @@ export function ChartControlsProvider({ children }: { children: ReactNode }) {
   const adminFetchInflightRef = useRef<Set<string>>(new Set())
 
   const { settings, getSetting, setSetting } = useUserSettings()
+  const { accessToken } = useAuthContext()
 
   useEffect(() => {
     saveToStorage(slots, activeSlot)
@@ -229,12 +231,12 @@ export function ChartControlsProvider({ children }: { children: ReactNode }) {
           setAdminDefaults(prev => prev[sym] !== undefined ? prev : { ...prev, [sym]: map })
         })
         .catch(() => {
-          setAdminDefaults(prev => prev[sym] !== undefined ? prev : { ...prev, [sym]: {} })
+          // не кэшируем — повторим при смене accessToken
         })
         .finally(() => { adminFetchInflightRef.current.delete(sym) })
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [slots[0].symbol, slots[1].symbol])
+  }, [slots[0].symbol, slots[1].symbol, accessToken])
 
   const updateSlot = useCallback((index: 0 | 1, patch: Partial<ChartSlot>) => {
     setSlots(prev => {

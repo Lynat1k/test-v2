@@ -18,11 +18,16 @@ const AuthContext = createContext<AuthContextValue | null>(null)
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<AuthUser | null>(null)
-  const [accessToken, setAccessToken] = useState<string | null>(null)
+  const [accessToken, setAccessTokenState] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [betaMode, setBetaMode] = useState(false)
   const [betaLoaded, setBetaLoaded] = useState(false)
   const refreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  const setAccessToken = useCallback((token: string | null) => {
+    setApiAccessToken(token)
+    setAccessTokenState(token)
+  }, [])
 
   const scheduleRefresh = useCallback((expiresIn: number) => {
     if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current)
@@ -72,10 +77,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     return () => { if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current) }
   }, [])
-
-  useEffect(() => {
-    setApiAccessToken(accessToken)
-  }, [accessToken])
 
   const logout = useCallback(async () => {
     await apiLogout()
