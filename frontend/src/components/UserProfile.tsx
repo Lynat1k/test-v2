@@ -1,8 +1,9 @@
 import { useState, useEffect } from 'react'
 import { useAuthContext } from '@/features/auth/AuthContext'
-import { apiGetMe, apiUpdateProfile, apiChangePassword } from '@/features/auth/api'
-import { useUserLimits } from '@/contexts/LimitsContext'
+import { apiGetMe, apiUpdateProfile, apiChangePassword, type PublicTierPolicy } from '@/features/auth/api'
 import { useTheme } from '@/contexts/ThemeContext'
+import { useTiers } from '@/contexts/TiersContext'
+import { ChartLoader } from '@/components/ChartLoader'
 import { useTranslation } from '@/i18n'
 import { ArrowLeft, Check, ShieldCheck, CreditCard, Award } from 'lucide-react'
 import { motion } from 'motion/react'
@@ -141,20 +142,7 @@ export function UserProfile({ onClose }: Props) {
 
   const tier = (profile?.role || user?.role || 'free') as string
   const tierDisplay = tier === 'vip' ? 'VIP' : tier === 'pro' ? 'Pro' : tier === 'admin' ? 'Admin' : 'Free'
-  const { limits } = useUserLimits()
-
-  const cardValues = (cardTier: string) => {
-    if (tier !== cardTier) return null
-    return {
-      charts: limits.workspacesCount,
-      candles: limits.historyMaxDays,
-      compression: limits.compressionMax,
-      indicators: limits.maxIndicators,
-      customSettings: limits.customIndicatorSettings === 1,
-      telegram: limits.telegramEnabled === 1,
-      anomalies: limits.anomaliesEnabled === 1,
-    }
-  }
+  const { tiers, loading: tiersLoading, error: tiersError } = useTiers()
 
   if (loading) {
     return (
@@ -411,53 +399,45 @@ export function UserProfile({ onClose }: Props) {
         </form>
       </div>
 
-      {/* Plans Comparison */}
-      <div className={`p-8 sm:p-12 rounded-[32px] flex flex-col gap-10 relative overflow-hidden ${isLight ? 'bg-white border border-slate-200 shadow-lg' : 'liquid-glass-card'}`}>
-        <div className="absolute top-0 right-1/4 w-[350px] h-[350px] bg-[#1CD5A6]/5 rounded-full blur-[100px] pointer-events-none" />
-        <div className="absolute bottom-0 left-1/4 w-[350px] h-[350px] bg-indigo-500/5 rounded-full blur-[100px] pointer-events-none" />
-
-        <div className="text-center space-y-2 z-10">
-          <h2 className={`text-3xl sm:text-4xl font-extrabold tracking-tight font-sans ${isLight ? 'text-slate-900' : 'text-white'}`}>
-            {t('profile.choosePlan')}
-          </h2>
+      {/* Plans Comparison — driven by public tier policies (useTiers) */}
+      {tiersLoading ? (
+        <div className={`p-8 sm:p-12 rounded-[32px] flex flex-col gap-10 relative overflow-hidden ${isLight ? 'bg-white border border-slate-200 shadow-lg' : 'liquid-glass-card'}`}>
+          <div className="text-center space-y-2 z-10">
+            <h2 className={`text-3xl sm:text-4xl font-extrabold tracking-tight font-sans ${isLight ? 'text-slate-900' : 'text-white'}`}>
+              {t('profile.choosePlan')}
+            </h2>
+          </div>
+          <div className="min-h-[240px] flex items-center justify-center z-10">
+            <ChartLoader theme={theme} />
+          </div>
         </div>
+      ) : tiersError || !tiers ? null : (
+        <div className={`p-8 sm:p-12 rounded-[32px] flex flex-col gap-10 relative overflow-hidden ${isLight ? 'bg-white border border-slate-200 shadow-lg' : 'liquid-glass-card'}`}>
+          <div className="absolute top-0 right-1/4 w-[350px] h-[350px] bg-[#1CD5A6]/5 rounded-full blur-[100px] pointer-events-none" />
+          <div className="absolute bottom-0 left-1/4 w-[350px] h-[350px] bg-indigo-500/5 rounded-full blur-[100px] pointer-events-none" />
 
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 w-full max-w-5xl mx-auto z-10">
-          <PlanCard
-            name="Free" price="$0" desc={t('profile.planFreeDesc')} isActive={tier === 'free'}
-            charts={cardValues('free')?.charts ?? 1}
-            candles={cardValues('free')?.candles ?? '700'}
-            compression={cardValues('free')?.compression ?? 1}
-            indicators={cardValues('free')?.indicators ?? 1}
-            customSettings={cardValues('free')?.customSettings ?? false}
-            telegram={cardValues('free')?.telegram ?? false} anomalies={cardValues('free')?.anomalies ?? false}
-            saveDrawing={false} customIndicators={false}
-            userRole={tier} t={t} isLight={isLight}
-          />
-          <PlanCard
-            name="Pro" price={`$${pricePro}`} desc={t('profile.planProDesc')} isActive={tier === 'pro'} popular
-            charts={cardValues('pro')?.charts ?? 2}
-            candles={cardValues('pro')?.candles ?? '1400'}
-            compression={cardValues('pro')?.compression ?? 2}
-            indicators={cardValues('pro')?.indicators ?? 3}
-            customSettings={cardValues('pro')?.customSettings ?? false}
-            telegram={cardValues('pro')?.telegram ?? false} anomalies={cardValues('pro')?.anomalies ?? false}
-            saveDrawing={false} customIndicators={false}
-            userRole={tier} t={t} isLight={isLight}
-          />
-          <PlanCard
-            name="VIP" price={`$${priceVip}`} desc={t('profile.planVipDesc')} isActive={tier === 'vip'}
-            charts={cardValues('vip')?.charts ?? 2}
-            candles={cardValues('vip')?.candles ?? t('profile.allHistory')}
-            compression={cardValues('vip')?.compression ?? 10}
-            indicators={cardValues('vip')?.indicators ?? t('profile.unlimited')}
-            customSettings={cardValues('vip')?.customSettings ?? true}
-            telegram={cardValues('vip')?.telegram ?? true} anomalies={cardValues('vip')?.anomalies ?? true}
-            saveDrawing={true} customIndicators={true}
-            userRole={tier} t={t} isLight={isLight}
-          />
+          <div className="text-center space-y-2 z-10">
+            <h2 className={`text-3xl sm:text-4xl font-extrabold tracking-tight font-sans ${isLight ? 'text-slate-900' : 'text-white'}`}>
+              {t('profile.choosePlan')}
+            </h2>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 w-full max-w-5xl mx-auto z-10">
+            <PlanCard
+              name="Free" price="$0" desc={t('profile.planFreeDesc')} isActive={tier === 'free'}
+              policy={tiers.free} userRole={tier} t={t} isLight={isLight}
+            />
+            <PlanCard
+              name="Pro" price={`$${pricePro}`} desc={t('profile.planProDesc')} isActive={tier === 'pro'} popular
+              policy={tiers.pro} userRole={tier} t={t} isLight={isLight}
+            />
+            <PlanCard
+              name="VIP" price={`$${priceVip}`} desc={t('profile.planVipDesc')} isActive={tier === 'vip'}
+              policy={tiers.vip} userRole={tier} t={t} isLight={isLight}
+            />
+          </div>
         </div>
-      </div>
+      )}
       </div>
     </div>
   )
@@ -522,8 +502,8 @@ function InfoRow({ label, value, highlight, amber }: { label: string; value: str
   )
 }
 
-function LimitRow({ label, value, t, unlimitedLabel }: {
-  label: string; value: number | string | boolean; t: (key: string) => string; unlimitedLabel?: string
+function LimitRow({ label, value, t }: {
+  label: string; value: number | string | boolean; t: (key: string) => string
 }) {
   let display: string
   let color: string
@@ -532,8 +512,8 @@ function LimitRow({ label, value, t, unlimitedLabel }: {
     display = value ? t('profile.yes') : t('profile.no')
     color = value ? 'text-[#10B981]' : 'text-[#EF4444]'
   } else if (typeof value === 'number') {
-    if (value <= 0 || value >= 100) {
-      display = unlimitedLabel ?? t('profile.unlimited')
+    if (value < 0) {
+      display = t('profile.unlimited')
       color = 'text-[#10B981]'
     } else {
       display = String(value)
@@ -554,13 +534,10 @@ function LimitRow({ label, value, t, unlimitedLabel }: {
 
 function PlanCard({
   name, price, desc, isActive, popular,
-  charts, candles, compression, indicators,
-  customSettings, saveDrawing, telegram, customIndicators, anomalies,
-  userRole, t, isLight,
+  policy, userRole, t, isLight,
 }: {
   name: string; price: string; desc: string; isActive: boolean; popular?: boolean
-  charts: number | string; candles: number | string; compression: number | string; indicators: number | string
-  customSettings: boolean; saveDrawing: boolean; telegram: boolean; customIndicators: boolean; anomalies: boolean
+  policy: PublicTierPolicy
   userRole: string; t: (key: string) => string; isLight?: boolean
 }) {
   const isPro = name === 'Pro'
@@ -619,15 +596,14 @@ function PlanCard({
         </div>
         <p className={`text-[11.5px] leading-relaxed min-h-[32px] ${isLight ? 'text-slate-500' : 'text-[#8B949E]'}`}>{desc}</p>
         <div className={`flex flex-col gap-2 font-mono text-[11px] pt-4 mt-2 border-t ${isLight ? 'border-slate-200' : 'border-white/[0.06]'}`}>
-          <LimitRow label={t('profile.propsCharts')} value={charts} t={t} />
-          <LimitRow label={t('profile.propsMaxCandles')} value={candles} unlimitedLabel={t('profile.allHistory')} t={t} />
-          <LimitRow label={t('profile.propsCompression')} value={compression} t={t} />
-          <LimitRow label={t('profile.propsIndicators')} value={indicators} t={t} />
-          <LimitRow label={t('profile.propsCustomSettings')} value={customSettings} t={t} />
-          <LimitRow label={t('profile.propsSaveDrawing')} value={saveDrawing} t={t} />
-          <LimitRow label={t('profile.propsTelegram')} value={telegram} t={t} />
-          <LimitRow label={t('profile.propsCustomIndicators')} value={customIndicators} t={t} />
-          <LimitRow label={t('profile.propsAnomalies')} value={anomalies} t={t} />
+          <LimitRow label={t('profile.propsMaxHistory')} value={policy.historyMaxDays} t={t} />
+          <LimitRow label={t('profile.propsCharts')} value={policy.workspacesCount} t={t} />
+          <LimitRow label={t('profile.propsIndicators')} value={policy.maxIndicators} t={t} />
+          <LimitRow label={t('profile.propsCustomSettings')} value={policy.customIndicatorSettings === 1} t={t} />
+          <LimitRow label={t('profile.propsCompression')} value={policy.compressionMax} t={t} />
+          <LimitRow label={t('profile.propsAnomalies')} value={policy.anomaliesEnabled === 1} t={t} />
+          <LimitRow label={t('profile.propsSessionLimit')} value={policy.sessionLimit} t={t} />
+          <LimitRow label={t('profile.propsTelegram')} value={policy.telegramEnabled === 1} t={t} />
         </div>
       </div>
 

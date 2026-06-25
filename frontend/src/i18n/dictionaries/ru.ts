@@ -102,6 +102,8 @@ const ru = {
     propsTelegram: 'Telegram уведомления',
     propsCustomIndicators: 'Свои индикаторы',
     propsAnomalies: 'Отображение аномалий',
+    propsMaxHistory: 'Глубина истории',
+    propsSessionLimit: 'Лимит сессий',
     yes: 'Да',
     no: 'Нет',
     unlimited: 'Безлимитно',

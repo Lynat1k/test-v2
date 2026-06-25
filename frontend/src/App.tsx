@@ -8,6 +8,7 @@ import { LayoutProvider, useLayout } from '@/contexts/LayoutContext'
 import { UserSettingsProvider } from '@/contexts/UserSettingsContext'
 import { AuthProvider, useAuthContext } from '@/features/auth/AuthContext'
 import { LimitsProvider, useUserLimits } from '@/contexts/LimitsContext'
+import { TiersProvider } from '@/contexts/TiersContext'
 import { DrawingDefaultsProvider } from '@/contexts/DrawingDefaultsContext'
 import { LoginModal } from '@/features/auth/LoginModal'
 import { RegisterModal } from '@/features/auth/RegisterModal'
@@ -829,6 +830,7 @@ export default function App() {
   return (
     <ThemeProvider>
       <I18nProvider>
+        <TiersProvider>
         <AuthProvider>
           <LimitsProvider>
             <DrawingDefaultsProvider>
@@ -846,6 +848,7 @@ export default function App() {
             </DrawingDefaultsProvider>
           </LimitsProvider>
         </AuthProvider>
+        </TiersProvider>
       </I18nProvider>
     </ThemeProvider>
   )

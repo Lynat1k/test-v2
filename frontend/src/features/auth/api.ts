@@ -133,6 +133,28 @@ export async function apiGetLimitsPublic(): Promise<UserLimits> {
   return json.data as UserLimits
 }
 
+// --- Public tier policies (GET /tiers, no auth, guest-accessible) ---
+
+// Same shape as UserLimits without the per-user `tier` field.
+export type PublicTierPolicy = Omit<UserLimits, 'tier'>
+
+export interface PublicTiers {
+  free: PublicTierPolicy
+  pro: PublicTierPolicy
+  vip: PublicTierPolicy
+}
+
+// Public endpoint — must NOT send the Authorization header (guest access).
+export async function apiGetTiers(): Promise<PublicTiers> {
+  const res = await fetch(`${BASE}/tiers`, {
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+  })
+  const json = await res.json() as { ok: boolean; data?: PublicTiers; error?: { code: string; message: string } }
+  if (!json.ok) throw json.error!
+  return json.data as PublicTiers
+}
+
 export interface PublicCompressionDefault {
   market: string
   timeframe: string

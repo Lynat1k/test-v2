@@ -1779,10 +1779,10 @@ function TierPoliciesBlock({ isLight }: { isLight: boolean }) {
                     <div className="flex items-center gap-1.5">
                       <input
                         type="number"
-                        min="1"
+                        min="-1"
                         max="10000"
                         value={current.historyDaysPerTf?.[tf] ?? 1}
-                        onChange={e => updateHistoryTf(current.tier, tf, parseInt(e.target.value) || 1)}
+                        onChange={e => updateHistoryTf(current.tier, tf, parseInt(e.target.value) || 0)}
                         className={`w-full rounded-lg px-2.5 py-1.5 font-mono font-black text-xs border ${input}`}
                       />
                       <span className="text-[9px] font-mono text-slate-400">дн.</span>
@@ -1806,10 +1806,10 @@ function TierPoliciesBlock({ isLight }: { isLight: boolean }) {
                 <div className="flex items-center gap-3">
                   <input
                     type="range"
-                    min="1"
+                    min="-1"
                     max="10"
                     value={current.compressionMax}
-                    onChange={e => updateField(current.tier, 'compressionMax', parseInt(e.target.value) || 1)}
+                    onChange={e => updateField(current.tier, 'compressionMax', parseInt(e.target.value) || 0)}
                     className={`w-full h-1.5 rounded-full appearance-none cursor-pointer ${isLight ? 'bg-slate-300 accent-blue-600' : 'bg-slate-800 accent-blue-500'}`}
                   />
                   <span className={`text-xs font-mono font-black shrink-0 select-none min-w-[32px] text-center ${isLight ? 'text-amber-800' : 'text-amber-500'}`}>
@@ -1848,10 +1848,10 @@ function TierPoliciesBlock({ isLight }: { isLight: boolean }) {
                 <div className="flex items-center gap-3">
                   <input
                     type="number"
-                    min="1"
+                    min="-1"
                     max="10000"
                     value={current.maxIndicators}
-                    onChange={e => updateField(current.tier, 'maxIndicators', parseInt(e.target.value) || 1)}
+                    onChange={e => updateField(current.tier, 'maxIndicators', parseInt(e.target.value) || 0)}
                     className={`w-full max-w-[90px] rounded-lg px-3 py-1.5 font-mono font-black text-xs border ${input}`}
                   />
                   <span className={`text-[11px] font-mono font-bold ${isLight ? 'text-teal-700 font-extrabold' : 'text-teal-400'}`}>активных</span>
@@ -1915,20 +1915,18 @@ function TierPoliciesBlock({ isLight }: { isLight: boolean }) {
                   {t('admin.policies.workspacesCountDesc') || 'Количество одновременных рабочих пространств. 1 или 2.'}
                 </p>
               </div>
-              <div className="flex gap-2.5 mt-2">
-                {[1, 2].map(val => (
-                  <button
-                    key={val}
-                    onClick={() => updateField(current.tier, 'workspacesCount', val)}
-                    className={`flex-1 py-1.5 rounded-lg text-xs font-bold border transition ${
-                      current.workspacesCount === val
-                        ? 'bg-blue-500/15 border-blue-500 text-blue-400'
-                        : isLight ? 'bg-white hover:bg-slate-100 border-slate-200 text-slate-600 shadow-sm' : 'bg-slate-900 hover:bg-slate-800 border-white/5 text-slate-400'
-                    }`}
-                  >
-                    {val} {val === 1 ? 'пространство' : 'пространства'}
-                  </button>
-                ))}
+              <div className="flex items-center gap-3 mt-2">
+                <input
+                  type="number"
+                  min="-1"
+                  max="10000"
+                  value={current.workspacesCount}
+                  onChange={e => updateField(current.tier, 'workspacesCount', parseInt(e.target.value) || 0)}
+                  className={`w-full max-w-[90px] rounded-lg px-3 py-1.5 font-mono font-black text-xs border ${input}`}
+                />
+                <span className={`text-[11px] font-mono font-bold ${isLight ? 'text-teal-700 font-extrabold' : 'text-teal-400'}`}>
+                  {current.workspacesCount === -1 ? 'безлимит' : current.workspacesCount === 1 ? 'пространство' : 'пространства'}
+                </span>
               </div>
             </div>
 

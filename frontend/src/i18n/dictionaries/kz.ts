@@ -102,6 +102,8 @@ const kz = {
     propsTelegram: 'Telegram хабарландырулары',
     propsCustomIndicators: 'Жеке индикаторлар',
     propsAnomalies: 'Аномалияларды көрсету',
+    propsMaxHistory: 'Тарих тереңдігі',
+    propsSessionLimit: 'Сессия шегі',
     yes: 'Иә',
     no: 'Жоқ',
     unlimited: 'Шексіз',

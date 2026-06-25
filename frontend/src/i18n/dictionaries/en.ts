@@ -102,6 +102,8 @@ const en = {
     propsTelegram: 'Telegram notifications',
     propsCustomIndicators: 'Custom indicators',
     propsAnomalies: 'Anomaly display',
+    propsMaxHistory: 'History depth',
+    propsSessionLimit: 'Session limit',
     yes: 'Yes',
     no: 'No',
     unlimited: 'Unlimited',
