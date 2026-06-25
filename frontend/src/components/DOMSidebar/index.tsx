@@ -5,6 +5,7 @@ import { useChartControls } from '@/contexts/ChartControlsContext'
 import { useTheme } from '@/contexts/ThemeContext'
 import { useUserSettings } from '@/contexts/UserSettingsContext'
 import { useDOM } from '@/hooks/useDOM'
+import { useAuthContext } from '@/features/auth/AuthContext'
 import { useTranslation } from '@/i18n'
 import { FearGreedPanel } from './FearGreedPanel'
 import { OrderBookTable } from './OrderBookTable'
@@ -23,6 +24,7 @@ export function DOMSidebar({ collapsed }: DOMSidebarProps) {
   const { getSlot, activeSlot, getTickerConfig } = useChartControls()
   const slot = getSlot(activeSlot)
   const { getSetting, setSetting } = useUserSettings()
+  const { accessToken } = useAuthContext()
 
   const compressionIdx = getSetting<number>(DOM_COMPRESSION_KEY, 0)
   const tickerConfig = getTickerConfig()
@@ -33,6 +35,7 @@ export function DOMSidebar({ collapsed }: DOMSidebarProps) {
   const { levels, lastPrice, fng, connected } = useDOM({
     symbol: slot.symbol,
     market: slot.market,
+    accessToken,
   })
 
   // Apply client-side aggregation only when a non-base level is selected.
