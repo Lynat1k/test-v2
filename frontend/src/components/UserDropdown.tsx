@@ -4,7 +4,7 @@ import { useTheme } from '@/contexts/ThemeContext'
 import { useAuthContext } from '@/features/auth/AuthContext'
 import {
   User, LogIn, LogOut, ChevronDown, Sliders,
-  Send, Video, Sun, Moon, Home, HelpCircle,
+  Send, Video, Sun, Moon, Home, HelpCircle, Check,
 } from 'lucide-react'
 import { motion, AnimatePresence } from 'motion/react'
 
@@ -28,6 +28,19 @@ export function UserDropdown({ onOpenProfile, onOpenAdmin, onOpenLogin, onOpenHo
     function handleClickOutside(e: MouseEvent) {
       if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
         setDropdownOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [])
+
+  const [langDropdownOpen, setLangDropdownOpen] = useState(false)
+  const langDropdownRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      if (langDropdownRef.current && !langDropdownRef.current.contains(e.target as Node)) {
+        setLangDropdownOpen(false)
       }
     }
     document.addEventListener('mousedown', handleClickOutside)
@@ -77,6 +90,64 @@ export function UserDropdown({ onOpenProfile, onOpenAdmin, onOpenLogin, onOpenHo
           <Moon className="w-4 h-4 text-slate-700 font-bold" />
         )}
       </button>
+
+      {/* Language switcher */}
+      <div className="relative" ref={langDropdownRef}>
+        <button
+          onClick={() => setLangDropdownOpen(v => !v)}
+          className={`flex items-center justify-center gap-1 px-2 py-2 rounded-xl border cursor-pointer hover:scale-105 active:scale-95 transition-all ${
+            isLight
+              ? 'bg-slate-200 hover:bg-slate-300 border-slate-300 text-slate-800 shadow-sm'
+              : 'bg-slate-950/40 hover:bg-slate-900/60 border-white/5 text-slate-200 shadow-inner'
+          }`}
+          title={t('header.language')}
+        >
+          <span className="text-[10px] font-mono font-bold">{language}</span>
+          <ChevronDown className={`w-3 h-3 transition-transform duration-200 ${
+            isLight ? 'text-slate-700' : 'text-slate-400'
+          } ${langDropdownOpen ? 'rotate-180' : ''}`} />
+        </button>
+
+        <AnimatePresence>
+          {langDropdownOpen && (
+            <motion.div
+              initial={{ opacity: 0, y: -4, scale: 0.97 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: -4, scale: 0.97 }}
+              transition={{ duration: 0.12 }}
+              className={`absolute right-0 mt-1.5 z-[9999] rounded-xl p-1.5 min-w-[120px] ${
+                isLight
+                  ? 'bg-white border border-slate-300 text-slate-900 shadow-2xl'
+                  : 'muddy-glass-popover text-slate-100'
+              }`}
+            >
+              {(['RU', 'EN', 'KZ'] as const).map((lang) => {
+                const isSelected = language === lang
+                return (
+                  <button
+                    key={lang}
+                    onClick={() => { setLanguage(lang); setLangDropdownOpen(false) }}
+                    className={`flex items-center justify-between px-3 py-1.5 rounded-lg text-left cursor-pointer transition-all w-full text-xs font-bold ${
+                      isSelected
+                        ? isLight
+                          ? 'bg-slate-100 text-slate-900 font-extrabold'
+                          : 'bg-white/5 text-white font-extrabold'
+                        : isLight
+                          ? 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+                          : 'text-slate-300 hover:text-white hover:bg-white/5'
+                    }`}
+                  >
+                    <span className="font-mono text-[10px] font-bold">{lang}</span>
+                    {isSelected && (
+                      <Check className="w-3 tracking-tight ml-1 text-amber-500 shrink-0" />
+                    )}
+                  </button>
+                )
+              })}
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </div>
 
       {/* User section */}
       {user ? (
@@ -202,49 +273,6 @@ export function UserDropdown({ onOpenProfile, onOpenAdmin, onOpenLogin, onOpenHo
                       <Video className="w-3.5 h-3.5 hover:scale-110 transition-transform" />
                       <span>YouTube</span>
                     </a>
-                  </div>
-                </div>
-
-                {/* Language switcher */}
-                <div className={`mt-4 pt-3.5 border-t ${isLight ? 'border-slate-100' : 'border-white/5'}`}>
-                  <span className={`text-[9px] font-mono font-extrabold tracking-widest uppercase block mb-2 px-1 ${
-                    isLight ? 'text-slate-500' : 'text-slate-400'
-                  }`}>
-                    {t('header.language')}
-                  </span>
-                  <div className={`grid grid-cols-3 gap-1.5 p-[3px] rounded-2xl border shadow-inner ${
-                    isLight ? 'bg-slate-200 border-slate-300' : 'bg-slate-950/60 border-white/5'
-                  }`}>
-                    {(['RU', 'EN', 'KZ'] as const).map((lang) => {
-                      const isSelected = language === lang
-                      return (
-                        <button
-                          key={lang}
-                          onClick={() => setLanguage(lang)}
-                          className="py-1.5 rounded-xl text-[10.5px] font-bold font-mono cursor-pointer text-center relative border-0 outline-none"
-                        >
-                          {isSelected && (
-                            <motion.div
-                              layoutId="activeLanguage"
-                              className={`absolute inset-0 rounded-xl ${
-                                isLight
-                                  ? 'bg-slate-300 border border-slate-400 shadow-sm'
-                                  : 'bg-slate-800 border border-white/10 shadow-md'
-                              }`}
-                              transition={{ type: 'spring', stiffness: 380, damping: 30 }}
-                              style={{ zIndex: 0 }}
-                            />
-                          )}
-                          <span className={`relative z-10 transition-colors duration-200 ${
-                            isSelected
-                              ? isLight ? 'text-slate-900 font-extrabold' : 'text-white font-extrabold'
-                              : isLight ? 'text-slate-600 hover:text-slate-900' : 'text-slate-400 hover:text-slate-200'
-                          }`}>
-                            {lang}
-                          </span>
-                        </button>
-                      )
-                    })}
                   </div>
                 </div>
 
