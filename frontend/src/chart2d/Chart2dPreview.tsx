@@ -16,7 +16,7 @@ export default function Chart2dPreview() {
   const [candleDataType, setCandleDataType] = useState<CandleDataType>("bid_ask");
 
   return (
-    <div className="w-screen h-screen bg-zinc-950 flex flex-col">
+    <div className="w-screen h-screen bg-zinc-950 flex flex-col" style={{ height: '100dvh' }}>
       <div className="flex-none px-3 py-1.5 border-b border-zinc-800 flex items-center gap-3">
         <span className="text-zinc-500 text-[10px] font-mono tracking-wider mr-2">preview</span>
 

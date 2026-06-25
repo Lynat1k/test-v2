@@ -210,9 +210,9 @@ function AppShell() {
   if (authLoading || !betaLoaded) return null
   if (betaMode && !authUser) {
     return (
-      <div className={`h-screen w-screen flex flex-col items-center justify-center ${
+      <div className={`h-screen min-h-[100dvh] w-screen flex flex-col items-center justify-center ${
         isLight ? 'light bg-[#cbd5e1] text-slate-900' : 'bg-[#030712]/92 text-white terminal-grid'
-      }`}>
+      }`} style={{ height: '100dvh' }}>
         <div className="absolute inset-0 overflow-hidden pointer-events-none z-0">
           <div className={`absolute top-[5%] left-[3%] w-[450px] h-[450px] rounded-full liquid-blob-cyan blur-[100px] transition-all duration-300 ${isLight ? 'opacity-15' : 'opacity-40'}`} />
           <div className={`absolute top-[50%] right-[5%] w-[550px] h-[550px] rounded-full liquid-blob-magenta blur-[120px] transition-all duration-300 ${isLight ? 'opacity-10' : 'opacity-35'}`} />
@@ -235,9 +235,9 @@ function AppShell() {
   }
 
   return (
-    <div className={`h-screen w-screen flex flex-col overflow-hidden transition-all duration-300 ${
+    <div className={`h-screen min-h-[100dvh] w-screen flex flex-col overflow-hidden transition-all duration-300 ${
       isLight ? 'light bg-[#cbd5e1] text-slate-900' : 'bg-[#030712]/92 text-white terminal-grid'
-    }`}>
+    }`} style={{ height: '100dvh' }}>
       {/* Dynamic Drifting Liquid Background Blobs */}
       <div className="absolute inset-0 overflow-hidden pointer-events-none z-0">
         <div className={`absolute top-[5%] left-[3%] w-[450px] h-[450px] rounded-full liquid-blob-cyan blur-[100px] transition-all duration-300 ${isLight ? 'opacity-15' : 'opacity-40'}`} />
