@@ -36,7 +36,6 @@
     inset 0 12px 28px -8px rgba(255, 255, 255, 0.10),
     inset 0 -15px 35px -10px rgba(0, 0, 0, 0.6);
   backdrop-filter: blur(28px) saturate(180%);
-  -webkit-backdrop-filter: blur(28px) saturate(180%);
   transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
@@ -55,7 +54,6 @@
     inset 0 1px 0px rgba(255, 255, 255, 0.35),
     inset 1px 0px 0px rgba(255, 255, 255, 0.15) !important;
   backdrop-filter: blur(16px) saturate(190%) !important;
-  -webkit-backdrop-filter: blur(16px) saturate(190%) !important;
 }
 
 .liquid-glass-card:hover {
@@ -88,7 +86,6 @@
     inset 0 5px 12px rgba(255, 255, 255, 0.1),
     inset 0 -6px 16px rgba(234, 179, 8, 0.04) !important;
   backdrop-filter: blur(24px);
-  -webkit-backdrop-filter: blur(24px);
 }
 
 .liquid-glass-button {
@@ -109,7 +106,6 @@
     inset 0 4px 10px rgba(255, 255, 255, 0.05),
     inset 0 -4px 10px rgba(0, 0, 0, 0.2);
   backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
   transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
@@ -296,7 +292,6 @@
     inset 0 -16px 36px -12px rgba(255, 255, 255, 0.45),
     inset 0 16px 36px -12px rgba(255, 255, 255, 0.6) !important;
   backdrop-filter: blur(55px) saturate(220%) !important;
-  -webkit-backdrop-filter: blur(55px) saturate(220%) !important;
 }
 
 .light .liquid-glass-card:hover {
@@ -330,7 +325,6 @@
     inset 0 6px 14px rgba(255, 255, 255, 0.6),
     inset 0 -6px 16px rgba(245, 158, 11, 0.06) !important;
   backdrop-filter: blur(32px) saturate(160%) !important;
-  -webkit-backdrop-filter: blur(32px) saturate(160%) !important;
 }
 
 .light .liquid-glass-button {
@@ -351,7 +345,6 @@
     inset 0 5px 10px rgba(255, 255, 255, 0.55),
     inset 0 -5px 10px rgba(148, 163, 184, 0.08) !important;
   backdrop-filter: blur(24px) saturate(140%) !important;
-  -webkit-backdrop-filter: blur(24px) saturate(140%) !important;
   color: #1e293b !important;
   font-weight: 700 !important;
   transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1) !important;
@@ -510,5 +503,4 @@
     inset 0 2.5px 0px rgba(255, 255, 255, 0.98),
     inset 1.5px 0px 0px rgba(255, 255, 255, 0.9) !important;
   backdrop-filter: blur(45px) saturate(160%) !important;
-  -webkit-backdrop-filter: blur(45px) saturate(160%) !important;
 }
