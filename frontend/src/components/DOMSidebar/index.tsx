@@ -34,7 +34,7 @@ export function DOMSidebar({ collapsed, fngCollapsed, onToggleFng }: DOMSidebarP
   const compressionLevels = buildDOMCompressionLevels(baseStep)
   const activeStep = compressionLevels[compressionIdx] ?? baseStep
 
-  const { levels, lastPrice, fng, connected } = useDOM({
+  const { levels, lastPrice, fng } = useDOM({
     symbol: slot.symbol,
     market: slot.market,
     accessToken,
@@ -67,14 +67,6 @@ export function DOMSidebar({ collapsed, fngCollapsed, onToggleFng }: DOMSidebarP
     <>
       {!collapsed && (
         <div className={`w-[280px] h-full flex flex-col rounded-2xl p-4 shadow-2xl ${isLight ? 'bg-white border border-slate-200' : 'liquid-glass-card'}`}>
-          {/* Top bar: label + WS dot */}
-          <div className={`flex items-center justify-between px-2 py-1.5 border-b mb-2 ${isLight ? 'border-slate-200' : 'border-white/5'}`}>
-            <span className={`text-[10px] font-mono uppercase tracking-wider ${isLight ? 'text-slate-500' : 'text-white/40'}`}>
-              {t('terminal.dom')}
-            </span>
-            <div className={`w-1.5 h-1.5 rounded-full ${connected ? 'bg-green-400' : 'bg-red-400'}`} />
-          </div>
-
           <div className="shrink-0">
             <FearGreedPanel data={fng} collapsed={fngCollapsed} onToggle={onToggleFng} />
           </div>
