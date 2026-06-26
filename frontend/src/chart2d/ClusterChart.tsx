@@ -563,7 +563,10 @@ export default function ClusterChart({
     storage.set("procluster_rsi_panel_height", rsiPanelHeight.toString());
   }, [rsiPanelHeight]);
 
-  // Vertical stacking order of footer panels (top -> bottom). Persisted; default = catalogue order.
+  // Vertical stacking order of footer panels (top -> bottom). Persisted in LS.
+  // Default is EMPTY: order is then built by activation order (append-on-enable effect below).
+  // Existing users keep their saved order. On first mount the append effect seeds any
+  // already-active panels in catalogue order (REORDERABLE_PANEL_IDS) as a one-time start.
   const [panelOrder, setPanelOrder] = useState<string[]>(() => {
     const saved = storage.get("procluster_panel_order");
     if (saved) {
@@ -572,7 +575,7 @@ export default function ClusterChart({
         if (Array.isArray(arr)) return arr.filter((x): x is string => typeof x === "string");
       } catch { /* ignore malformed */ }
     }
-    return [...REORDERABLE_PANEL_IDS];
+    return [];
   });
 
   useEffect(() => {

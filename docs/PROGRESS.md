@@ -2530,3 +2530,47 @@ ATAS). Стопкой под панелями Delta и CVD. Бэкенд не т
   получать админ-дефолты. Это не относится к этой задаче. `panel_order` — моё
   новое хранилище — персистится корректно.
 - Залогиненная проверка переупорядочивания — на пользователе (механизм LS общий).
+
+---
+
+## 2026-06-27 — Порядок подвальных панелей по активации (вместо хардкода)
+
+Дефолт `panelOrder` был захардкожен `['delta','cvd','rsi']` → порядок включения
+игнорировался, RSI всегда внизу. Теперь порядок = по порядку ВКЛЮЧЕНИЯ панелей.
+
+### Изменение
+`frontend/src/chart2d/ClusterChart.tsx` — дефолт `panelOrder` сделан ПУСТЫМ
+(`[]`) вместо `[...REORDERABLE_PANEL_IDS]`. Если в LS уже есть сохранённый
+`procluster_panel_order` — используется он (существующие юзеры не теряют
+расстановку). Эффект-дописывания активных id в конец `panelOrder` уже был и не
+менялся: при включении индикатора его id добавляется в конец (последний
+включённый — ниже всех). На первом маунте, когда несколько подвалов активны из
+сохранённого preset, они досеиваются в стабильном порядке `REORDERABLE_PANEL_IDS`
+(= порядок каталога delta/cvd/rsi) — разовый старт, дальше работает порядок
+активации. Стрелки, `panelTopY`, плашки — без изменений.
+
+### Guard-аудит `panelTopY[id] ?? 0` (по запросу)
+Проверены ВСЕ места, где раньше были `deltaTopY/cvdTopY/rsiTopY` (теперь алиасы
+`panelTopY[id] ?? 0`) — каждое загейчено `activeIndicators[id]`, поэтому фолбэк
+`?? 0` НИКОГДА не приводит к рисованию неактивной панели в `y=0` наверху графика:
+- canvas-рендер панелей: `if (activeIndicators.delta)` / `…cvd` / `…rsi`;
+- SVG-тики: `{activeIndicators.delta && …}` / cvd / rsi;
+- resize-делители (плашки drag): `{activeIndicators.delta && …}` / cvd / rsi;
+- resize-handler (`deltaBottomY=deltaTopY+…`): загейчен `resizingPanel===id`
+  (делитель рендерится только при активной панели);
+- canvas- и SVG-разделители: цикл по `activePanels` / `activePanels.slice(1)`;
+- hit-test перетаскивания шкалы: явная проверка
+  `activeIndicators[id] && panelTopY[id] != null`;
+- плашки: `activePanels.map`; логотип: `panelsHeightTotal`.
+Незагейченных мест НЕ найдено — правок guard не потребовалось.
+
+### Файлы
+- `frontend/src/chart2d/ClusterChart.tsx`
+
+### Verification
+- `npx tsc --noEmit` ✓, `npx vite build` ✓.
+- Браузер (Playwright, гость): очистил `procluster_panel_order`, включил подвалы
+  в порядке RSI → Delta → CVD → рендер сверху-вниз RSI→Delta→CVD,
+  `procluster_panel_order` = `["rsi","delta","cvd"]`. Порядок активации
+  соблюдается (раньше было бы delta→cvd→rsi).
+- procluster.exe / vite НЕ трогал — запущены пользователем.
