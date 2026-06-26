@@ -104,7 +104,7 @@ export function OrderBookTable({ levels, lastPrice }: OrderBookTableProps) {
                     : 'text-rose-500/90'
                 }`}
               >
-                {level.askSize.toFixed(2)}
+                {Math.round(level.askSize).toLocaleString()}
               </div>
               <div
                 className={`text-left pl-1 z-10 font-bold transition-all duration-200 ${
@@ -157,7 +157,7 @@ export function OrderBookTable({ levels, lastPrice }: OrderBookTableProps) {
                     : 'text-emerald-500/90'
                 }`}
               >
-                {level.bidSize.toFixed(2)}
+                {Math.round(level.bidSize).toLocaleString()}
               </div>
               <div
                 className={`text-left pl-1 z-10 font-bold transition-all duration-200 ${
