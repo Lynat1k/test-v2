@@ -1843,7 +1843,11 @@ export default function IndicatorsModal({ isOpen, onClose, symbol = "", market =
                             <div className="flex items-center gap-2">
                               <input
                                 type="color"
-                                value={selectedIndicator.settings.domColorBid ?? "#228B22"}
+                                value={
+                                  (selectedIndicator.settings.domColorBid ?? "#228B22").length === 9
+                                    ? "#" + (selectedIndicator.settings.domColorBid ?? "#228B22").slice(3)
+                                    : (selectedIndicator.settings.domColorBid ?? "#228B22")
+                                }
                                 onChange={(e) => updateSettings({ domColorBid: e.target.value })}
                                 className="w-7 h-7 rounded cursor-pointer border-0 p-0 overflow-hidden bg-transparent shrink-0"
                               />
@@ -1856,7 +1860,11 @@ export default function IndicatorsModal({ isOpen, onClose, symbol = "", market =
                             <div className="flex items-center gap-2">
                               <input
                                 type="color"
-                                value={selectedIndicator.settings.domColorAsk ?? "#C80000"}
+                                value={
+                                  (selectedIndicator.settings.domColorAsk ?? "#C80000").length === 9
+                                    ? "#" + (selectedIndicator.settings.domColorAsk ?? "#C80000").slice(3)
+                                    : (selectedIndicator.settings.domColorAsk ?? "#C80000")
+                                }
                                 onChange={(e) => updateSettings({ domColorAsk: e.target.value })}
                                 className="w-7 h-7 rounded cursor-pointer border-0 p-0 overflow-hidden bg-transparent shrink-0"
                               />

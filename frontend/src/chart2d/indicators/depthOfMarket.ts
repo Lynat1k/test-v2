@@ -20,8 +20,8 @@ export const depthOfMarketIndicator: IndicatorModule & {
   defaultSettings: {
     domWidthMode: "auto",
     domMaxWidth: 100,
-    domColorBid: "#FF228B22",
-    domColorAsk: "#FFC80000",
+    domColorBid: "#228B22",
+    domColorAsk: "#C80000",
     domOpacity: 40
   },
   isActiveDefault: false

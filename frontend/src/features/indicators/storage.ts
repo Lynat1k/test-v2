@@ -53,12 +53,14 @@ export function hydrateIndicators(
   favorites: ReadonlySet<string>,
 ): Indicator[] {
   const out: Indicator[] = []
+  const seen = new Set<string>()
   for (const s of stored) {
     const meta = MODULAR_INDICATORS.find((m) => m.id === s.id)
     if (!meta) {
       console.warn(`[indicators] unknown id "${s.id}" — not rendered, preserved in storage`)
       continue
     }
+    seen.add(s.id)
     out.push({
       id: s.id,
       label: meta.label,
@@ -68,6 +70,19 @@ export function hydrateIndicators(
       isActive: s.isActive,
       ...(s.isVisible === undefined ? {} : { isVisible: s.isVisible }),
       settings: { ...meta.defaultSettings, ...s.settings } as IndicatorSettings,
+    })
+  }
+  for (const meta of MODULAR_INDICATORS) {
+    if (seen.has(meta.id)) continue
+    out.push({
+      id: meta.id,
+      label: meta.label,
+      category: meta.category,
+      type: meta.type,
+      isFavorite: favorites.has(meta.id),
+      isActive: meta.isActiveDefault ?? false,
+      isVisible: true,
+      settings: { ...meta.defaultSettings } as IndicatorSettings,
     })
   }
   return out
