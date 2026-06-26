@@ -23,6 +23,7 @@ import {
 import { apiGetMetrics, apiGetMetricsHistory, apiGetTickers, apiAddTicker, apiUpdateTicker, apiDeleteTicker, apiGetCompressions, apiUpsertCompressions, apiStartDownload, apiGetJobs, apiClearJobs, apiGetUserStats, apiListUsers, apiCreateUser, apiUpdateUserRole, apiDeleteUser, apiGetPolicies, apiUpdatePolicies, apiListIndicatorDefaults, apiPutIndicatorDefaults, apiDeleteIndicatorDefaults, apiGetBinanceTickerInfo, type ServerMetrics, type MetricsHistoryPoint, type Ticker, type DefaultCompression, type DownloadJob, type UserListItem, type UserStats, type TierPolicy, type AdminIndicatorDefault } from '@/features/admin/api'
 import { useChartControls } from '@/contexts/ChartControlsContext'
 import { useIndicatorsStorage } from '@/features/indicators/IndicatorsStorageContext'
+import { StyledSelect } from './StyledSelect'
 
 type AdminTab = 'server' | 'database' | 'users' | 'settings' | 'stats'
 
@@ -927,15 +928,13 @@ function CompressionBlock({ isLight }: { isLight: boolean }) {
         {t('admin.database.compressionDefaults')}
       </div>
 
-      <select
-        className={`px-3 py-2 rounded-xl border text-xs font-mono ${input}`}
+      <StyledSelect
         value={selected}
-        onChange={(e) => setSelected(e.target.value)}
-      >
-        {tickers.map((tk) => (
-          <option key={tk.id} value={tk.symbol}>{tk.symbol}</option>
-        ))}
-      </select>
+        options={tickers.map((tk) => ({ value: tk.symbol, label: tk.symbol }))}
+        onChange={setSelected}
+        isLight={isLight}
+        className="w-full"
+      />
 
       {loading ? (
         <div className="text-slate-400 text-center py-6 text-xs font-mono">{t('admin.database.loading')}</div>
@@ -1078,15 +1077,25 @@ function HistoryBlock({ isLight }: { isLight: boolean }) {
       </div>
 
       <div className={`flex flex-col gap-3 p-3 rounded-xl border ${isLight ? 'bg-slate-50 border-slate-200' : 'bg-white/[0.01] border-white/5'}`}>
-        <select className={`px-3 py-2 rounded-xl border text-xs font-mono ${input}`} value={symbol} onChange={(e) => setSymbol(e.target.value)}>
-          {tickers.map((tk) => <option key={tk.id} value={tk.symbol}>{tk.symbol}</option>)}
-        </select>
+        <StyledSelect
+          value={symbol}
+          options={tickers.map((tk) => ({ value: tk.symbol, label: tk.symbol }))}
+          onChange={setSymbol}
+          isLight={isLight}
+          className="w-full"
+        />
 
         <div className="flex gap-2">
-          <select className={`flex-1 px-3 py-2 rounded-xl border text-xs font-mono ${input}`} value={market} onChange={(e) => setMarket(e.target.value)}>
-            <option value="futures">{t('admin.database.futures')}</option>
-            <option value="spot">{t('admin.database.spot')}</option>
-          </select>
+          <StyledSelect
+            value={market}
+            options={[
+              { value: 'futures', label: t('admin.database.futures') },
+              { value: 'spot', label: t('admin.database.spot') },
+            ]}
+            onChange={(v) => setMarket(v)}
+            isLight={isLight}
+            className="flex-1"
+          />
         </div>
 
         <div className="grid grid-cols-2 gap-2">
