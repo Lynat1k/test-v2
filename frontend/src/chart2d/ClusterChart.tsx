@@ -4492,7 +4492,7 @@ export default function ClusterChart({
                       const isVisible = ind.isVisible !== false;
                       
                       let label = ind.label.replace(/^\(PROCLUSTER\)\s+/i, "").replace(/\s+\(PROCLUSTER\)$/i, "");
-                      if (ind.id === "volumeOnChart") label = "Footprint";
+                      if (ind.id === "volumeOnChart") label = "Volume on Chart";
 
                       return (
                         <div 
