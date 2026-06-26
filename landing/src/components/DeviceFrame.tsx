@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react';
+import { useLightbox } from './Lightbox';
 
 type Props = {
   src: string;
@@ -18,6 +19,7 @@ type Props = {
  * an inset bezel. Keeps every screenshot reading as the live terminal.
  */
 export function DeviceFrame({ src, alt, chip, badge, priority, className = '' }: Props) {
+  const { openLightbox } = useLightbox();
   return (
     <div className={`glass rounded-2xl p-2 sm:p-2.5 ${className}`}>
       <div className="flex items-center gap-2 px-2 py-1.5">
@@ -29,7 +31,19 @@ export function DeviceFrame({ src, alt, chip, badge, priority, className = '' }:
         {chip && <span className="tnum text-[11px] text-muted/80 ml-2 truncate">{chip}</span>}
         {badge && <span className="ml-auto">{badge}</span>}
       </div>
-      <div className="rounded-xl overflow-hidden border border-white/10 bg-bg-deep">
+      <div
+        role="button"
+        tabIndex={0}
+        aria-label={`Открыть изображение в полном размере: ${alt}`}
+        onClick={() => openLightbox(src, alt)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            openLightbox(src, alt);
+          }
+        }}
+        className="rounded-xl overflow-hidden border border-white/10 bg-bg-deep cursor-zoom-in outline-none focus-visible:ring-2 focus-visible:ring-cyan"
+      >
         <img
           src={src}
           alt={alt}

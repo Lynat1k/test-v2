@@ -8,6 +8,7 @@ import { Features } from './sections/Features';
 import { Infra } from './sections/Infra';
 import { FAQ } from './sections/FAQ';
 import { Footer } from './sections/Footer';
+import { LightboxProvider } from './components/Lightbox';
 import logo from './assets/procluster_logo.png';
 
 function Nav() {
@@ -34,20 +35,22 @@ function Nav() {
 
 export function Landing() {
   return (
-    <div className="relative min-h-screen">
-      <ParallaxBackground />
-      <Nav />
-      <main>
-        <Hero />
-        <Marquee />
-        <Showcase />
-        <ReadyToStart />
-        <TwoCharts />
-        <Features />
-        <Infra />
-        <FAQ />
-      </main>
-      <Footer />
-    </div>
+    <LightboxProvider>
+      <div className="relative min-h-screen">
+        <ParallaxBackground />
+        <Nav />
+        <main>
+          <Hero />
+          <Marquee />
+          <Showcase />
+          <ReadyToStart />
+          <TwoCharts />
+          <Features />
+          <Infra />
+          <FAQ />
+        </main>
+        <Footer />
+      </div>
+    </LightboxProvider>
   );
 }
