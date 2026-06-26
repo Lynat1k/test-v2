@@ -4514,11 +4514,6 @@ export default function ClusterChart({
                             } ${!isVisible ? "line-through text-slate-500" : ""}`}>
                               {label}
                             </span>
-                            <span className={`hidden sm:inline text-[8px] sm:text-[8.5px] shrink-0 font-medium whitespace-nowrap ${
-                              isLight ? "text-slate-500" : "text-slate-400"
-                            }`}>
-                              ({activePair.symbol.replace("/", "")}, {timeframe || "30m"})
-                            </span>
                           </div>
 
                           {/* Micro control actions */}
