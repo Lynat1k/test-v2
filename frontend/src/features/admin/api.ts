@@ -143,6 +143,17 @@ export async function apiDeleteTicker(id: string): Promise<void> {
   await request(`/admin/tickers/${id}`, { method: 'DELETE' })
 }
 
+export interface BinanceTickerInfo {
+  spotTick: number
+  spotFound: boolean
+  futuresTick: number
+  futuresFound: boolean
+}
+
+export async function apiGetBinanceTickerInfo(symbol: string): Promise<BinanceTickerInfo> {
+  return request<BinanceTickerInfo>(`/admin/tickers/binance-info?symbol=${encodeURIComponent(symbol)}`)
+}
+
 // --- Default Compressions ---
 
 export interface DefaultCompression {

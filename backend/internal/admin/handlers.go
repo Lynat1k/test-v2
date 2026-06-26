@@ -14,6 +14,7 @@ import (
 
 	"github.com/procluster/procluster/internal/aggregation"
 	"github.com/procluster/procluster/internal/auth"
+	"github.com/procluster/procluster/internal/binance"
 	"github.com/procluster/procluster/internal/repository/clickhouse"
 	"github.com/redis/go-redis/v9"
 )
@@ -115,6 +116,7 @@ func (h *AdminHandler) RegisterAdminRoutes(mux *http.ServeMux) {
 	mux.Handle("GET /api/v1/admin/tickers", wrap(h.handleGetTickers))
 	mux.Handle("PUT /api/v1/admin/tickers/{id}", wrap(h.handleUpdateTicker))
 	mux.Handle("DELETE /api/v1/admin/tickers/{id}", wrap(h.handleDeleteTicker))
+	mux.Handle("GET /api/v1/admin/tickers/binance-info", wrap(h.handleBinanceTickerInfo))
 
 	// Compressions
 	mux.Handle("GET /api/v1/admin/compressions", wrap(h.handleGetCompressions))
@@ -309,6 +311,30 @@ func (h *AdminHandler) handleDeleteTicker(w http.ResponseWriter, r *http.Request
 	LogAdminAction(r.Context(), h.db, userID, "delete_ticker", existing.Symbol, "", r.RemoteAddr)
 
 	writeJSON(w, http.StatusOK, adminResponse{OK: true, Data: map[string]string{"deleted": id}})
+}
+
+// handleBinanceTickerInfo fetches PRICE_FILTER tickSize for spot+futures from
+// Binance public exchangeInfo APIs. Used by the admin "Подтянуть" button to
+// auto-fill the tick fields in the Add-Ticker form; user can still override.
+func (h *AdminHandler) handleBinanceTickerInfo(w http.ResponseWriter, r *http.Request) {
+	raw := r.URL.Query().Get("symbol")
+	symbol := strings.ToUpper(strings.TrimSpace(raw))
+	if symbol == "" {
+		writeError(w, http.StatusBadRequest, "MISSING_SYMBOL", "symbol query parameter is required")
+		return
+	}
+	if !symbolRe.MatchString(symbol) {
+		writeError(w, http.StatusBadRequest, "INVALID_SYMBOL", "symbol must match ^[A-Z0-9]{2,10}$")
+		return
+	}
+
+	info, err := binance.FetchTickSizes(r.Context(), symbol)
+	if err != nil {
+		log.Printf("[admin] binance ticker info %s: %v", symbol, err)
+		writeError(w, http.StatusBadGateway, "BINANCE_UNAVAILABLE", "Binance API unreachable: "+err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, adminResponse{OK: true, Data: info})
 }
 
 // --- Compressions ---

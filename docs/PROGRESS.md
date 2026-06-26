@@ -2262,3 +2262,88 @@ UI-тоггл добавлен в выпадающее меню «Настрой
 - Ручная проверка в браузере: тоггл виден/работает на режимах
   футпринт+кластеры, состояние сохраняется после F5 (LS для гостя,
   сервер для логина), раздельность futures/spot.
+
+---
+
+## 2026-06-26 — Админка: кнопка «Подтянуть» tick size из Binance exchangeInfo
+
+В блоке «Добавление и сжатие новых монет» рядом с полем «Символ» появилась
+кнопка «Подтянуть». По клику дёргает Binance exchangeInfo (spot + USD-M
+futures) и автозаполняет поля «Мин. тик (Spot)» и «Мин. тик (Futures)».
+Ручной ввод этих полей сохранён — кнопка только подставляет значения,
+юзер может перебить.
+
+Поведение по рынкам:
+- Symbol есть на обоих рынках (BTCUSDT, SOLUSDT) → оба поля заполняются.
+- Symbol есть только на одном рынке → второе поле остаётся как было,
+  показывается жёлтое сообщение «Spot|Futures: не найдено на Binance».
+- Symbol не существует (FAKEUSDT) → оба поля без изменений, сообщение
+  «не найдено на Binance».
+- Сетевая ошибка / гео-блок api.binance.com → серверный 502
+  BINANCE_UNAVAILABLE, на UI показывается «Ошибка запроса к Binance: …».
+  Локально работает через прокси юзера (HTTPS_PROXY/ALL_PROXY) — клиент
+  собран с `http.ProxyFromEnvironment`.
+
+### Бэкенд
+- `backend/internal/binance/exchangeinfo.go` (новый) — пакет с
+  `TickInfo{SpotTick,SpotFound,FuturesTick,FuturesFound}` и
+  `FetchTickSizes(ctx, symbol)`. Spot: `GET api.binance.com/api/v3/exchangeInfo?symbol=...`,
+  HTTP 400 → SpotFound=false (символа нет на споте, не ошибка). Futures:
+  `GET fapi.binance.com/fapi/v1/exchangeInfo` (полный список ~1-2 МБ, фильтр
+  по symbol на клиенте). Из обоих ответов берётся `PRICE_FILTER.tickSize`.
+  Транспорт: `Proxy: http.ProxyFromEnvironment`, общий таймаут 10 сек.
+  Если оба запроса упали по сети — возвращается error; если хотя бы один
+  ответил — TickInfo с тем, что нашли. Кэш не делал (кнопка жмётся редко).
+- `backend/internal/admin/handlers.go` — добавлен импорт пакета binance,
+  обработчик `handleBinanceTickerInfo` (GET `/api/v1/admin/tickers/binance-info?symbol=...`),
+  валидация symbol через существующий `symbolRe = ^[A-Z0-9]{2,10}$`,
+  сетевая ошибка → 502 `BINANCE_UNAVAILABLE`. Маршрут зарегистрирован в
+  `RegisterAdminRoutes` под существующей admin-авторизацией +
+  rate-limit middleware.
+
+### Фронт
+- `frontend/src/features/admin/api.ts` — `BinanceTickerInfo` и
+  `apiGetBinanceTickerInfo(symbol)` через общий `request()`.
+- `frontend/src/components/AdminPanel.tsx` (TickerBlock) — добавлены
+  state `binanceLoading`/`binanceNote` и `handleFetchBinance()`. Кнопка
+  «Подтянуть» рядом с полем «Символ», disabled когда поле пустое или
+  идёт запрос. После успеха поля Tick Spot/Futures проставляются только
+  для рынков, где `*Found=true`; для не найденных — короткое сообщение
+  под полем «Символ». Поля Tick Spot/Tick Futures остались редактируемыми.
+- `frontend/src/i18n/dictionaries/{ru,en,kz}.ts` — добавлены три ключа в
+  `admin.database`: `binanceFetch` (Подтянуть / Fetch / Тарту),
+  `binanceNotFound` (не найдено на Binance / not found on Binance /
+  Binance-те табылмады), `binanceFetchError` (Ошибка запроса к Binance /
+  Binance request failed / Binance сұранысы сәтсіз аяқталды).
+
+### Файлы
+- `backend/internal/binance/exchangeinfo.go` (new)
+- `backend/internal/admin/handlers.go`
+- `frontend/src/features/admin/api.ts`
+- `frontend/src/components/AdminPanel.tsx`
+- `frontend/src/i18n/dictionaries/ru.ts`
+- `frontend/src/i18n/dictionaries/en.ts`
+- `frontend/src/i18n/dictionaries/kz.ts`
+
+### Verification
+- `go build -o procluster.exe ./cmd/procluster/` — успех (без ошибок).
+- `go vet ./...` — без замечаний.
+- `npx tsc --noEmit` — без ошибок.
+- `npx vite build` — успех (2933 modules, 820ms).
+- Прямой probe пакета binance (через временный build-tag тест):
+  `SOLUSDT → spotTick=0.01, futuresTick=0.01` (оба found),
+  `BTCUSDT → spotTick=0.01, futuresTick=0.1` (оба found),
+  `FAKEUSDT → spotFound=false, futuresFound=false`. Запрос через
+  локальный прокси юзера прошёл — гео-блок не упёрся.
+- Маршрут `/api/v1/admin/tickers/binance-info` зарегистрирован: запрос
+  без admin-cookie возвращает 401 (auth-middleware), что подтверждает
+  routing+wrap; несуществующий путь даёт 404.
+- procluster.exe перезапущен и остановлен — юзер запускает свою копию
+  вручную.
+
+### TODO
+- Ручная проверка в браузере: ввести «SOLUSDT» → «Подтянуть» → поля
+  Tick Spot=0.01 / Tick Futures=0.01 подставились; ввести «FAKEUSDT» →
+  поля без изменений + жёлтое сообщение «не найдено на Binance».
+- Опционально (не делал в этой задаче): такая же кнопка в форме
+  редактирования тикера и in-memory кэш по symbol с коротким TTL.

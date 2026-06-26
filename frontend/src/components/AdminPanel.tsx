@@ -20,7 +20,7 @@ import {
   Download,
   RefreshCw,
 } from 'lucide-react'
-import { apiGetMetrics, apiGetMetricsHistory, apiGetTickers, apiAddTicker, apiUpdateTicker, apiDeleteTicker, apiGetCompressions, apiUpsertCompressions, apiStartDownload, apiGetJobs, apiClearJobs, apiGetUserStats, apiListUsers, apiCreateUser, apiUpdateUserRole, apiDeleteUser, apiGetPolicies, apiUpdatePolicies, apiListIndicatorDefaults, apiPutIndicatorDefaults, apiDeleteIndicatorDefaults, type ServerMetrics, type MetricsHistoryPoint, type Ticker, type DefaultCompression, type DownloadJob, type UserListItem, type UserStats, type TierPolicy, type AdminIndicatorDefault } from '@/features/admin/api'
+import { apiGetMetrics, apiGetMetricsHistory, apiGetTickers, apiAddTicker, apiUpdateTicker, apiDeleteTicker, apiGetCompressions, apiUpsertCompressions, apiStartDownload, apiGetJobs, apiClearJobs, apiGetUserStats, apiListUsers, apiCreateUser, apiUpdateUserRole, apiDeleteUser, apiGetPolicies, apiUpdatePolicies, apiListIndicatorDefaults, apiPutIndicatorDefaults, apiDeleteIndicatorDefaults, apiGetBinanceTickerInfo, type ServerMetrics, type MetricsHistoryPoint, type Ticker, type DefaultCompression, type DownloadJob, type UserListItem, type UserStats, type TierPolicy, type AdminIndicatorDefault } from '@/features/admin/api'
 import { useChartControls } from '@/contexts/ChartControlsContext'
 import { useIndicatorsStorage } from '@/features/indicators/IndicatorsStorageContext'
 
@@ -587,6 +587,8 @@ function TickerBlock({ isLight }: { isLight: boolean }) {
   const [editing, setEditing] = useState<string | null>(null)
   const [form, setForm] = useState({ symbol: '', name: '', priceTickSpot: 0.01, priceTickFutures: 0.1, compressionSpot: 500, compressionFutures: 25 })
   const [editForm, setEditForm] = useState<Partial<Ticker>>({})
+  const [binanceLoading, setBinanceLoading] = useState(false)
+  const [binanceNote, setBinanceNote] = useState<string | null>(null)
 
   const fetchTickers = useCallback(async () => {
     try {
@@ -607,11 +609,40 @@ function TickerBlock({ isLight }: { isLight: boolean }) {
       await apiAddTicker(form)
       setForm({ symbol: '', name: '', priceTickSpot: 0.01, priceTickFutures: 0.1, compressionSpot: 500, compressionFutures: 25 })
       setError(null)
+      setBinanceNote(null)
       fetchTickers()
       refreshTickers()
     } catch (e: any) {
       const msg = e?.code === 'TICKER_EXISTS' ? t('admin.database.tickerExists') : (e?.message || JSON.stringify(e))
       setError(msg)
+    }
+  }
+
+  const handleFetchBinance = async () => {
+    const sym = form.symbol.trim().toUpperCase()
+    if (!sym) return
+    setBinanceLoading(true)
+    setBinanceNote(null)
+    setError(null)
+    try {
+      const info = await apiGetBinanceTickerInfo(sym)
+      setForm((f) => ({
+        ...f,
+        priceTickSpot: info.spotFound ? info.spotTick : f.priceTickSpot,
+        priceTickFutures: info.futuresFound ? info.futuresTick : f.priceTickFutures,
+      }))
+      const missing: string[] = []
+      if (!info.spotFound) missing.push('Spot')
+      if (!info.futuresFound) missing.push('Futures')
+      if (missing.length === 2) {
+        setBinanceNote(t('admin.database.binanceNotFound'))
+      } else if (missing.length === 1) {
+        setBinanceNote(`${missing[0]}: ${t('admin.database.binanceNotFound')}`)
+      }
+    } catch (e: any) {
+      setBinanceNote(t('admin.database.binanceFetchError') + ': ' + (e?.message || JSON.stringify(e)))
+    } finally {
+      setBinanceLoading(false)
     }
   }
 
@@ -723,7 +754,20 @@ function TickerBlock({ isLight }: { isLight: boolean }) {
             <label className={`text-[10px] font-mono font-bold uppercase tracking-wider ${isLight ? 'text-slate-600' : 'text-slate-400'}`}>
               {t('admin.database.symbol')} <span className="text-slate-400 font-normal lowercase">(e.g. SOLUSDT)</span>
             </label>
-            <input className={`px-2 py-1.5 rounded-lg border text-xs ${input}`} value={form.symbol} onChange={(e) => setForm({ ...form, symbol: e.target.value.toUpperCase() })} />
+            <div className="flex gap-2">
+              <input className={`flex-1 px-2 py-1.5 rounded-lg border text-xs ${input}`} value={form.symbol} onChange={(e) => setForm({ ...form, symbol: e.target.value.toUpperCase() })} />
+              <button
+                type="button"
+                onClick={handleFetchBinance}
+                disabled={binanceLoading || !form.symbol.trim()}
+                className="px-3 py-1.5 rounded-lg bg-sky-500 text-white text-xs font-bold hover:bg-sky-600 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer transition-colors whitespace-nowrap"
+              >
+                {binanceLoading ? '…' : t('admin.database.binanceFetch')}
+              </button>
+            </div>
+            {binanceNote && (
+              <div className={`text-[10px] font-mono mt-1 ${isLight ? 'text-amber-600' : 'text-amber-400'}`}>{binanceNote}</div>
+            )}
           </div>
           <div className="flex flex-col gap-1">
             <label className={`text-[10px] font-mono font-bold uppercase tracking-wider ${isLight ? 'text-slate-600' : 'text-slate-400'}`}>
