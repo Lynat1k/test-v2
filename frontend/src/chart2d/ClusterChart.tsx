@@ -7,7 +7,7 @@
 import React, { useState, useRef, useEffect, useLayoutEffect, useMemo, useCallback } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import type { ClusterCandle, ClusterCell, CryptoPair, IndicatorSettings, Indicator, OrderBook } from "./types";
-import { ZoomIn, ZoomOut, Maximize2, Compass, Move, Layers, Activity, Eye, EyeOff, Settings, Trash2, Globe, Slash, Minus, Square, Grid3X3, Ruler, Type, BarChart3, Check, ChevronDown, LayoutGrid, ArrowUpRight, TrendingUp, TrendingDown, Equal } from "lucide-react";
+import { ZoomIn, ZoomOut, Maximize2, Compass, Move, Layers, Activity, Eye, EyeOff, Settings, Trash2, Globe, Slash, Minus, Square, Grid3X3, Ruler, Type, BarChart3, Check, ChevronDown, ChevronUp, LayoutGrid, ArrowUpRight, TrendingUp, TrendingDown, Equal } from "lucide-react";
 import { Portal } from "@/components/Portal";
 import logoWatermark from "@/assets/images/procluster_logo_1779485281399.png";
 import { storage } from "./lib/storage";
@@ -57,6 +57,10 @@ const parseHexColor = (hex: string): string => {
   }
   return hex;
 };
+
+// Footer ("Подвальный") panels that can be reordered with the arrows on their plate.
+// Overlays/global indicators are NOT included here.
+const REORDERABLE_PANEL_IDS = ["delta", "cvd", "rsi"] as const;
 
 interface ClusterChartProps {
   candles: ClusterCandle[];
@@ -559,21 +563,86 @@ export default function ClusterChart({
     storage.set("procluster_rsi_panel_height", rsiPanelHeight.toString());
   }, [rsiPanelHeight]);
 
+  // Vertical stacking order of footer panels (top -> bottom). Persisted; default = catalogue order.
+  const [panelOrder, setPanelOrder] = useState<string[]>(() => {
+    const saved = storage.get("procluster_panel_order");
+    if (saved) {
+      try {
+        const arr = JSON.parse(saved);
+        if (Array.isArray(arr)) return arr.filter((x): x is string => typeof x === "string");
+      } catch { /* ignore malformed */ }
+    }
+    return [...REORDERABLE_PANEL_IDS];
+  });
+
+  useEffect(() => {
+    storage.set("procluster_panel_order", JSON.stringify(panelOrder));
+  }, [panelOrder]);
+
+  // Newly activated panels get appended to the END (last enabled = lowest). Disabled ids stay in
+  // the array (just not rendered), so toggling a panel off/on keeps its previous position context.
+  useEffect(() => {
+    setPanelOrder(prev => {
+      let next = prev;
+      for (const id of REORDERABLE_PANEL_IDS) {
+        if (activeIndicators[id] && !next.includes(id)) {
+          next = next === prev ? [...prev] : next;
+          next.push(id);
+        }
+      }
+      return next;
+    });
+  }, [activeIndicators]);
+
   const [resizingPanel, setResizingPanel] = useState<"delta" | "cvd" | "rsi" | null>(null);
 
   const panelGap = 24;
-  const deltaHeightTotal = activeIndicators.delta ? (deltaPanelHeight + panelGap) : 0;
-  const cvdHeightTotal = activeIndicators.cvd ? (cvdPanelHeight + panelGap) : 0;
-  const rsiHeightTotal = activeIndicators.rsi ? (rsiPanelHeight + panelGap) : 0;
+  const getPanelHeight = (id: string): number =>
+    id === "delta" ? deltaPanelHeight : id === "cvd" ? cvdPanelHeight : id === "rsi" ? rsiPanelHeight : 0;
 
-  // Calculate base chart height to fill container exactly, ensuring Delta/CVD/RSI are always pinned at the bottom
-  const chartHeight = Math.max(150, containerHeight - margin.top - margin.bottom - deltaHeightTotal - cvdHeightTotal - rsiHeightTotal);
+  // Active footer panels in render order (top -> bottom).
+  const activePanels = panelOrder.filter(id => activeIndicators[id]);
 
-  const deltaTopY = margin.top + chartHeight + (activeIndicators.delta ? panelGap : 0);
-  const cvdTopY = deltaTopY + (activeIndicators.delta ? deltaPanelHeight : 0) + (activeIndicators.cvd ? panelGap : 0);
-  const rsiTopY = cvdTopY + (activeIndicators.cvd ? cvdPanelHeight : 0) + (activeIndicators.rsi ? panelGap : 0);
+  // Total vertical space consumed by all active footer panels (each panel + its top gap).
+  const panelsHeightTotal = activePanels.reduce((sum, id) => sum + getPanelHeight(id) + panelGap, 0);
 
-  const totalSvgHeight = margin.top + chartHeight + deltaHeightTotal + cvdHeightTotal + rsiHeightTotal + margin.bottom;
+  // Calculate base chart height to fill container exactly, ensuring footer panels are pinned at the bottom
+  const chartHeight = Math.max(150, containerHeight - margin.top - margin.bottom - panelsHeightTotal);
+
+  // Single source of truth for each active panel's top Y. Inactive panels are absent.
+  const panelTopY: Record<string, number> = {};
+  {
+    let y = margin.top + chartHeight;
+    for (const id of activePanels) {
+      y += panelGap;
+      panelTopY[id] = y;
+      y += getPanelHeight(id);
+    }
+  }
+
+  // Backwards-compatible aliases used by guarded single-panel render code (canvas panels, ticks, resize).
+  const deltaTopY = panelTopY["delta"] ?? 0;
+  const cvdTopY = panelTopY["cvd"] ?? 0;
+  const rsiTopY = panelTopY["rsi"] ?? 0;
+
+  const totalSvgHeight = margin.top + chartHeight + panelsHeightTotal + margin.bottom;
+
+  // Move a footer panel up/down by swapping with its visible neighbour (clamped at edges).
+  const movePanel = (id: string, dir: -1 | 1) => {
+    setPanelOrder(prev => {
+      const active = prev.filter(x => activeIndicators[x]);
+      const ai = active.indexOf(id);
+      const ni = ai + dir;
+      if (ai < 0 || ni < 0 || ni >= active.length) return prev;
+      const neighbor = active[ni];
+      const next = [...prev];
+      const i1 = next.indexOf(id);
+      const i2 = next.indexOf(neighbor);
+      if (i1 < 0 || i2 < 0) return prev;
+      [next[i1], next[i2]] = [next[i2], next[i1]];
+      return next;
+    });
+  };
 
   // S1: crosshair/hover state moved from useState to useRef so mousemove does not
   // re-render the chart. Consumers updated to read refs / be updated imperatively.
@@ -605,6 +674,7 @@ export default function ClusterChart({
   const crosshairPriceTextRef = useRef<SVGTextElement>(null);
   const deltaValueSpanRef = useRef<HTMLSpanElement>(null);
   const cvdValueSpanRef = useRef<HTMLSpanElement>(null);
+  const rsiValueSpanRef = useRef<HTMLSpanElement>(null);
   const clusterTooltipRef = useRef<HTMLDivElement>(null);
   const clusterTooltipTitleWrapRef = useRef<HTMLSpanElement>(null);
   const clusterTooltipTitleTextRef = useRef<HTMLSpanElement>(null);
@@ -2244,7 +2314,7 @@ export default function ClusterChart({
   };
 
   // S1: update the imperative DOM overlays that used to read crosshair / hoveredClusterSearch from state.
-  const updateCrosshairDom = (ch: { x: number; y: number; price: number } | null, hoveredCandle: ClusterCandle | null, cvdPoint: { value: number } | null) => {
+  const updateCrosshairDom = (ch: { x: number; y: number; price: number } | null, hoveredCandle: ClusterCandle | null, cvdPoint: { value: number } | null, rsiPoint?: { value: number | null } | null) => {
     // Crosshair price label on the right price scale.
     if (crosshairPriceGroupRef.current) {
       if (ch) {
@@ -2276,6 +2346,16 @@ export default function ClusterChart({
       } else {
         cvdValueSpanRef.current.textContent = "--";
         cvdValueSpanRef.current.style.color = "#64748b";
+      }
+    }
+    // RSI value span (0–100, fixed scale).
+    if (rsiValueSpanRef.current) {
+      if (rsiPoint && rsiPoint.value !== null && rsiPoint.value !== undefined) {
+        rsiValueSpanRef.current.textContent = rsiPoint.value.toFixed(1);
+        rsiValueSpanRef.current.style.color = rsiLineColor;
+      } else {
+        rsiValueSpanRef.current.textContent = "--";
+        rsiValueSpanRef.current.style.color = "#64748b";
       }
     }
   };
@@ -2397,7 +2477,8 @@ export default function ClusterChart({
       }
 
       const cvdPoint = (colIdx >= 0 && colIdx < cumulativeDeltaPoints.length) ? cumulativeDeltaPoints[colIdx] : null;
-      updateCrosshairDom(crosshairRef.current, hoveredCandleForDom, cvdPoint);
+      const rsiPoint = (colIdx >= 0 && colIdx < rsiPoints.length) ? rsiPoints[colIdx] : null;
+      updateCrosshairDom(crosshairRef.current, hoveredCandleForDom, cvdPoint, rsiPoint);
 
       // --- DYNAMIC CLUSTER SEARCH HOVER DETECTION ---
       let foundCS: any = null;
@@ -3200,26 +3281,23 @@ export default function ClusterChart({
 
     // 1. Horizontal Grid Lines (Removed per user request to hide minor horizontal grid)
 
-    // Solid horizontal separator line between main chart panel and subcharts
-    if (activeIndicators.delta || activeIndicators.cvd) {
-      ctx.beginPath();
+    // Solid horizontal separators: between main chart and the first footer panel, and
+    // between each pair of stacked footer panels. Order-independent (driven by panelTopY).
+    if (activePanels.length > 0) {
       ctx.strokeStyle = isLight ? "rgba(148, 163, 184, 0.35)" : "rgba(255, 255, 255, 0.16)";
       ctx.lineWidth = 1.0;
       const sepY = Math.round(margin.top + chartHeight) + 0.5;
+      ctx.beginPath();
       ctx.moveTo(0, sepY);
       ctx.lineTo(scrollWidth, sepY);
       ctx.stroke();
-    }
-
-    // Dividers between Delta and CVD panels if both are active
-    if (activeIndicators.delta && activeIndicators.cvd) {
-      ctx.beginPath();
-      ctx.strokeStyle = isLight ? "rgba(148, 163, 184, 0.35)" : "rgba(255, 255, 255, 0.16)";
-      ctx.lineWidth = 1.0;
-      const midDividerY = Math.round(deltaTopY + deltaPanelHeight + panelGap / 2) + 0.5;
-      ctx.moveTo(0, midDividerY);
-      ctx.lineTo(scrollWidth, midDividerY);
-      ctx.stroke();
+      for (let i = 1; i < activePanels.length; i++) {
+        const dy = Math.round(panelTopY[activePanels[i]] - panelGap / 2) + 0.5;
+        ctx.beginPath();
+        ctx.moveTo(0, dy);
+        ctx.lineTo(scrollWidth, dy);
+        ctx.stroke();
+      }
     }
 
     // 2. Real-time active price tracker tag on chart grid
@@ -4511,6 +4589,7 @@ export default function ClusterChart({
     verticalScale,
     activeIndicators,
     indicatorSettings,
+    panelOrder,
     theme,
     candleType,
     candlePalette,
@@ -4562,7 +4641,8 @@ export default function ClusterChart({
       const colIdx = Math.floor((ch.x + vsl - margin.left) / (candleWidth + candleSpacing));
       const hoveredCandle = (colIdx >= 0 && colIdx < candles.length) ? candles[colIdx] : null;
       const cvdPoint = (colIdx >= 0 && colIdx < cumulativeDeltaPoints.length) ? cumulativeDeltaPoints[colIdx] : null;
-      updateCrosshairDom(ch, hoveredCandle, cvdPoint);
+      const rsiPoint = (colIdx >= 0 && colIdx < rsiPoints.length) ? rsiPoints[colIdx] : null;
+      updateCrosshairDom(ch, hoveredCandle, cvdPoint, rsiPoint);
     } else {
       updateCrosshairDom(null, null, null);
     }
@@ -4833,7 +4913,7 @@ export default function ClusterChart({
           alt=""
           className="absolute pointer-events-none select-none z-10 h-7 w-auto opacity-[0.20]"
           style={{
-            bottom: `${margin.bottom + deltaHeightTotal + cvdHeightTotal + 26}px`,
+            bottom: `${margin.bottom + panelsHeightTotal + 26}px`,
             right: `${(isMobile ? 58 : 90) + 16}px`,
           }}
         />
@@ -4857,11 +4937,14 @@ export default function ClusterChart({
           const rect = e.currentTarget.getBoundingClientRect();
           const clickY = e.clientY - rect.top;
 
-          if (activeIndicators.delta && clickY >= deltaTopY && clickY < cvdTopY) {
+          const inPanelZone = (id: string) =>
+            activeIndicators[id] && panelTopY[id] != null &&
+            clickY >= panelTopY[id] && clickY < panelTopY[id] + getPanelHeight(id);
+          if (inPanelZone("delta")) {
             setIsDraggingDeltaScale(true);
             startDeltaScaleYRef.current = e.clientY;
             startDeltaScaleRef.current = deltaScale;
-          } else if (activeIndicators.cvd && clickY >= cvdTopY) {
+          } else if (inPanelZone("cvd")) {
             setIsDraggingCvdScale(true);
             startCvdScaleYRef.current = e.clientY;
             startCvdScaleRef.current = cvdScale;
@@ -4877,11 +4960,14 @@ export default function ClusterChart({
           const t = e.touches[0];
           const rect = e.currentTarget.getBoundingClientRect();
           const clickY = t.clientY - rect.top;
-          if (activeIndicators.delta && clickY >= deltaTopY && clickY < cvdTopY) {
+          const inPanelZoneTouch = (id: string) =>
+            activeIndicators[id] && panelTopY[id] != null &&
+            clickY >= panelTopY[id] && clickY < panelTopY[id] + getPanelHeight(id);
+          if (inPanelZoneTouch("delta")) {
             isDraggingDeltaScaleRefTouch.current = true;
             startDeltaScaleYRef.current = t.clientY;
             startDeltaScaleRef.current = deltaScale;
-          } else if (activeIndicators.cvd && clickY >= cvdTopY) {
+          } else if (inPanelZoneTouch("cvd")) {
             isDraggingCvdScaleRefTouch.current = true;
             startCvdScaleYRef.current = t.clientY;
             startCvdScaleRef.current = cvdScale;
@@ -5061,8 +5147,8 @@ export default function ClusterChart({
                   return null;
                 })}
 
-              {/* Panel Dividers for right pricing panel */}
-              {(activeIndicators.delta || activeIndicators.cvd || activeIndicators.rsi) && (
+              {/* Panel Dividers for right pricing panel — order-independent (driven by panelTopY) */}
+              {activePanels.length > 0 && (
                 <line
                   x1={0}
                   y1={margin.top + chartHeight}
@@ -5072,26 +5158,17 @@ export default function ClusterChart({
                   strokeWidth="1"
                 />
               )}
-              {activeIndicators.delta && activeIndicators.cvd && (
+              {activePanels.slice(1).map((id) => (
                 <line
+                  key={`divider-${id}`}
                   x1={0}
-                  y1={deltaTopY + deltaPanelHeight + panelGap / 2}
+                  y1={panelTopY[id] - panelGap / 2}
                   x2={scaleWidth}
-                  y2={deltaTopY + deltaPanelHeight + panelGap / 2}
+                  y2={panelTopY[id] - panelGap / 2}
                   stroke={isLight ? "rgba(148, 163, 184, 0.35)" : "rgba(255, 255, 255, 0.16)"}
                   strokeWidth="1"
                 />
-              )}
-              {activeIndicators.rsi && (activeIndicators.delta || activeIndicators.cvd) && (
-                <line
-                  x1={0}
-                  y1={rsiTopY - panelGap / 2}
-                  x2={scaleWidth}
-                  y2={rsiTopY - panelGap / 2}
-                  stroke={isLight ? "rgba(148, 163, 184, 0.35)" : "rgba(255, 255, 255, 0.16)"}
-                  strokeWidth="1"
-                />
-              )}
+              ))}
 
               {/* Delta subchart Y-axis labels */}
               {activeIndicators.delta && (
@@ -5266,136 +5343,87 @@ export default function ClusterChart({
         })()}
       </div>
 
-      {/* Absolute Pinned Indicators Control Overlays (Top-right of subcharts) */}
-      {activeIndicators.delta && (
-        <div 
-          className="absolute z-30 flex items-center gap-2 px-3 py-1 rounded-lg border shadow-xl backdrop-blur-md transition-all duration-300 select-none"
-          style={{
-            top: `${deltaTopY + 1}px`,
-            right: "100px", // Pinned just to the left of the 90px price scale panel
-            backgroundColor: isLight ? "rgba(241, 245, 249, 0.9)" : "rgba(15, 23, 42, 0.75)",
-            borderColor: isLight ? "rgba(203, 213, 225, 0.8)" : "rgba(255, 255, 255, 0.08)",
-          }}
-        >
-          {/* Label / Dynamic value indicator */}
-          <div className="flex items-center gap-1.5 font-mono text-[10px] sm:text-[11px] font-bold tracking-wider">
-            <span className={isLight ? "text-slate-800" : "text-white"}>(PROCLUSTER) DELTA</span>
-            {/* S1: Delta value — written imperatively in handleSvgMouseMove via ref. */}
-            <span ref={deltaValueSpanRef} className="text-slate-500">--</span>
+      {/* Absolute Pinned Indicators Control Overlays (Top-right of subcharts).
+          Rendered in a single loop over active footer panels so order/arrows/RSI work automatically. */}
+      {activePanels.map((id, idx) => {
+        const meta =
+          id === "delta" ? { label: "(PROCLUSTER) DELTA", dotColor: null as string | null, valueRef: deltaValueSpanRef } :
+          id === "cvd"   ? { label: "(PROCLUSTER) CVD",   dotColor: cvdLineColor as string | null, valueRef: cvdValueSpanRef } :
+          id === "rsi"   ? { label: "(PROCLUSTER) RSI",   dotColor: rsiLineColor as string | null, valueRef: rsiValueSpanRef } :
+          null;
+        if (!meta) return null;
+        const isFirst = idx === 0;
+        const isLast = idx === activePanels.length - 1;
+        const iconBtnCls = `p-0.5 rounded transition-all duration-150 cursor-pointer ${
+          isLight ? "hover:bg-slate-200 text-slate-500 hover:text-slate-800" : "hover:bg-white/10 text-slate-400 hover:text-white"
+        }`;
+        const arrowBtnCls = (disabled: boolean) => `p-0.5 rounded transition-all duration-150 ${
+          disabled ? "opacity-30 cursor-default" : "cursor-pointer"
+        } ${isLight ? "hover:bg-slate-200 text-slate-500 hover:text-slate-800" : "hover:bg-white/10 text-slate-400 hover:text-white"}`;
+        return (
+          <div
+            key={`plate-${id}`}
+            className="absolute z-30 flex items-center gap-2 px-3 py-1 rounded-lg border shadow-xl backdrop-blur-md transition-all duration-300 select-none"
+            style={{
+              top: `${panelTopY[id] + 1}px`,
+              right: "100px", // Pinned just to the left of the 90px price scale panel
+              backgroundColor: isLight ? "rgba(241, 245, 249, 0.9)" : "rgba(15, 23, 42, 0.75)",
+              borderColor: isLight ? "rgba(203, 213, 225, 0.8)" : "rgba(255, 255, 255, 0.08)",
+            }}
+          >
+            {/* Label / Dynamic value indicator */}
+            <div className="flex items-center gap-1.5 font-mono text-[10px] sm:text-[11px] font-bold tracking-wider">
+              {meta.dotColor && (
+                <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: meta.dotColor }} />
+              )}
+              <span className={isLight ? "text-slate-800" : "text-white"}>{meta.label}</span>
+              {/* S1: value — written imperatively in handleSvgMouseMove via ref. */}
+              <span ref={meta.valueRef} className="text-slate-500">--</span>
+            </div>
+
+            <div className={`w-[1px] h-3 ${isLight ? "bg-slate-300" : "bg-white/10"}`} />
+
+            {/* Control Buttons */}
+            <div className="flex items-center gap-1.5">
+              <button
+                onClick={() => { if (!isFirst) movePanel(id, -1); }}
+                disabled={isFirst}
+                className={arrowBtnCls(isFirst)}
+                title="Move panel up"
+              >
+                <ChevronUp className="w-3.5 h-3.5" />
+              </button>
+
+              <button
+                onClick={() => { if (!isLast) movePanel(id, 1); }}
+                disabled={isLast}
+                className={arrowBtnCls(isLast)}
+                title="Move panel down"
+              >
+                <ChevronDown className="w-3.5 h-3.5" />
+              </button>
+
+              <button onClick={() => onToggleVisibility?.(id)} className={iconBtnCls} title="Hide panel">
+                <Eye className="w-3.5 h-3.5" />
+              </button>
+
+              <button onClick={() => onShowIndicatorsSettings?.(id)} className={iconBtnCls} title="Panel settings">
+                <Settings className="w-3.5 h-3.5" />
+              </button>
+
+              <button
+                onClick={() => onRemoveIndicator?.(id)}
+                className={`p-0.5 rounded transition-all duration-150 cursor-pointer ${
+                  isLight ? "hover:bg-slate-300 hover:text-rose-600 text-slate-500" : "hover:bg-rose-500/20 hover:text-rose-450 text-slate-400"
+                }`}
+                title="Remove panel"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+              </button>
+            </div>
           </div>
-
-          <div className={`w-[1px] h-3 ${isLight ? "bg-slate-300" : "bg-white/10"}`} />
-
-          {/* Control Buttons */}
-          <div className="flex items-center gap-1.5">
-            <button
-              onClick={() => onToggleVisibility?.("delta")}
-              className={`p-0.5 rounded transition-all duration-150 cursor-pointer ${
-                isLight 
-                  ? "hover:bg-slate-200 text-slate-500 hover:text-slate-800" 
-                  : "hover:bg-white/10 text-slate-400 hover:text-white"
-              }`}
-              title="Hide Delta"
-            >
-              <Eye className="w-3.5 h-3.5" />
-            </button>
-
-            <button
-              onClick={() => onShowIndicatorsSettings?.("delta")}
-              className={`p-0.5 rounded transition-all duration-150 cursor-pointer ${
-                isLight 
-                  ? "hover:bg-slate-200 text-slate-500 hover:text-slate-800" 
-                  : "hover:bg-white/10 text-slate-400 hover:text-white"
-              }`}
-              title="Delta Settings"
-            >
-              <Settings className="w-3.5 h-3.5" />
-            </button>
-
-            <button
-              onClick={() => onRemoveIndicator?.("delta")}
-              className={`p-0.5 rounded transition-all duration-150 cursor-pointer ${
-                isLight 
-                  ? "hover:bg-slate-300 hover:text-rose-600 text-slate-500" 
-                  : "hover:bg-rose-500/20 hover:text-rose-450 text-slate-400"
-              }`}
-              title="Remove Delta Overlay"
-            >
-              <Trash2 className="w-3.5 h-3.5" />
-            </button>
-          </div>
-        </div>
-      )}
-
-      {activeIndicators.cvd && (
-        <div 
-          className="absolute z-30 flex items-center gap-2 px-3 py-1 rounded-lg border shadow-xl backdrop-blur-md transition-all duration-300 select-none"
-          style={{
-            top: `${cvdTopY + 1}px`,
-            right: "100px",
-            backgroundColor: isLight ? "rgba(241, 245, 249, 0.9)" : "rgba(15, 23, 42, 0.75)",
-            borderColor: isLight ? "rgba(203, 213, 225, 0.8)" : "rgba(255, 255, 255, 0.08)",
-          }}
-        >
-          {/* Label / Dynamic value indicator */}
-          <div className="flex items-center gap-1.5 font-mono text-[10px] sm:text-[11px] font-bold tracking-wider">
-            <span 
-              className="w-1.5 h-1.5 rounded-full" 
-              style={{ backgroundColor: cvdLineColor }} 
-            />
-            <span className={isLight ? "text-slate-800" : "text-white"}>(PROCLUSTER) CVD</span>
-            {/* S1: CVD value — written imperatively in handleSvgMouseMove via ref. */}
-            <span
-              ref={cvdValueSpanRef}
-              className="font-extrabold"
-              style={{ color: "#64748b" }}
-            >
-              --
-            </span>
-          </div>
-
-          <div className={`w-[1px] h-3 ${isLight ? "bg-slate-300" : "bg-white/10"}`} />
-
-          {/* Control Buttons */}
-          <div className="flex items-center gap-1.5">
-            <button
-              onClick={() => onToggleVisibility?.("cvd")}
-              className={`p-0.5 rounded transition-all duration-150 cursor-pointer ${
-                isLight 
-                  ? "hover:bg-slate-200 text-slate-500 hover:text-slate-800" 
-                  : "hover:bg-white/10 text-slate-400 hover:text-white"
-              }`}
-              title="Hide CVD"
-            >
-              <Eye className="w-3.5 h-3.5" />
-            </button>
-
-            <button
-              onClick={() => onShowIndicatorsSettings?.("cvd")}
-              className={`p-0.5 rounded transition-all duration-150 cursor-pointer ${
-                isLight 
-                  ? "hover:bg-slate-200 text-slate-500 hover:text-slate-800" 
-                  : "hover:bg-white/10 text-slate-400 hover:text-white"
-              }`}
-              title="CVD Settings"
-            >
-              <Settings className="w-3.5 h-3.5" />
-            </button>
-
-            <button
-              onClick={() => onRemoveIndicator?.("cvd")}
-              className={`p-0.5 rounded transition-all duration-150 cursor-pointer ${
-                isLight 
-                  ? "hover:bg-slate-300 hover:text-rose-600 text-slate-500" 
-                  : "hover:bg-rose-500/20 hover:text-rose-450 text-slate-400"
-              }`}
-              title="Remove CVD"
-            >
-              <Trash2 className="w-3.5 h-3.5" />
-            </button>
-          </div>
-        </div>
-      )}
+        );
+      })}
 
       {/* Interactive Drag Handles / Resizing Splitters */}
       {activeIndicators.delta && (
