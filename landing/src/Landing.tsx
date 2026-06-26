@@ -23,7 +23,7 @@ function Nav() {
             <a href="#faq" className="hover:text-white transition-colors">FAQ</a>
             <a href="#" className="hover:text-white transition-colors">Тарифы</a>
           </div>
-          <a href="https://chart.procluster.online" target="_blank" rel="noopener noreferrer" className="term-btn rounded-lg px-4 py-2 text-sm font-display font-semibold">
+          <a href="https://chart.procluster.online" className="term-btn rounded-lg px-4 py-2 text-sm font-display font-semibold">
             Открыть терминал
           </a>
         </nav>

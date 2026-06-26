@@ -15,7 +15,7 @@ interface UserDropdownProps {
   onOpenHome?: () => void
 }
 
-export function UserDropdown({ onOpenProfile, onOpenAdmin, onOpenLogin, onOpenHome }: UserDropdownProps) {
+export function UserDropdown({ onOpenProfile, onOpenAdmin, onOpenLogin }: UserDropdownProps) {
   const { user, logout } = useAuthContext()
   const { t, language, setLanguage } = useTranslation()
   const { theme, toggleTheme } = useTheme()
@@ -229,7 +229,7 @@ export function UserDropdown({ onOpenProfile, onOpenAdmin, onOpenLogin, onOpenHo
                   </button>
 
                   <button
-                    onClick={() => { setDropdownOpen(false); if (onOpenHome) onOpenHome() }}
+                    onClick={() => { setDropdownOpen(false); window.location.href = 'https://procluster.online' }}
                     className={`flex items-center gap-3 w-full px-3 py-2 rounded-2xl text-[12px] font-bold cursor-pointer transition text-left ${
                       isLight ? 'text-slate-700 hover:text-slate-900 hover:bg-slate-100' : 'text-slate-300 hover:text-white hover:bg-white/5'
                     }`}
@@ -252,7 +252,7 @@ export function UserDropdown({ onOpenProfile, onOpenAdmin, onOpenLogin, onOpenHo
                   <div className={`my-1.5 border-t ${isLight ? 'border-slate-100' : 'border-white/5'}`} />
                   <div className="flex items-center justify-around gap-2 px-1">
                     <a
-                      href="https://t.me/your_telegram_channel"
+                      href="https://t.me/PROCLUSTER"
                       target="_blank"
                       rel="noopener noreferrer"
                       className={`flex items-center justify-center gap-2 flex-1 py-1.5 rounded-xl text-[10.5px] font-bold transition ${
@@ -263,7 +263,7 @@ export function UserDropdown({ onOpenProfile, onOpenAdmin, onOpenLogin, onOpenHo
                       <span>Telegram</span>
                     </a>
                     <a
-                      href="https://youtube.com/@your_youtube_channel"
+                      href="https://www.youtube.com/@PRO_CLSTR"
                       target="_blank"
                       rel="noopener noreferrer"
                       className={`flex items-center justify-center gap-2 flex-1 py-1.5 rounded-xl text-[10.5px] font-bold transition ${

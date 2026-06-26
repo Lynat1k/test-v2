@@ -48,10 +48,10 @@ export function Hero() {
         </motion.p>
 
         <motion.div variants={item} className="mt-8 flex flex-wrap items-center gap-3">
-          <a href="https://chart.procluster.online" target="_blank" rel="noopener noreferrer" className="term-btn rounded-xl px-6 py-3.5 font-display font-semibold inline-flex items-center gap-2">
+          <a href="https://chart.procluster.online" className="term-btn rounded-xl px-6 py-3.5 font-display font-semibold inline-flex items-center gap-2">
             Открыть терминал <ArrowRight className="w-4 h-4" />
           </a>
-          <a href="https://chart.procluster.online" target="_blank" rel="noopener noreferrer" className="glass-btn rounded-xl px-6 py-3.5 font-display font-medium text-white/90 inline-flex items-center gap-2">
+          <a href="https://chart.procluster.online" className="glass-btn rounded-xl px-6 py-3.5 font-display font-medium text-white/90 inline-flex items-center gap-2">
             Попробовать бесплатно
           </a>
         </motion.div>

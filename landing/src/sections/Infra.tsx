@@ -31,7 +31,7 @@ export function Infra() {
             <p className="text-muted mt-5 max-w-md">
               Данные берём напрямую с Binance, а наши серверы стоят в Гонконге — рядом с биржевыми. Меньше задержка, чище поток, точнее кластеры.
             </p>
-            <a href="https://chart.procluster.online" target="_blank" rel="noopener noreferrer" className="term-btn rounded-xl px-6 py-3.5 font-display font-semibold inline-flex items-center gap-2 mt-8">
+            <a href="https://chart.procluster.online" className="term-btn rounded-xl px-6 py-3.5 font-display font-semibold inline-flex items-center gap-2 mt-8">
               Попробовать бесплатно <ArrowRight className="w-4 h-4" />
             </a>
           </div>
