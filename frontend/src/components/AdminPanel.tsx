@@ -774,6 +774,7 @@ function TickerBlock({ isLight }: { isLight: boolean }) {
 
 function CompressionBlock({ isLight }: { isLight: boolean }) {
   const { t } = useTranslation()
+  const { invalidateAdminDefaults } = useChartControls()
   const [tickers, setTickers] = useState<Ticker[]>([])
   const [selected, setSelected] = useState<string>('')
   const [compressions, setCompressions] = useState<Record<string, Record<string, number>>>({})
@@ -845,6 +846,7 @@ function CompressionBlock({ isLight }: { isLight: boolean }) {
     }
     try {
       await apiUpsertCompressions(selected, all)
+      invalidateAdminDefaults(selected)
       setSaveMsg(t('admin.database.compressionsSaved'))
     } catch (e: any) {
       setSaveErr(e?.message || JSON.stringify(e))

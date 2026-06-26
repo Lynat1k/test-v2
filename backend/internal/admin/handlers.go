@@ -28,6 +28,12 @@ type AdminHandler struct {
 	metricsHist *MetricsHistory
 	jobRegistry *JobRegistry
 
+	// RefreshCompressions, если задан, вызывается после успешного
+	// UpsertDefaultCompressionsBatch — обновляет in-memory кэш
+	// activeCompressions у api.Server, чтобы публичный
+	// /api/v1/compressions сразу отдавал свежие данные.
+	RefreshCompressions func()
+
 	chSizeErrMu    sync.Mutex
 	chSizeLastErr  string
 	chSizeLastTime time.Time
@@ -369,6 +375,10 @@ func (h *AdminHandler) handleUpsertCompressions(w http.ResponseWriter, r *http.R
 	}
 
 	log.Printf("[admin] upsert compressions OK: %s, %d rows written", symbol, len(req.Compressions))
+
+	if h.RefreshCompressions != nil {
+		h.RefreshCompressions()
+	}
 
 	userID, _ := r.Context().Value(auth.UserIDKey).(string)
 	LogAdminAction(r.Context(), h.db, userID, "upsert_compressions", symbol, "", r.RemoteAddr)

@@ -3,6 +3,8 @@ package api
 import (
 	"net/http"
 	"strings"
+
+	"github.com/procluster/procluster/internal/admin"
 )
 
 type publicCompressionEntry struct {
@@ -21,7 +23,12 @@ func (s *Server) handleGetPublicCompressions(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	entries := s.activeCompressions[symbol]
+	s.comprMu.RLock()
+	src := s.activeCompressions[symbol]
+	entries := make([]admin.DefaultCompression, len(src))
+	copy(entries, src)
+	s.comprMu.RUnlock()
+
 	out := make([]publicCompressionEntry, 0, len(entries))
 	for _, e := range entries {
 		out = append(out, publicCompressionEntry{

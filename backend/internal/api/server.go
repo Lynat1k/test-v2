@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"log"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/procluster/procluster/internal/admin"
@@ -31,7 +32,8 @@ type Server struct {
 	tierHistoryLimits     map[string]time.Duration
 	tierCompressionLocked map[string]bool
 	activeTickers         []admin.Ticker
-	activeCompressions    map[string][]admin.DefaultCompression // key: symbol
+	comprMu               sync.RWMutex
+	activeCompressions    map[string][]admin.DefaultCompression // key: symbol — guarded by comprMu
 	betaEnabled           func() bool
 }
 
@@ -52,7 +54,9 @@ func (s *Server) SetDefaultCompressions(compressions []admin.DefaultCompression)
 	for _, c := range compressions {
 		m[c.Symbol] = append(m[c.Symbol], c)
 	}
+	s.comprMu.Lock()
 	s.activeCompressions = m
+	s.comprMu.Unlock()
 }
 
 func (s *Server) SetBetaEnabled(fn func() bool) {

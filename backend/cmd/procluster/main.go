@@ -170,6 +170,15 @@ func main() {
 	metricsHist.StartSampler(ctx)
 
 	adminHandler := admin.NewAdminHandler(sqliteDB, authCfg, repo, rdb, logBuf, metricsHist)
+	adminHandler.RefreshCompressions = func() {
+		allCompr, err := admin.GetAllDefaultCompressions(context.Background(), sqliteDB)
+		if err != nil {
+			log.Printf("[main] refresh default compressions: %v", err)
+			return
+		}
+		srv.SetDefaultCompressions(allCompr)
+		log.Printf("[main] refreshed default compressions: %d entries", len(allCompr))
+	}
 	adminHandler.RegisterAdminRoutes(srv.Mux())
 	adminHandler.RegisterPublicRoutes(srv.Mux())
 

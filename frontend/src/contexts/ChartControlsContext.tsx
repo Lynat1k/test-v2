@@ -82,6 +82,9 @@ interface ChartControlsValue {
   getCompressionLevels: () => number[]
   // Absolute admin-default multiplier for the active slot's symbol + given market+tf, or undefined.
   getAdminDefaultCompression: (market: MarketType, tf: string) => number | undefined
+  // Drop the cached admin-defaults entry for a symbol — the fetch effect will
+  // re-request it on next render. Called after the admin saves new defaults.
+  invalidateAdminDefaults: (symbol: string) => void
 }
 
 const STORAGE_KEY = 'procluster_chart_controls'
@@ -404,11 +407,22 @@ export function ChartControlsProvider({ children }: { children: ReactNode }) {
     [active.symbol, adminDefaults]
   )
 
+  const invalidateAdminDefaults = useCallback((symbol: string) => {
+    const sym = symbol.toUpperCase()
+    adminFetchInflightRef.current.delete(sym)
+    setAdminDefaults(prev => {
+      if (prev[sym] === undefined) return prev
+      const next = { ...prev }
+      delete next[sym]
+      return next
+    })
+  }, [])
+
   return (
     <ChartControlsContext.Provider value={{
       activeSlot, setActiveSlot, getSlot, showIndicatorsModal,
       setSymbol, setMarket, setTimeframe, setCandleMode, setPalette, setVolumeMode, setCompression, setShowIndicatorsModal,
-      getTickerConfig, getCompressionLevels, getAdminDefaultCompression,
+      getTickerConfig, getCompressionLevels, getAdminDefaultCompression, invalidateAdminDefaults,
     }}>
       {children}
     </ChartControlsContext.Provider>
