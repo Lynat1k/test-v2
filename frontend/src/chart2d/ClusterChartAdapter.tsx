@@ -40,6 +40,8 @@ export interface ClusterChartAdapterProps {
   candlePalette?: "default" | "alternative";
   abbreviateNumbers?: boolean;
   onToggleAbbreviateNumbers?: () => void;
+  hideClusterNumbers?: boolean;
+  onToggleHideClusterNumbers?: () => void;
   indicators?: import("@/chart2d/types").Indicator[] | undefined;
   activeIndicators?: Record<string, boolean>;
   onToggleIndicator?: (id: string) => void;
@@ -106,6 +108,8 @@ export default function ClusterChartAdapter({
   candlePalette = "default",
   abbreviateNumbers = false,
   onToggleAbbreviateNumbers,
+  hideClusterNumbers = false,
+  onToggleHideClusterNumbers,
   indicators,
   activeIndicators,
   onToggleIndicator,
@@ -384,6 +388,8 @@ export default function ClusterChartAdapter({
       candlePalette={candlePalette}
       abbreviateNumbers={abbreviateNumbers}
       {...(onToggleAbbreviateNumbers ? { onToggleAbbreviateNumbers } : {})}
+      hideClusterNumbers={hideClusterNumbers}
+      {...(onToggleHideClusterNumbers ? { onToggleHideClusterNumbers } : {})}
       timeframe={timeframe}
       language={language}
       workspaceLayout={workspaceLayout ?? "1"}

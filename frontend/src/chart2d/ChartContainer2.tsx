@@ -71,6 +71,12 @@ export function ChartContainer2({
     setSetting(`clusterAbbreviate_${symbol}`, { ...existing, [market]: !(existing[market] === true) })
   }, [getSetting, setSetting, symbol, market])
 
+  const hideClusterNumbers = getSetting<Record<string, boolean>>(`clusterHideNumbers_${symbol}`, {})[market] === true
+  const onToggleHideClusterNumbers = useCallback(() => {
+    const existing = getSetting<Record<string, boolean>>(`clusterHideNumbers_${symbol}`, {})
+    setSetting(`clusterHideNumbers_${symbol}`, { ...existing, [market]: !(existing[market] === true) })
+  }, [getSetting, setSetting, symbol, market])
+
   // Server-driven base + price-tick for this slot's symbol/market — feeds the unified
   // priceStep = priceTick * base * level used by both live and history.
   const tickerCfg = resolveTickerConfig(symbol)
@@ -92,6 +98,8 @@ export function ChartContainer2({
         candlePalette={palette}
         abbreviateNumbers={abbreviateNumbers}
         onToggleAbbreviateNumbers={onToggleAbbreviateNumbers}
+        hideClusterNumbers={hideClusterNumbers}
+        onToggleHideClusterNumbers={onToggleHideClusterNumbers}
         indicators={indicators}
         activeIndicators={activeIndicators}
         onToggleIndicator={onToggleIndicator}

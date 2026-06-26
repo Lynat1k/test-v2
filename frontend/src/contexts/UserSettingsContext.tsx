@@ -54,7 +54,7 @@ export function UserSettingsProvider({ children }: { children: ReactNode }) {
         // overwrite the logged-in user's saved choices (handled per-key, leaving other
         // settings local-wins as before).
         for (const k of Object.keys(parsed)) {
-          if (k.startsWith('chartCompression_') || k.startsWith('clusterAbbreviate_')) merged[k] = parsed[k]
+          if (k.startsWith('chartCompression_') || k.startsWith('clusterAbbreviate_') || k.startsWith('clusterHideNumbers_')) merged[k] = parsed[k]
         }
 
         settingsRef.current = merged

@@ -2223,3 +2223,42 @@ user-tf → user-all-tf → admin-tf → admin-all-tf → system.
   не видят друг друга до переключения ТФ).
 - "Удалить со всех ТФ" UI (сейчас удаление работает только для
   текущего ТФ; пользователь вручную обходит ТФ).
+
+---
+
+## 2026-06-26 — Тоггл «Скрыть числа в кластерах» (per symbol+market)
+
+Новый сеттинг `clusterHideNumbers_<symbol>` зеркалит `clusterAbbreviate_`: ключ
+вида `{ [market]: boolean }`, сохраняется через UserSettingsContext (сервер для
+авторизованных, localStorage для гостей). По умолчанию выключен. При включении
+гейт `hideFootprintNumbers` обрывает отрисовку цифр в ячейках футпринта/кластеров
+до форматирования — ячейки и обводка остаются. Авто-скрытие при >70 свечей
+сохранено. Если включены оба тоггла («сокращение» + «скрыть») — «скрыть»
+побеждает (гейт раньше форматирования).
+
+UI-тоггл добавлен в выпадающее меню «Настройки графика» сразу после блока
+«Сокращение чисел». Тексты на RU/EN/KZ:
+- RU: «Скрыть числа в кластерах» / «Не показывать цифры внутри ячеек»
+- EN: «Hide cluster numbers» / «Don't show numbers inside cells»
+- KZ: «Кластерлердегі сандарды жасыру» / «Ұяшықтардағы сандарды көрсетпеу»
+
+### Файлы
+- `frontend/src/chart2d/ChartContainer2.tsx` — добавлены state+handler по
+  паттерну abbreviateNumbers, проброс в ClusterChartAdapter.
+- `frontend/src/chart2d/ClusterChartAdapter.tsx` — пропсы
+  `hideClusterNumbers` / `onToggleHideClusterNumbers`, проброс в ClusterChart.
+- `frontend/src/chart2d/ClusterChart.tsx` — пропсы, расширение гейта
+  `hideFootprintNumbers = visibleCandlesCount > 70 || hideClusterNumbers`,
+  новый UI-блок свитча.
+- `frontend/src/contexts/UserSettingsContext.tsx` — добавлен префикс
+  `clusterHideNumbers_` в server-priority merge при логине.
+
+### Verification
+- `npx tsc --noEmit` — без ошибок.
+- `npx vite build` — успешно (2933 modules, 641ms).
+- dev-сервер стартовал (vite 8.0.16, порт 5174) без HMR-ошибок; остановлен.
+
+### TODO
+- Ручная проверка в браузере: тоггл виден/работает на режимах
+  футпринт+кластеры, состояние сохраняется после F5 (LS для гостя,
+  сервер для логина), раздельность futures/spot.

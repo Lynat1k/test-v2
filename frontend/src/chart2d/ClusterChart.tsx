@@ -71,6 +71,8 @@ interface ClusterChartProps {
   candlePalette?: "default" | "alternative";
   abbreviateNumbers?: boolean;
   onToggleAbbreviateNumbers?: () => void;
+  hideClusterNumbers?: boolean;
+  onToggleHideClusterNumbers?: () => void;
   timeframe?: string;
   onToggleIndicator?: (id: string) => void;
   onToggleVisibility?: (id: string) => void;
@@ -111,6 +113,8 @@ export default function ClusterChart({
   candlePalette = "default",
   abbreviateNumbers = false,
   onToggleAbbreviateNumbers,
+  hideClusterNumbers = false,
+  onToggleHideClusterNumbers,
   timeframe,
   onToggleIndicator,
   onToggleVisibility,
@@ -3252,7 +3256,7 @@ export default function ClusterChart({
     const startIdx = Math.max(0, Math.floor((visibleScrollLeft - margin.left - candleWidth) / (candleWidth + candleSpacing)));
     const endIdx = Math.min(candles.length - 1, Math.ceil((visibleScrollLeft + viewportWidth - margin.left) / (candleWidth + candleSpacing)));
     const visibleCandlesCount = endIdx - startIdx + 1;
-    const hideFootprintNumbers = visibleCandlesCount > 70;
+    const hideFootprintNumbers = visibleCandlesCount > 70 || hideClusterNumbers;
 
     // R: visibleMaxCellVol / visibleMaxSingleVol were three chained useMemos that
     // refired every throttled scroll-state push. They are consumed only here —
@@ -5314,6 +5318,28 @@ export default function ClusterChart({
                   >
                     <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform shadow-sm ${
                       abbreviateNumbers ? "translate-x-4.5" : "translate-x-0.5"
+                    }`} />
+                  </button>
+                </div>
+              </div>
+
+              {/* Hide cluster numbers toggle (per symbol+market; no-op in provider-less preview) */}
+              <div className={`p-3 rounded-lg border ${isLight ? "bg-slate-50 border-slate-200" : "bg-white/[0.03] border-white/5"}`}>
+                <div className="flex items-center justify-between gap-3">
+                  <div className="flex flex-col gap-0.5">
+                    <span className="text-xs font-bold">{language === "RU" ? "Скрыть числа в кластерах" : language === "KZ" ? "Кластерлердегі сандарды жасыру" : "Hide cluster numbers"}</span>
+                    <span className={`text-[10px] ${isLight ? "text-slate-500" : "text-slate-400"}`}>
+                      {language === "RU" ? "Не показывать цифры внутри ячеек" : language === "KZ" ? "Ұяшықтардағы сандарды көрсетпеу" : "Don't show numbers inside cells"}
+                    </span>
+                  </div>
+                  <button
+                    onClick={() => onToggleHideClusterNumbers?.()}
+                    className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors cursor-pointer shrink-0 ${
+                      hideClusterNumbers ? "bg-amber-500" : (isLight ? "bg-slate-300" : "bg-slate-700")
+                    }`}
+                  >
+                    <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform shadow-sm ${
+                      hideClusterNumbers ? "translate-x-4.5" : "translate-x-0.5"
                     }`} />
                   </button>
                 </div>
