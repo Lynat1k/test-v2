@@ -165,6 +165,22 @@ export async function apiGetCompressionDefaults(symbol: string): Promise<PublicC
   return request<PublicCompressionDefault[]>(`/compressions?symbol=${encodeURIComponent(symbol)}`)
 }
 
+// Shape returned by GET /api/v1/tickers — only the fields the chart needs.
+export interface ServerTicker {
+  symbol: string
+  name?: string
+  futurePriceTick: number
+  spotPriceTick: number
+  compressionFutures: number
+  compressionSpot: number
+}
+
+// GET /api/v1/tickers is betaGate(authed) — on prod with beta on it requires a token.
+// Use the authed request() helper (sends Authorization) so it works like /compressions.
+export async function apiGetTickers(): Promise<ServerTicker[]> {
+  return request<ServerTicker[]>('/tickers')
+}
+
 export async function apiPutSettings(settingsJson: string) {
   await request('/user/settings', {
     method: 'PUT',

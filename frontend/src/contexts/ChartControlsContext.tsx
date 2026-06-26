@@ -1,7 +1,7 @@
 import { createContext, useContext, useState, useEffect, useCallback, useRef, type ReactNode } from 'react'
 import type { CandleMode, VolumeMode } from '@/chart-engine'
 import { useUserSettings } from '@/contexts/UserSettingsContext'
-import { apiGetCompressionDefaults } from '@/features/auth/api'
+import { apiGetCompressionDefaults, apiGetTickers, type ServerTicker } from '@/features/auth/api'
 import { useAuthContext } from '@/features/auth/AuthContext'
 
 export type MarketType = 'futures' | 'spot'
@@ -53,15 +53,6 @@ const DEFAULT_SLOT: ChartSlot = {
   compressionByTf: {},
 }
 
-// Shape returned by GET /api/v1/tickers — only the fields we care about here.
-interface ServerTicker {
-  symbol: string
-  name?: string
-  futurePriceTick: number
-  spotPriceTick: number
-  compressionFutures: number
-  compressionSpot: number
-}
 
 interface ChartControlsValue {
   activeSlot: 0 | 1
@@ -188,7 +179,6 @@ export function ChartControlsProvider({ children }: { children: ReactNode }) {
   // Per-session explicit user picks of (symbol, market, tf). Protects against late
   // admin/server overrides from overwriting an in-session manual choice.
   const explicitChoiceRef = useRef<Set<string>>(new Set())
-  const fetchedTickersRef = useRef(false)
   const adminFetchInflightRef = useRef<Set<string>>(new Set())
 
   const { settings, getSetting, setSetting } = useUserSettings()
@@ -198,14 +188,13 @@ export function ChartControlsProvider({ children }: { children: ReactNode }) {
     saveToStorage(slots, activeSlot)
   }, [slots, activeSlot])
 
-  // Fetch the full ticker list from the server. Re-usable: called once on mount and
-  // again via refreshTickers() after the admin adds/updates/deletes a ticker.
+  // Fetch the full ticker list from the server via the authed request() helper (sends
+  // the Authorization token). /api/v1/tickers is betaGate(authed) — on prod with beta
+  // on a tokenless fetch 401s, leaving serverTickers empty and base→fallback (the bug).
   const loadTickers = useCallback(() => {
-    return fetch('/api/v1/tickers')
-      .then(r => r.json())
-      .then((json: { ok: boolean; data?: ServerTicker[] }) => {
-        if (!json.ok || !Array.isArray(json.data)) return
-        const list: TickerConfig[] = json.data.map(t => ({
+    return apiGetTickers()
+      .then((data: ServerTicker[]) => {
+        const list: TickerConfig[] = data.map(t => ({
           symbol: t.symbol,
           name: t.name ?? t.symbol,
           baseFutures: t.compressionFutures,
@@ -215,19 +204,18 @@ export function ChartControlsProvider({ children }: { children: ReactNode }) {
         }))
         setServerTickers(list)
       })
-      .catch(() => { /* silent fallback to hardcoded values */ })
+      .catch(() => { /* silent — keep serverTickers, retry when accessToken changes */ })
   }, [])
 
-  // Fetch ticker params from the server once on mount.
+  // Load on mount and re-load whenever the access token changes (login / auth hydration).
+  // The first guest fetch may 401 on prod beta; re-fetching once the token arrives fixes
+  // the list and base-compression. Mirrors the admin-defaults effect (also accessToken-keyed).
   useEffect(() => {
-    if (fetchedTickersRef.current) return
-    fetchedTickersRef.current = true
     loadTickers()
-  }, [loadTickers])
+  }, [accessToken, loadTickers])
 
-  // Re-fetch the ticker list on demand (after admin CRUD). Bypasses the mount guard.
+  // Re-fetch the ticker list on demand (after admin add/update/delete).
   const refreshTickers = useCallback(() => {
-    fetchedTickersRef.current = true
     loadTickers()
   }, [loadTickers])
 
