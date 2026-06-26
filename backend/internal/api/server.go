@@ -31,6 +31,7 @@ type Server struct {
 	rdb                   *redis.Client
 	tierHistoryLimits     map[string]time.Duration
 	tierCompressionLocked map[string]bool
+	tickersMu             sync.RWMutex // guards activeTickers (set at startup AND at runtime via admin)
 	activeTickers         []admin.Ticker
 	comprMu               sync.RWMutex
 	activeCompressions    map[string][]admin.DefaultCompression // key: symbol — guarded by comprMu
@@ -46,7 +47,9 @@ func (s *Server) SetTierCompressionLocked(m map[string]bool) {
 }
 
 func (s *Server) SetActiveTickers(tickers []admin.Ticker) {
+	s.tickersMu.Lock()
 	s.activeTickers = tickers
+	s.tickersMu.Unlock()
 }
 
 func (s *Server) SetDefaultCompressions(compressions []admin.DefaultCompression) {

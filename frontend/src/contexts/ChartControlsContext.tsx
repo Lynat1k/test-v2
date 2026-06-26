@@ -80,6 +80,10 @@ interface ChartControlsValue {
 
   getTickerConfig: () => TickerConfig
   getCompressionLevels: () => number[]
+  // Full server-driven ticker list for the selector (empty until /api/v1/tickers responds).
+  serverTickers: TickerConfig[]
+  // Re-fetch the ticker list (call after admin add/update/delete).
+  refreshTickers: () => void
   // Absolute admin-default multiplier for the active slot's symbol + given market+tf, or undefined.
   getAdminDefaultCompression: (market: MarketType, tf: string) => number | undefined
   // Drop the cached admin-defaults entry for a symbol — the fetch effect will
@@ -174,8 +178,10 @@ export function ChartControlsProvider({ children }: { children: ReactNode }) {
   const [slots, setSlots] = useState<[ChartSlot, ChartSlot]>(saved.slots)
   const [activeSlot, setActiveSlotState] = useState<0 | 1>(saved.activeSlot)
   const [showIndicatorsModal, setShowIndicatorsModal] = useState(false)
-  // Overrides fetched from /api/v1/tickers — keyed by symbol.
-  const [tickerOverrides, setTickerOverrides] = useState<Record<string, Partial<TickerConfig>>>({})
+  // Full ticker list fetched from /api/v1/tickers — source of truth for the selector
+  // and for base-compression/price-tick. Empty until the server responds; until then
+  // AVAILABLE_TICKERS is the fallback.
+  const [serverTickers, setServerTickers] = useState<TickerConfig[]>([])
   // Admin compression defaults per symbol: { symbol → { `${market}_${tf}` → absolute multiplier } }.
   // A value of {} (empty object) means "fetched, nothing configured" — not "not yet fetched".
   const [adminDefaults, setAdminDefaults] = useState<Record<string, Record<string, number>>>({})
@@ -192,28 +198,38 @@ export function ChartControlsProvider({ children }: { children: ReactNode }) {
     saveToStorage(slots, activeSlot)
   }, [slots, activeSlot])
 
+  // Fetch the full ticker list from the server. Re-usable: called once on mount and
+  // again via refreshTickers() after the admin adds/updates/deletes a ticker.
+  const loadTickers = useCallback(() => {
+    return fetch('/api/v1/tickers')
+      .then(r => r.json())
+      .then((json: { ok: boolean; data?: ServerTicker[] }) => {
+        if (!json.ok || !Array.isArray(json.data)) return
+        const list: TickerConfig[] = json.data.map(t => ({
+          symbol: t.symbol,
+          name: t.name ?? t.symbol,
+          baseFutures: t.compressionFutures,
+          baseSpot: t.compressionSpot,
+          futurePriceTick: t.futurePriceTick,
+          spotPriceTick: t.spotPriceTick,
+        }))
+        setServerTickers(list)
+      })
+      .catch(() => { /* silent fallback to hardcoded values */ })
+  }, [])
+
   // Fetch ticker params from the server once on mount.
   useEffect(() => {
     if (fetchedTickersRef.current) return
     fetchedTickersRef.current = true
-    fetch('/api/v1/tickers')
-      .then(r => r.json())
-      .then((json: { ok: boolean; data?: ServerTicker[] }) => {
-        if (!json.ok || !Array.isArray(json.data)) return
-        const overrides: Record<string, Partial<TickerConfig>> = {}
-        for (const t of json.data) {
-          overrides[t.symbol] = {
-            futurePriceTick: t.futurePriceTick,
-            spotPriceTick: t.spotPriceTick,
-            baseFutures: t.compressionFutures,
-            baseSpot: t.compressionSpot,
-            name: t.name ?? t.symbol,
-          }
-        }
-        setTickerOverrides(overrides)
-      })
-      .catch(() => { /* silent fallback to hardcoded values */ })
-  }, [])
+    loadTickers()
+  }, [loadTickers])
+
+  // Re-fetch the ticker list on demand (after admin CRUD). Bypasses the mount guard.
+  const refreshTickers = useCallback(() => {
+    fetchedTickersRef.current = true
+    loadTickers()
+  }, [loadTickers])
 
   // Fetch admin compression defaults for every symbol currently held by a slot.
   // Each symbol fetched exactly once; an empty result is cached as {} (not undefined).
@@ -257,6 +273,15 @@ export function ChartControlsProvider({ children }: { children: ReactNode }) {
 
   const active = slots[activeSlot]
 
+  // Resolve a ticker's full config: server list first, hardcoded fallback next, first
+  // hardcoded entry as last resort. Never silently downgrades base→1 for a symbol the
+  // server knows about (server base is authoritative).
+  const resolveTickerConfig = useCallback((symbol: string): TickerConfig => {
+    return serverTickers.find(t => t.symbol === symbol)
+      ?? AVAILABLE_TICKERS.find(t => t.symbol === symbol)
+      ?? AVAILABLE_TICKERS[0]!
+  }, [serverTickers])
+
   // Single source of truth for compression resolution.
   // Priority: user-saved (UserSettings: server > LS) → slot-local mirror → admin default → 1.
   const resolveCompression = useCallback(
@@ -272,16 +297,14 @@ export function ChartControlsProvider({ children }: { children: ReactNode }) {
       // 3. Admin default — stored as absolute multiplier; convert to level via current base.
       const absolute = adminDefaults[symbol]?.[tfKey]
       if (typeof absolute === 'number' && absolute > 0) {
-        const baseTicker = AVAILABLE_TICKERS.find(t => t.symbol === symbol) ?? AVAILABLE_TICKERS[0]!
-        const override = tickerOverrides[symbol]
-        const merged = override ? { ...baseTicker, ...override } : baseTicker
-        const base = market === 'futures' ? merged.baseFutures : merged.baseSpot
+        const ticker = resolveTickerConfig(symbol)
+        const base = market === 'futures' ? ticker.baseFutures : ticker.baseSpot
         if (base > 0) return Math.max(1, Math.round(absolute / base))
       }
       // 4. Fallback.
       return 1
     },
-    [getSetting, adminDefaults, tickerOverrides]
+    [getSetting, adminDefaults, resolveTickerConfig]
   )
 
   // Re-resolve compression when admin defaults or user settings arrive (or symbol/market/tf
@@ -384,12 +407,10 @@ export function ChartControlsProvider({ children }: { children: ReactNode }) {
     })
   }, [activeSlot, slots, updateSlot, getSetting, setSetting])
 
-  // Returns ticker config for active symbol, merging API overrides on top of hardcoded fallback.
+  // Returns ticker config for active symbol — server list first, hardcoded fallback.
   const getTickerConfig = useCallback((): TickerConfig => {
-    const base = AVAILABLE_TICKERS.find(t => t.symbol === active.symbol) ?? AVAILABLE_TICKERS[0]!
-    const override = tickerOverrides[active.symbol]
-    return override ? { ...base, ...override } : base
-  }, [active.symbol, tickerOverrides])
+    return resolveTickerConfig(active.symbol)
+  }, [active.symbol, resolveTickerConfig])
 
   const getCompressionLevels = useCallback((): number[] => {
     const ticker = getTickerConfig()
@@ -423,6 +444,7 @@ export function ChartControlsProvider({ children }: { children: ReactNode }) {
       activeSlot, setActiveSlot, getSlot, showIndicatorsModal,
       setSymbol, setMarket, setTimeframe, setCandleMode, setPalette, setVolumeMode, setCompression, setShowIndicatorsModal,
       getTickerConfig, getCompressionLevels, getAdminDefaultCompression, invalidateAdminDefaults,
+      serverTickers, refreshTickers,
     }}>
       {children}
     </ChartControlsContext.Provider>

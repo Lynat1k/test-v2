@@ -580,6 +580,7 @@ const SPOT_TIMEFRAMES = ['15m', '30m', '1h', '4h'] as const
 
 function TickerBlock({ isLight }: { isLight: boolean }) {
   const { t } = useTranslation()
+  const { refreshTickers } = useChartControls()
   const [tickers, setTickers] = useState<Ticker[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -607,6 +608,7 @@ function TickerBlock({ isLight }: { isLight: boolean }) {
       setForm({ symbol: '', name: '', priceTickSpot: 0.01, priceTickFutures: 0.1, compressionSpot: 500, compressionFutures: 25 })
       setError(null)
       fetchTickers()
+      refreshTickers()
     } catch (e: any) {
       const msg = e?.code === 'TICKER_EXISTS' ? t('admin.database.tickerExists') : (e?.message || JSON.stringify(e))
       setError(msg)
@@ -618,6 +620,7 @@ function TickerBlock({ isLight }: { isLight: boolean }) {
       await apiUpdateTicker(id, editForm)
       setEditing(null)
       fetchTickers()
+      refreshTickers()
     } catch (e) {
       alert(e instanceof Error ? e.message : 'Failed')
     }
@@ -628,6 +631,7 @@ function TickerBlock({ isLight }: { isLight: boolean }) {
     try {
       await apiDeleteTicker(id)
       fetchTickers()
+      refreshTickers()
     } catch (e) {
       alert(e instanceof Error ? e.message : 'Failed')
     }

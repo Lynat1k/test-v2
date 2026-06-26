@@ -179,6 +179,15 @@ func main() {
 		srv.SetDefaultCompressions(allCompr)
 		log.Printf("[main] refreshed default compressions: %d entries", len(allCompr))
 	}
+	adminHandler.RefreshTickers = func() {
+		dbTickers, err := admin.ListTickers(context.Background(), sqliteDB)
+		if err != nil {
+			log.Printf("[main] refresh active tickers: %v", err)
+			return
+		}
+		srv.SetActiveTickers(dbTickers)
+		log.Printf("[main] refreshed active tickers: %d tickers", len(dbTickers))
+	}
 	adminHandler.RegisterAdminRoutes(srv.Mux())
 	adminHandler.RegisterPublicRoutes(srv.Mux())
 

@@ -17,6 +17,7 @@ type tickerInfo struct {
 // parameters. Public endpoint — no auth required.
 // GET /api/v1/tickers
 func (s *Server) handleGetTickers(w http.ResponseWriter, r *http.Request) {
+	s.tickersMu.RLock()
 	out := make([]tickerInfo, 0, len(s.activeTickers))
 	for _, t := range s.activeTickers {
 		if !t.IsActive {
@@ -31,5 +32,6 @@ func (s *Server) handleGetTickers(w http.ResponseWriter, r *http.Request) {
 			CompressionSpot:    t.CompressionSpot,
 		})
 	}
+	s.tickersMu.RUnlock()
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "data": out})
 }

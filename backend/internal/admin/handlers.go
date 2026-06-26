@@ -34,6 +34,11 @@ type AdminHandler struct {
 	// /api/v1/compressions сразу отдавал свежие данные.
 	RefreshCompressions func()
 
+	// RefreshTickers, если задан, вызывается после успешного add/update/delete
+	// тикера — перечитывает тикеры из БД и обновляет in-memory кэш activeTickers
+	// у api.Server, чтобы публичный /api/v1/tickers сразу отдавал свежий список.
+	RefreshTickers func()
+
 	chSizeErrMu    sync.Mutex
 	chSizeLastErr  string
 	chSizeLastTime time.Time
@@ -191,6 +196,10 @@ func (h *AdminHandler) handleAddTicker(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if h.RefreshTickers != nil {
+		h.RefreshTickers()
+	}
+
 	userID, _ := r.Context().Value(auth.UserIDKey).(string)
 	LogAdminAction(r.Context(), h.db, userID, "add_ticker", t.Symbol, "", r.RemoteAddr)
 
@@ -264,6 +273,10 @@ func (h *AdminHandler) handleUpdateTicker(w http.ResponseWriter, r *http.Request
 		return
 	}
 
+	if h.RefreshTickers != nil {
+		h.RefreshTickers()
+	}
+
 	userID, _ := r.Context().Value(auth.UserIDKey).(string)
 	LogAdminAction(r.Context(), h.db, userID, "update_ticker", t.Symbol, "", r.RemoteAddr)
 
@@ -286,6 +299,10 @@ func (h *AdminHandler) handleDeleteTicker(w http.ResponseWriter, r *http.Request
 	if err := DeleteTicker(r.Context(), h.db, id); err != nil {
 		writeError(w, http.StatusInternalServerError, "DELETE_FAILED", err.Error())
 		return
+	}
+
+	if h.RefreshTickers != nil {
+		h.RefreshTickers()
 	}
 
 	userID, _ := r.Context().Value(auth.UserIDKey).(string)

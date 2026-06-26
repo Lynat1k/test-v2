@@ -52,7 +52,10 @@ export function ChartHeader({ fps = 0, showAnomalies = true, onToggleAnomalies }
     setSymbol, setMarket, setTimeframe, setCandleMode, setPalette: setControlsPalette,
     setVolumeMode, setCompression, setShowIndicatorsModal, showIndicatorsModal,
     getTickerConfig, getCompressionLevels, getAdminDefaultCompression,
+    serverTickers,
   } = useChartControls()
+  // Selector list is server-driven; fall back to hardcoded list until the server responds.
+  const tickerList = serverTickers.length > 0 ? serverTickers : AVAILABLE_TICKERS
   const { setActivePalette } = useCandlePalette()
   const slot = getSlot(activeSlot)
   const { symbol, market, timeframe, candleMode, palette, volumeMode, compression } = slot
@@ -352,7 +355,7 @@ export function ChartHeader({ fps = 0, showAnomalies = true, onToggleAnomalies }
                 Available Pairs
               </div>
               <div className="flex flex-col gap-0.5 max-h-[300px] overflow-y-auto pr-1">
-                {[...AVAILABLE_TICKERS]
+                {[...tickerList]
                   .sort((a, b) => {
                     const aFav = isFavorite(a.symbol) ? 1 : 0
                     const bFav = isFavorite(b.symbol) ? 1 : 0
