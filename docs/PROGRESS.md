@@ -2574,3 +2574,29 @@ ATAS). Стопкой под панелями Delta и CVD. Бэкенд не т
   `procluster_panel_order` = `["rsi","delta","cvd"]`. Порядок активации
   соблюдается (раньше было бы delta→cvd→rsi).
 - procluster.exe / vite НЕ трогал — запущены пользователем.
+
+## 2026-06-27 — Заводские дефолты индикаторов (Cluster Search / Volume on Chart / Stacked Imbalance)
+
+Обновлены code-level `defaultSettings` (значения при первом добавлении индикатора).
+НЕ админские дефолты (`admin_indicator_defaults` / Admin Panel / бэкенд не трогали).
+
+### Изменения
+- **Cluster Search** (`clusterSearch.ts`): `csMergeLevels` 1→3;
+  средний — `csMedMinSize` 4→10, `csMedMaxSize` 12→20, `csMedColorAsk` →#14ad1f,
+  `csMedColorBid` →#e22828; крупный — `csLargeMinSize` 10→15, `csLargeMaxSize` 20→30,
+  `csLargeShape` rhombus→square, `csLargeColorAsk` →#14ad1f, `csLargeColorBid` →#e22828.
+- **Volume on Chart** (`volumeOnChart.ts`): `opacity` 0.4→0.9, `volumeOnChartMaxHeightPercent` 20→15.
+- **Stacked Imbalance** (`stackedImbalance.ts`): `siLineWidth` 2→1.
+
+### Файлы
+- `frontend/src/chart2d/indicators/clusterSearch.ts`
+- `frontend/src/chart2d/indicators/volumeOnChart.ts`
+- `frontend/src/chart2d/indicators/stackedImbalance.ts`
+
+### Verification
+- `npx tsc --noEmit` ✓ (только фронт, бэкенд не пересобирался).
+- Коммит `965c743`, запушен в `main`.
+
+### TODO
+- Деплой на VPS (ручной: `/root/test-v2/deploy.sh` на сервере).
+- Проверить в UI у чистого юзера (сброс localStorage) что дефолты подставляются.
