@@ -223,6 +223,10 @@ func main() {
 		srv.SetDefaultCompressions(allCompr)
 		log.Printf("[main] set default compressions for public API: %d entries", len(allCompr))
 	}
+	// Feed per-symbol price-tick/base into the live aggregator so non-BTC tickers
+	// (e.g. ETH base 10, tick 0.01) bucket on the correct grid instead of the BTC default.
+	agg.RegisterConfigs(symbolConfigs)
+
 	orderBooks := make(map[string]*depth.OrderBook)
 	for key, sc := range symbolConfigs {
 		orderBooks[key] = depth.NewOrderBook(sc.Symbol, sc.Market)

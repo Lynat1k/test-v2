@@ -5,8 +5,10 @@
 // @ts-nocheck — design-src code uses less strict TS; kept as-is to avoid mass rewrites.
 
 import React, { useState, useRef, useEffect, useLayoutEffect, useMemo, useCallback } from "react";
+import { motion, AnimatePresence } from "motion/react";
 import type { ClusterCandle, ClusterCell, CryptoPair, IndicatorSettings, Indicator, OrderBook } from "./types";
 import { ZoomIn, ZoomOut, Maximize2, Compass, Move, Layers, Activity, Eye, EyeOff, Settings, Trash2, Globe, Slash, Minus, Square, Grid3X3, Ruler, Type, BarChart3, Check, ChevronDown, LayoutGrid, ArrowUpRight, TrendingUp, TrendingDown, Equal } from "lucide-react";
+import { Portal } from "@/components/Portal";
 import logoWatermark from "@/assets/images/procluster_logo_1779485281399.png";
 import { storage } from "./lib/storage";
 import { volumeOnChartIndicator, deltaIndicator, cvdIndicator, clusterSearchIndicator } from "./indicators";
@@ -16,6 +18,21 @@ import { ChartToolsHeader } from "./ChartToolsHeader";
 import { useDrawingDefaults, getClientDefaults } from "@/contexts/DrawingDefaultsContext";
 import { apiGetDrawings, apiPutDrawings } from "@/features/drawings/api";
 import { useAuthContext } from "@/features/auth/AuthContext";
+
+// Abbreviates a magnitude (>=1000) to "к/м" (RU/KZ) or "k/m" (EN), rounded to 1 decimal,
+// trailing ".0" trimmed: 2000→"2к", 2629→"2.6к", 25720→"25.7к", 1101565→"1.1м".
+// Operates on the absolute value only — the +/- sign is preserved by the caller.
+const abbreviateNum = (v: number, lang: "RU" | "EN" | "KZ"): string => {
+  const abs = Math.abs(v);
+  const kSuf = lang === "EN" ? "k" : "к";
+  const mSuf = lang === "EN" ? "m" : "м";
+  if (abs >= 1_000_000) {
+    return String(Math.round(abs / 1e5) / 10) + mSuf;
+  }
+  const n = Math.round(abs / 100) / 10; // thousands, 1 decimal
+  if (n >= 1000) return String(Math.round(abs / 1e5) / 10) + mSuf; // rounded up into millions
+  return String(n) + kSuf;
+};
 
 const rgbaToHex = (rgba: string): string => {
   const m = rgba.match(/^rgba?\s*\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/);
@@ -52,6 +69,8 @@ interface ClusterChartProps {
   candleType?: "auto" | "japanese" | "footprint" | "clusters" | "bars";
   candleDataType?: "bid_ask" | "delta" | "volume";
   candlePalette?: "default" | "alternative";
+  abbreviateNumbers?: boolean;
+  onToggleAbbreviateNumbers?: () => void;
   timeframe?: string;
   onToggleIndicator?: (id: string) => void;
   onToggleVisibility?: (id: string) => void;
@@ -90,6 +109,8 @@ export default function ClusterChart({
   candleType = "auto",
   candleDataType = "bid_ask",
   candlePalette = "default",
+  abbreviateNumbers = false,
+  onToggleAbbreviateNumbers,
   timeframe,
   onToggleIndicator,
   onToggleVisibility,
@@ -261,6 +282,10 @@ export default function ClusterChart({
 
   const [showCandleOutline, setShowCandleOutline] = useState(() => storage.get("chart_settings_show_candle_outline") !== "false");
   const [showChartSettings, setShowChartSettings] = useState(false);
+  // Anchor rect of the settings button (lives in ChartToolsHeader) for the dropdown.
+  const [settingsBtnRect, setSettingsBtnRect] = useState<DOMRect | null>(null);
+  const settingsBtnRectRef = useRef<DOMRect | null>(null);
+  const settingsDropdownRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     storage.set("chart_settings_show_candle_outline", String(showCandleOutline));
@@ -1287,9 +1312,29 @@ export default function ClusterChart({
     setSelectedTimezone(tz);
   }, []);
 
-  const onToggleChartSettings = useCallback(() => {
+  const onToggleChartSettings = useCallback((rect?: DOMRect) => {
+    if (rect) {
+      setSettingsBtnRect(rect);
+      settingsBtnRectRef.current = rect;
+    }
     setShowChartSettings(prev => !prev);
   }, []);
+
+  // Close the settings dropdown on outside click. A click on the settings button itself
+  // (detected via its cached rect) is ignored here so the button's own onClick toggles it
+  // instead of this handler closing then the button re-opening.
+  useEffect(() => {
+    if (!showChartSettings) return;
+    function handleDown(e: MouseEvent) {
+      const target = e.target as Node;
+      if (settingsDropdownRef.current && settingsDropdownRef.current.contains(target)) return;
+      const r = settingsBtnRectRef.current;
+      if (r && e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top && e.clientY <= r.bottom) return;
+      setShowChartSettings(false);
+    }
+    document.addEventListener("mousedown", handleDown);
+    return () => document.removeEventListener("mousedown", handleDown);
+  }, [showChartSettings]);
 
   // R: visibleCandlesList useMemo deleted. It only fed visibleMaxCellVol /
   // visibleMaxSingleVol below, both of which are consumed only inside drawRef.
@@ -3692,7 +3737,12 @@ export default function ClusterChart({
               return (v: number) => v === 0 ? "0" : v.toFixed(0);
             };
 
-            const fmt = getFormatter(visibleMaxSingleVol);
+            const baseFmt = getFormatter(visibleMaxSingleVol);
+            // When the "abbreviate numbers" option is on, magnitudes >=1000 collapse to к/м (k/m);
+            // values <1000 (and 0) keep the exact toFixed output. Sign handled by callers.
+            const fmt = abbreviateNumbers
+              ? (v: number) => (Math.abs(v) >= 1000 ? abbreviateNum(v, language) : baseFmt(v))
+              : baseFmt;
             const bidValStr = fmt(cell.bid);
             const askValStr = fmt(cell.ask);
             const cellDeltaVal = cell.ask - cell.bid;
@@ -5205,56 +5255,73 @@ export default function ClusterChart({
         </div>
       )}
 
-      {/* Chart Settings Modal */}
-      {showChartSettings && (
-        <div
-          className="absolute inset-0 z-[100] flex items-center justify-center bg-black/40 backdrop-blur-xs select-none"
-          onClick={() => setShowChartSettings(false)}
-        >
-          <div
-            className={`p-5 rounded-2xl border w-80 max-w-full shadow-2xl flex flex-col gap-4 ${
-              isLight ? "bg-white border-slate-200 text-slate-900" : "bg-[#0c0e17] border-white/10 text-slate-100"
-            }`}
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="flex items-center justify-between">
-              <h3 className="text-sm font-bold tracking-tight flex items-center gap-2">
-                <Settings className="w-4 h-4 text-amber-500" />
-                {language === "RU" ? "Настройки графика" : "Chart Settings"}
-              </h3>
-              <button
-                onClick={() => setShowChartSettings(false)}
-                className={`p-1 rounded-lg transition-all cursor-pointer ${isLight ? "hover:bg-slate-200 text-slate-500" : "hover:bg-white/10 text-slate-400"}`}
-              >
-                ✕
-              </button>
-            </div>
-
-            <div className={`p-4 rounded-xl border ${
-              isLight ? "bg-slate-50 border-slate-200" : "bg-white/[0.03] border-white/5"
-            }`}>
-              <div className="flex items-center justify-between gap-3">
-                <div className="flex flex-col gap-0.5">
-                  <span className="text-xs font-bold">{language === "RU" ? "Обводка свечей" : "Candle Outlines"}</span>
-                  <span className={`text-[10px] ${isLight ? "text-slate-500" : "text-slate-400"}`}>
-                    {language === "RU" ? "Показывать каркас в режиме футпринт/кластера" : "Show frame in footprint/clusters mode"}
-                  </span>
+      {/* Chart Settings Dropdown — anchored under the settings button (rect from ChartToolsHeader) */}
+      <Portal>
+        <AnimatePresence>
+          {showChartSettings && settingsBtnRect && (
+            <motion.div
+              ref={settingsDropdownRef}
+              initial={{ opacity: 0, y: -4, scale: 0.97 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: -4, scale: 0.97 }}
+              transition={{ duration: 0.12 }}
+              className={`rounded-xl p-2 w-72 max-w-[calc(100vw-16px)] flex flex-col gap-1.5 shadow-2xl border select-none ${
+                isLight ? "bg-white border-slate-200 text-slate-900" : "bg-[#0c0e17] border-white/10 text-slate-100"
+              }`}
+              style={{
+                position: "fixed",
+                top: settingsBtnRect.bottom + 6,
+                left: Math.max(8, settingsBtnRect.right - 288),
+                zIndex: 99999,
+              }}
+            >
+              {/* Candle outlines toggle (unchanged local state) */}
+              <div className={`p-3 rounded-lg border ${isLight ? "bg-slate-50 border-slate-200" : "bg-white/[0.03] border-white/5"}`}>
+                <div className="flex items-center justify-between gap-3">
+                  <div className="flex flex-col gap-0.5">
+                    <span className="text-xs font-bold">{language === "RU" ? "Обводка свечей" : language === "KZ" ? "Шамдарды контурлау" : "Candle Outlines"}</span>
+                    <span className={`text-[10px] ${isLight ? "text-slate-500" : "text-slate-400"}`}>
+                      {language === "RU" ? "Показывать каркас в режиме футпринт/кластера" : language === "KZ" ? "Футпринт/кластер режимінде қаңқаны көрсету" : "Show frame in footprint/clusters mode"}
+                    </span>
+                  </div>
+                  <button
+                    onClick={() => setShowCandleOutline(!showCandleOutline)}
+                    className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors cursor-pointer shrink-0 ${
+                      showCandleOutline ? "bg-amber-500" : (isLight ? "bg-slate-300" : "bg-slate-700")
+                    }`}
+                  >
+                    <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform shadow-sm ${
+                      showCandleOutline ? "translate-x-4.5" : "translate-x-0.5"
+                    }`} />
+                  </button>
                 </div>
-                <button
-                  onClick={() => setShowCandleOutline(!showCandleOutline)}
-                  className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors cursor-pointer ${
-                    showCandleOutline ? "bg-amber-500" : (isLight ? "bg-slate-300" : "bg-slate-700")
-                  }`}
-                >
-                  <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform shadow-sm ${
-                    showCandleOutline ? "translate-x-4.5" : "translate-x-0.5"
-                  }`} />
-                </button>
               </div>
-            </div>
-          </div>
-        </div>
-      )}
+
+              {/* Abbreviate numbers toggle (per symbol+market; no-op in provider-less preview) */}
+              <div className={`p-3 rounded-lg border ${isLight ? "bg-slate-50 border-slate-200" : "bg-white/[0.03] border-white/5"}`}>
+                <div className="flex items-center justify-between gap-3">
+                  <div className="flex flex-col gap-0.5">
+                    <span className="text-xs font-bold">{language === "RU" ? "Сокращение чисел" : language === "KZ" ? "Сандарды қысқарту" : "Abbreviate numbers"}</span>
+                    <span className={`text-[10px] ${isLight ? "text-slate-500" : "text-slate-400"}`}>
+                      {language === "RU" ? "Показывать большие числа как 2.6к, 1.1м" : language === "KZ" ? "Үлкен сандарды 2.6к, 1.1м түрінде көрсету" : "Show large numbers as 2.6k, 1.1m"}
+                    </span>
+                  </div>
+                  <button
+                    onClick={() => onToggleAbbreviateNumbers?.()}
+                    className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors cursor-pointer shrink-0 ${
+                      abbreviateNumbers ? "bg-amber-500" : (isLight ? "bg-slate-300" : "bg-slate-700")
+                    }`}
+                  >
+                    <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform shadow-sm ${
+                      abbreviateNumbers ? "translate-x-4.5" : "translate-x-0.5"
+                    }`} />
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </Portal>
 
       {/* ── Admin FPS overlay ─────────────────────────────────────────────── */}
       {(userRole ?? "").toLowerCase() === "admin" && (

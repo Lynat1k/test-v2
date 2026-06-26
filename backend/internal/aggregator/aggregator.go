@@ -11,6 +11,7 @@ import (
 	"github.com/redis/go-redis/v9"
 
 	"github.com/procluster/procluster/internal/aggregation"
+	"github.com/procluster/procluster/internal/config"
 	"github.com/procluster/procluster/internal/model"
 	"github.com/procluster/procluster/internal/repository"
 )
@@ -120,6 +121,23 @@ func New(repo repository.MarketRepository, rdb *redis.Client) *Aggregator {
 	}
 
 	return a
+}
+
+// RegisterConfigs overwrites/extends the per-symbol compression configs from the
+// DB-driven symbol configs (admin tickers). Without it the live aggregator only knows
+// the hardcoded BTC defaults and falls back to {0.1, 25} for every other ticker, so
+// live ETH would bucket at 25*0.1=2.5 instead of 10*0.01=0.1. Key matches getConfig:
+// "SYMBOL:market".
+func (a *Aggregator) RegisterConfigs(cfgs map[string]config.SymbolConfig) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	for _, sc := range cfgs {
+		a.configs[fmt.Sprintf("%s:%s", sc.Symbol, sc.Market)] = aggregationCompressionConfig{
+			Symbol:    sc.Symbol,
+			PriceTick: sc.PriceTick,
+			BaseLevel: sc.BaseLevel,
+		}
+	}
 }
 
 func (a *Aggregator) SetUpdatesCh(ch chan<- CandleUpdate) {

@@ -1,8 +1,11 @@
+import { useCallback } from 'react'
 import type { CandleMode, VolumeMode } from '@/chart-engine'
 import type { Indicator } from '@/chart2d/types'
 import { useAuthContext } from '@/features/auth/AuthContext'
 import { useUserLimits } from '@/contexts/LimitsContext'
 import { useTheme } from '@/contexts/ThemeContext'
+import { useChartControls } from '@/contexts/ChartControlsContext'
+import { useUserSettings } from '@/contexts/UserSettingsContext'
 import ClusterChartAdapter from './ClusterChartAdapter'
 import type { ClusterChartAdapterProps } from './ClusterChartAdapter'
 
@@ -57,6 +60,23 @@ export function ChartContainer2({
   const { accessToken, user } = useAuthContext()
   const { limits } = useUserLimits()
   const { theme } = useTheme()
+  const { resolveTickerConfig } = useChartControls()
+  const { getSetting, setSetting } = useUserSettings()
+
+  // Per (symbol + market) toggle for abbreviated cluster cell numbers (NOT per timeframe).
+  // Mirrors the chartCompression_ key shape; server-synced for auth users, LS for guests.
+  const abbreviateNumbers = getSetting<Record<string, boolean>>(`clusterAbbreviate_${symbol}`, {})[market] === true
+  const onToggleAbbreviateNumbers = useCallback(() => {
+    const existing = getSetting<Record<string, boolean>>(`clusterAbbreviate_${symbol}`, {})
+    setSetting(`clusterAbbreviate_${symbol}`, { ...existing, [market]: !(existing[market] === true) })
+  }, [getSetting, setSetting, symbol, market])
+
+  // Server-driven base + price-tick for this slot's symbol/market — feeds the unified
+  // priceStep = priceTick * base * level used by both live and history.
+  const tickerCfg = resolveTickerConfig(symbol)
+  const isFutures = market.toLowerCase() === 'futures'
+  const baseCompression = isFutures ? tickerCfg.baseFutures : tickerCfg.baseSpot
+  const priceTick = isFutures ? tickerCfg.futurePriceTick : tickerCfg.spotPriceTick
 
   return (
     <div className="relative w-full h-full flex flex-col">
@@ -65,9 +85,13 @@ export function ChartContainer2({
         market={market}
         timeframe={timeframe}
         compression={compression}
+        baseCompression={baseCompression}
+        priceTick={priceTick}
         candleType={MODE_MAP[mode] ?? 'auto'}
         candleDataType={VOLUME_MAP[volumeMode] ?? 'bid_ask'}
         candlePalette={palette}
+        abbreviateNumbers={abbreviateNumbers}
+        onToggleAbbreviateNumbers={onToggleAbbreviateNumbers}
         indicators={indicators}
         activeIndicators={activeIndicators}
         onToggleIndicator={onToggleIndicator}

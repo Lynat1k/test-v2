@@ -298,6 +298,7 @@ const kz = {
     volume: 'Көлем',
     delta: 'Дельта',
     compression: 'Сығу',
+    abbreviateNumbers: 'Сандарды қысқарту',
     indicators: 'Индикаторлар',
     upgradeHint: 'Pro жазылуымен қол жетімді',
     compressionLocked: 'Pro және VIP-те қол жетімді',

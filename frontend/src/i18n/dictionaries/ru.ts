@@ -298,6 +298,7 @@ const ru = {
     volume: 'Объём',
     delta: 'Дельта',
     compression: 'Сжатие',
+    abbreviateNumbers: 'Сокращение чисел',
     indicators: 'Индикаторы',
     upgradeHint: 'Доступно по подписке Pro',
     compressionLocked: 'Доступно на Pro и VIP',

@@ -298,6 +298,7 @@ const en = {
     volume: 'Volume',
     delta: 'Delta',
     compression: 'Compression',
+    abbreviateNumbers: 'Abbreviate numbers',
     indicators: 'Indicators',
     upgradeHint: 'Available with Pro subscription',
     compressionLocked: 'Available on Pro and VIP',

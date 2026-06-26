@@ -75,6 +75,8 @@ interface ChartControlsValue {
   serverTickers: TickerConfig[]
   // Re-fetch the ticker list (call after admin add/update/delete).
   refreshTickers: () => void
+  // Resolve any symbol's config (server list → hardcoded fallback). Per-symbol, not active-slot.
+  resolveTickerConfig: (symbol: string) => TickerConfig
   // Absolute admin-default multiplier for the active slot's symbol + given market+tf, or undefined.
   getAdminDefaultCompression: (market: MarketType, tf: string) => number | undefined
   // Drop the cached admin-defaults entry for a symbol — the fetch effect will
@@ -432,7 +434,7 @@ export function ChartControlsProvider({ children }: { children: ReactNode }) {
       activeSlot, setActiveSlot, getSlot, showIndicatorsModal,
       setSymbol, setMarket, setTimeframe, setCandleMode, setPalette, setVolumeMode, setCompression, setShowIndicatorsModal,
       getTickerConfig, getCompressionLevels, getAdminDefaultCompression, invalidateAdminDefaults,
-      serverTickers, refreshTickers,
+      serverTickers, refreshTickers, resolveTickerConfig,
     }}>
       {children}
     </ChartControlsContext.Provider>

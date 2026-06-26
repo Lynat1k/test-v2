@@ -30,9 +30,16 @@ export interface ClusterChartAdapterProps {
   market: string;
   timeframe: string;
   compression?: number;
+  // Server-driven base compression + price tick for this symbol/market. When provided,
+  // priceStep = priceTick * baseCompression * compression (identical to REST). Optional so
+  // the standalone preview (mounted outside ChartControlsProvider) can fall back.
+  baseCompression?: number;
+  priceTick?: number;
   candleType?: "auto" | "japanese" | "footprint" | "clusters" | "bars";
   candleDataType?: "bid_ask" | "delta" | "volume";
   candlePalette?: "default" | "alternative";
+  abbreviateNumbers?: boolean;
+  onToggleAbbreviateNumbers?: () => void;
   indicators?: import("@/chart2d/types").Indicator[] | undefined;
   activeIndicators?: Record<string, boolean>;
   onToggleIndicator?: (id: string) => void;
@@ -92,9 +99,13 @@ export default function ClusterChartAdapter({
   market,
   timeframe,
   compression = 1,
+  baseCompression,
+  priceTick,
   candleType = "auto",
   candleDataType = "bid_ask",
   candlePalette = "default",
+  abbreviateNumbers = false,
+  onToggleAbbreviateNumbers,
   indicators,
   activeIndicators,
   onToggleIndicator,
@@ -111,7 +122,13 @@ export default function ClusterChartAdapter({
   theme = "dark",
   userRole,
 }: ClusterChartAdapterProps) {
-  const priceStep = computePriceStep(symbol, market, compression);
+  // Unified price step for both live and history. Prefer the server-driven config
+  // (priceTick * base * level — identical to the REST clusters query); fall back to the
+  // hardcoded estimate only when props are absent (preview route / before tickers load).
+  const priceStep = (baseCompression != null && baseCompression > 0 && priceTick != null && priceTick > 0)
+    ? priceTick * baseCompression * compression
+    : computePriceStep(symbol, market, compression);
+  const priceStepRef = useRef(priceStep);
   const [candles, setCandles] = useState<ClusterCandle[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -133,6 +150,12 @@ export default function ClusterChartAdapter({
     candlesRef.current = candles;
   }, [candles]);
 
+  // Keep the live-merge price step fresh (symbol/market/compression change AND when the
+  // server base/tick arrives). Read via ref inside onCandleUpdate to avoid a stale closure.
+  useEffect(() => {
+    priceStepRef.current = priceStep;
+  }, [priceStep]);
+
   const [liveState, setLiveState] = useState<LiveChartState>({ status: "disconnected" });
 
   useLiveChart({
@@ -148,7 +171,7 @@ export default function ClusterChartAdapter({
         BidVolume: c.bid,
         AskVolume: c.ask,
       }));
-      const aggregated = aggregateLevels(rows, priceStep);
+      const aggregated = aggregateLevels(rows, priceStepRef.current);
       const aggregatedCells = apiRowsToCells(aggregated);
       const pocCell = aggregatedCells.find(c => c.isPoc);
       const { vah, val } = computeValueArea(aggregatedCells);
@@ -359,6 +382,8 @@ export default function ClusterChartAdapter({
       candleType={candleType}
       candleDataType={candleDataType}
       candlePalette={candlePalette}
+      abbreviateNumbers={abbreviateNumbers}
+      {...(onToggleAbbreviateNumbers ? { onToggleAbbreviateNumbers } : {})}
       timeframe={timeframe}
       language={language}
       workspaceLayout={workspaceLayout ?? "1"}

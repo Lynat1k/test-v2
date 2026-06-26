@@ -18,7 +18,7 @@ interface ChartToolsHeaderProps {
   selectedTimezone: string;
   onTimezoneChange: (tz: string) => void;
   showChartSettings: boolean;
-  onToggleChartSettings: () => void;
+  onToggleChartSettings: (rect?: DOMRect) => void;
   onZoom: (factor: number) => void;
   onVerticalZoom: (factor: number) => void;
   onResetZoom: () => void;
@@ -70,6 +70,7 @@ function ChartToolsHeaderImpl({
 }: ChartToolsHeaderProps) {
   const [showWorkspaceMenu, setShowWorkspaceMenu] = useState(false);
   const workspaceDropdownRef = useRef<HTMLDivElement>(null);
+  const settingsBtnRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
@@ -313,7 +314,8 @@ function ChartToolsHeaderImpl({
         )}
 
         <button
-          onClick={onToggleChartSettings}
+          ref={settingsBtnRef}
+          onClick={() => onToggleChartSettings(settingsBtnRef.current?.getBoundingClientRect())}
           className={`flex items-center justify-center px-1.5 sm:px-2 py-1 rounded-lg sm:rounded-xl text-[9px] sm:text-[10px] font-bold cursor-pointer transition-all duration-150 select-none border ${
             isLight
               ? "bg-slate-100 hover:bg-slate-200 border-slate-200 text-slate-600 hover:text-slate-900"
