@@ -122,6 +122,14 @@ const en = {
     reversalClusters: 'Reversal Clusters',
     absorption: 'Absorption',
     stackedImbalance: 'Stacked Imbalance',
+    rsi: 'RSI',
+    rsiSettings: {
+      title: 'RSI PARAMETERS',
+      period: 'Period',
+      lineColor: 'Line color',
+      zoneColor: 'Zone color',
+      zoneOpacity: 'Zone opacity',
+    },
   },
   admin: {
     title: 'Admin Panel',

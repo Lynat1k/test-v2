@@ -11,7 +11,7 @@ import { ZoomIn, ZoomOut, Maximize2, Compass, Move, Layers, Activity, Eye, EyeOf
 import { Portal } from "@/components/Portal";
 import logoWatermark from "@/assets/images/procluster_logo_1779485281399.png";
 import { storage } from "./lib/storage";
-import { volumeOnChartIndicator, deltaIndicator, cvdIndicator, clusterSearchIndicator } from "./indicators";
+import { volumeOnChartIndicator, deltaIndicator, cvdIndicator, clusterSearchIndicator, rsiIndicator } from "./indicators";
 import { drawDrawingObjects } from "./utils/drawingRenderer";
 import { DrawingToolbar } from "./DrawingToolbar";
 import { ChartToolsHeader } from "./ChartToolsHeader";
@@ -169,6 +169,13 @@ export default function ClusterChart({
   const cvdLineColor = cvdSettings.cvdLineColor || "#a855f7";
   const cvdPlotType = cvdSettings.cvdPlotType || "line";
   const cvdSmoothing = typeof cvdSettings.smoothing === "number" ? cvdSettings.smoothing : 10;
+
+  // RSI indicator specific settings (footer panel, fixed 0-100 scale)
+  const rsiSettings = indicatorSettings?.rsi || {};
+  const rsiPeriod = typeof rsiSettings.rsiPeriod === "number" ? rsiSettings.rsiPeriod : 14;
+  const rsiLineColor = rsiSettings.rsiLineColor || "#a855f7";
+  const rsiZoneColor = rsiSettings.rsiZoneColor || "#64748b";
+  const rsiZoneOpacity = typeof rsiSettings.rsiZoneOpacity === "number" ? rsiSettings.rsiZoneOpacity : 12;
 
   // Delta indicator specific settings
   const deltaSettings = indicatorSettings?.delta || {};
@@ -535,6 +542,10 @@ export default function ClusterChart({
     const saved = storage.get("procluster_cvd_panel_height");
     return saved ? parseInt(saved, 10) : 120;
   });
+  const [rsiPanelHeight, setRsiPanelHeight] = useState<number>(() => {
+    const saved = storage.get("procluster_rsi_panel_height");
+    return saved ? parseInt(saved, 10) : 120;
+  });
 
   useEffect(() => {
     storage.set("procluster_delta_panel_height", deltaPanelHeight.toString());
@@ -544,19 +555,25 @@ export default function ClusterChart({
     storage.set("procluster_cvd_panel_height", cvdPanelHeight.toString());
   }, [cvdPanelHeight]);
 
-  const [resizingPanel, setResizingPanel] = useState<"delta" | "cvd" | null>(null);
+  useEffect(() => {
+    storage.set("procluster_rsi_panel_height", rsiPanelHeight.toString());
+  }, [rsiPanelHeight]);
+
+  const [resizingPanel, setResizingPanel] = useState<"delta" | "cvd" | "rsi" | null>(null);
 
   const panelGap = 24;
   const deltaHeightTotal = activeIndicators.delta ? (deltaPanelHeight + panelGap) : 0;
   const cvdHeightTotal = activeIndicators.cvd ? (cvdPanelHeight + panelGap) : 0;
+  const rsiHeightTotal = activeIndicators.rsi ? (rsiPanelHeight + panelGap) : 0;
 
-  // Calculate base chart height to fill container exactly, ensuring Delta/CVD are always pinned at the bottom
-  const chartHeight = Math.max(150, containerHeight - margin.top - margin.bottom - deltaHeightTotal - cvdHeightTotal);
-  
+  // Calculate base chart height to fill container exactly, ensuring Delta/CVD/RSI are always pinned at the bottom
+  const chartHeight = Math.max(150, containerHeight - margin.top - margin.bottom - deltaHeightTotal - cvdHeightTotal - rsiHeightTotal);
+
   const deltaTopY = margin.top + chartHeight + (activeIndicators.delta ? panelGap : 0);
   const cvdTopY = deltaTopY + (activeIndicators.delta ? deltaPanelHeight : 0) + (activeIndicators.cvd ? panelGap : 0);
+  const rsiTopY = cvdTopY + (activeIndicators.cvd ? cvdPanelHeight : 0) + (activeIndicators.rsi ? panelGap : 0);
 
-  const totalSvgHeight = margin.top + chartHeight + deltaHeightTotal + cvdHeightTotal + margin.bottom;
+  const totalSvgHeight = margin.top + chartHeight + deltaHeightTotal + cvdHeightTotal + rsiHeightTotal + margin.bottom;
 
   // S1: crosshair/hover state moved from useState to useRef so mousemove does not
   // re-render the chart. Consumers updated to read refs / be updated imperatively.
@@ -2726,6 +2743,20 @@ export default function ClusterChart({
     });
   }, [rawCvdValues, candleWidth, candleSpacing, margin.left]);
 
+  // RSI values (Wilder), computed over the full candle history so the period seed
+  // is correct even after backfill. Heavy math — depends only on data + period.
+  const rsiValues = useMemo(() => {
+    return rsiIndicator.calculateRSI(candles.map(c => c.close), rsiPeriod);
+  }, [candles, rsiPeriod]);
+
+  // Light coordinate mapping (center-of-candle X), recalculated on scroll/zoom only.
+  const rsiPoints = useMemo(() => {
+    return rsiValues.map((value, i) => {
+      const cx = margin.left + i * (candleWidth + candleSpacing) + candleWidth / 2;
+      return { cx, value };
+    });
+  }, [rsiValues, candleWidth, candleSpacing, margin.left]);
+
   // Dynamically calculate visible min and max cumulative delta for local auto-scaling to fill 80% height
   const { minCumDeltaVal, maxCumDeltaVal, cvdDeltaRange } = useMemo(() => {
     if (cumulativeDeltaPoints.length === 0) {
@@ -2912,6 +2943,10 @@ export default function ClusterChart({
         const cvdBottomY = cvdTopY + cvdPanelHeight;
         const newHeight = Math.max(50, Math.min(350, cvdBottomY - relativeY));
         setCvdPanelHeight(newHeight);
+      } else if (resizingPanel === "rsi") {
+        const rsiBottomY = rsiTopY + rsiPanelHeight;
+        const newHeight = Math.max(50, Math.min(350, rsiBottomY - relativeY));
+        setRsiPanelHeight(newHeight);
       }
     };
 
@@ -2925,7 +2960,7 @@ export default function ClusterChart({
       window.removeEventListener("mousemove", handleWindowMouseMove);
       window.removeEventListener("mouseup", handleWindowMouseUp);
     };
-  }, [resizingPanel, deltaTopY, deltaPanelHeight, cvdTopY, cvdPanelHeight]);
+  }, [resizingPanel, deltaTopY, deltaPanelHeight, cvdTopY, cvdPanelHeight, rsiTopY, rsiPanelHeight]);
 
   // Window-level mouse drag-zoom tracker for vertical price scale dragging
   useEffect(() => {
@@ -4223,6 +4258,82 @@ export default function ClusterChart({
     }
 
     // -------------------------------------------------------------------------
+    // RSI subchart (footer panel) — fixed 0–100 scale, no auto-scale / Y-zoom
+    // -------------------------------------------------------------------------
+    if (activeIndicators.rsi && rsiPoints.length > 0) {
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(margin.left, rsiTopY, scrollWidth - margin.left + 50, rsiPanelHeight);
+      ctx.clip();
+      ctx.translate(0, rsiTopY);
+
+      // Fixed mapping: 0 at the bottom, 100 at the top of the panel
+      const getRsiY = (v: number) => rsiPanelHeight - (v / 100) * rsiPanelHeight;
+      const y70 = getRsiY(70);
+      const y30 = getRsiY(30);
+      const y50 = getRsiY(50);
+
+      // Overbought/oversold zone fill between levels 30 and 70
+      const zoneClean = rsiZoneColor.startsWith("#") ? rsiZoneColor.slice(1) : rsiZoneColor;
+      let zoneFill = rsiZoneColor;
+      if (zoneClean.length === 6) {
+        const zr = parseInt(zoneClean.slice(0, 2), 16);
+        const zg = parseInt(zoneClean.slice(2, 4), 16);
+        const zb = parseInt(zoneClean.slice(4, 6), 16);
+        const za = Math.max(0, Math.min(100, rsiZoneOpacity)) / 100;
+        zoneFill = `rgba(${zr}, ${zg}, ${zb}, ${za})`;
+      }
+      ctx.fillStyle = zoneFill;
+      ctx.fillRect(margin.left, y70, scrollWidth - margin.left, y30 - y70);
+
+      // Fixed reference levels: 70 / 30 dashed, 50 thin dashed
+      ctx.lineWidth = 0.8;
+      ctx.setLineDash([4, 4]);
+      ctx.strokeStyle = isLight ? "rgba(15, 23, 42, 0.28)" : "rgba(255, 255, 255, 0.22)";
+      ctx.beginPath();
+      ctx.moveTo(margin.left, y70);
+      ctx.lineTo(scrollWidth, y70);
+      ctx.moveTo(margin.left, y30);
+      ctx.lineTo(scrollWidth, y30);
+      ctx.stroke();
+
+      ctx.setLineDash([2, 4]);
+      ctx.strokeStyle = isLight ? "rgba(15, 23, 42, 0.14)" : "rgba(255, 255, 255, 0.10)";
+      ctx.beginPath();
+      ctx.moveTo(margin.left, y50);
+      ctx.lineTo(scrollWidth, y50);
+      ctx.stroke();
+      ctx.setLineDash([]);
+
+      // RSI line over visible candles; null values break the path
+      const rsiStartIdx = Math.max(0, startIdx - 1);
+      const rsiEndIdx = Math.min(rsiPoints.length - 1, endIdx + 1);
+      ctx.beginPath();
+      let rsiPathStarted = false;
+      for (let idx = rsiStartIdx; idx <= rsiEndIdx; idx++) {
+        const p = rsiPoints[idx];
+        if (!p || p.value === null) {
+          rsiPathStarted = false;
+          continue;
+        }
+        const cy = getRsiY(p.value);
+        if (!rsiPathStarted) {
+          ctx.moveTo(p.cx, cy);
+          rsiPathStarted = true;
+        } else {
+          ctx.lineTo(p.cx, cy);
+        }
+      }
+      ctx.strokeStyle = rsiLineColor;
+      ctx.lineWidth = 1.5;
+      ctx.lineCap = "round";
+      ctx.lineJoin = "round";
+      ctx.stroke();
+
+      ctx.restore();
+    }
+
+    // -------------------------------------------------------------------------
     // RENDER INTERACTIVE DRAWING OBJECTS (Foreground items: lines, handles, annotations, etc.)
     // -------------------------------------------------------------------------
     drawDrawingObjects(ctx, {
@@ -4951,7 +5062,7 @@ export default function ClusterChart({
                 })}
 
               {/* Panel Dividers for right pricing panel */}
-              {(activeIndicators.delta || activeIndicators.cvd) && (
+              {(activeIndicators.delta || activeIndicators.cvd || activeIndicators.rsi) && (
                 <line
                   x1={0}
                   y1={margin.top + chartHeight}
@@ -4967,6 +5078,16 @@ export default function ClusterChart({
                   y1={deltaTopY + deltaPanelHeight + panelGap / 2}
                   x2={scaleWidth}
                   y2={deltaTopY + deltaPanelHeight + panelGap / 2}
+                  stroke={isLight ? "rgba(148, 163, 184, 0.35)" : "rgba(255, 255, 255, 0.16)"}
+                  strokeWidth="1"
+                />
+              )}
+              {activeIndicators.rsi && (activeIndicators.delta || activeIndicators.cvd) && (
+                <line
+                  x1={0}
+                  y1={rsiTopY - panelGap / 2}
+                  x2={scaleWidth}
+                  y2={rsiTopY - panelGap / 2}
                   stroke={isLight ? "rgba(148, 163, 184, 0.35)" : "rgba(255, 255, 255, 0.16)"}
                   strokeWidth="1"
                 />
@@ -5046,6 +5167,62 @@ export default function ClusterChart({
                     fontWeight="bold"
                   >
                     {zoomedCvdMin.toFixed(1)}K
+                  </text>
+                </g>
+              )}
+
+              {/* RSI subchart Y-axis labels (fixed 0–100 scale) */}
+              {activeIndicators.rsi && (
+                <g key="rsi-panel-ticks">
+                  <text
+                    x={labelX}
+                    y={rsiTopY + 10}
+                    fill={isLight ? "#475569" : "#94a3b8"}
+                    fontSize={isMobile ? "8" : "9"}
+                    fontFamily="'Inter', -apple-system, sans-serif"
+                    fontWeight="bold"
+                  >
+                    100
+                  </text>
+                  <text
+                    x={labelX}
+                    y={rsiTopY + rsiPanelHeight * 0.3 + 4}
+                    fill={isLight ? "#be123c" : "#f43f5e"}
+                    fontSize={isMobile ? "8" : "9"}
+                    fontFamily="'Inter', -apple-system, sans-serif"
+                    fontWeight="bold"
+                  >
+                    70
+                  </text>
+                  <text
+                    x={labelX}
+                    y={rsiTopY + rsiPanelHeight * 0.5 + 4}
+                    fill={isLight ? "#475569" : "#94a3b8"}
+                    fontSize={isMobile ? "8" : "9"}
+                    fontFamily="'Inter', -apple-system, sans-serif"
+                    fontWeight="bold"
+                  >
+                    50
+                  </text>
+                  <text
+                    x={labelX}
+                    y={rsiTopY + rsiPanelHeight * 0.7 + 4}
+                    fill={isLight ? "#047857" : "#10b981"}
+                    fontSize={isMobile ? "8" : "9"}
+                    fontFamily="'Inter', -apple-system, sans-serif"
+                    fontWeight="bold"
+                  >
+                    30
+                  </text>
+                  <text
+                    x={labelX}
+                    y={rsiTopY + rsiPanelHeight - 3}
+                    fill={isLight ? "#475569" : "#94a3b8"}
+                    fontSize={isMobile ? "8" : "9"}
+                    fontFamily="'Inter', -apple-system, sans-serif"
+                    fontWeight="bold"
+                  >
+                    0
                   </text>
                 </g>
               )}
@@ -5253,6 +5430,25 @@ export default function ClusterChart({
             transform: "translateY(-7px)"
           }}
           title="Drag to resize CVD Panel"
+        >
+          {/* Subtle colored horizontal line that lights up when hovered */}
+          <div className="w-24 h-[3px] rounded-full bg-yellow-500/0 group-hover:bg-yellow-500/85 transition-all duration-200 shadow-md shadow-yellow-500/40" />
+        </div>
+      )}
+
+      {activeIndicators.rsi && (
+        <div
+          onMouseDown={(e) => {
+            e.preventDefault();
+            setResizingPanel("rsi");
+          }}
+          className={`absolute left-0 right-0 z-40 cursor-ns-resize flex items-center justify-center group`}
+          style={{
+            top: `${rsiTopY - panelGap / 2}px`,
+            height: "14px",
+            transform: "translateY(-7px)"
+          }}
+          title="Drag to resize RSI Panel"
         >
           {/* Subtle colored horizontal line that lights up when hovered */}
           <div className="w-24 h-[3px] rounded-full bg-yellow-500/0 group-hover:bg-yellow-500/85 transition-all duration-200 shadow-md shadow-yellow-500/40" />

@@ -122,6 +122,14 @@ const kz = {
     reversalClusters: 'Бұрылу кластерлері',
     absorption: 'Сіңіру',
     stackedImbalance: 'Үйінді дисбаланс',
+    rsi: 'RSI',
+    rsiSettings: {
+      title: 'RSI ПАРАМЕТРЛЕРІ',
+      period: 'Кезең',
+      lineColor: 'Сызық түсі',
+      zoneColor: 'Аймақ түсі',
+      zoneOpacity: 'Аймақ мөлдірлігі',
+    },
   },
   admin: {
     title: 'Әкімшілік панель',

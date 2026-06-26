@@ -119,6 +119,11 @@ export interface IndicatorSettings {
   cvdPeriod?: "all" | "day" | "week" | "month" | "visible";
   cvdPlotType?: "line" | "candles";
 
+  rsiPeriod?: number;
+  rsiLineColor?: string;
+  rsiZoneColor?: string;
+  rsiZoneOpacity?: number;
+
   deltaPlotType?: "candles" | "bars";
 
   siRatio?: number;

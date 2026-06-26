@@ -122,6 +122,14 @@ const ru = {
     reversalClusters: 'Разворотные кластеры',
     absorption: 'Абсорбция',
     stackedImbalance: 'Стековый дисбаланс',
+    rsi: 'RSI',
+    rsiSettings: {
+      title: 'ПАРАМЕТРЫ RSI',
+      period: 'Период',
+      lineColor: 'Цвет линии',
+      zoneColor: 'Цвет зоны',
+      zoneOpacity: 'Прозрачность зоны',
+    },
   },
   admin: {
     title: 'Панель Администратора',

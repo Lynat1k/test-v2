@@ -85,7 +85,7 @@ export default function IndicatorsModal({ isOpen, onClose, symbol = "", market =
   }, [draft, maxIndicators])
   const [searchQuery, setSearchQuery] = useState("")
   const [selectedId, setSelectedId] = useState("clusterSearch")
-  const { language } = useTranslation()
+  const { language, t } = useTranslation()
   const [isMobile, setIsMobile] = useState(false)
   useEffect(() => {
     const check = () => setIsMobile(window.innerWidth < 960)
@@ -1688,6 +1688,77 @@ export default function IndicatorsModal({ isOpen, onClose, symbol = "", market =
                                 Свечи
                               </button>
                             </div>
+                          </div>
+                        </div>
+                      )}
+
+                      {selectedIndicator.id === "rsi" && (
+                        <div className={`flex flex-col gap-4 font-sans text-xs p-4.5 rounded-2xl border transition-all duration-300 ${isLight ? "bg-slate-100/40 border-slate-200/85" : "bg-slate-950/20 border-white/5"}`}>
+                          <span className="text-[10px] text-slate-500 uppercase tracking-widest font-black font-mono">
+                            {t("indicators.rsiSettings.title", "ПАРАМЕТРЫ RSI")}
+                          </span>
+
+                          <label className="flex flex-col gap-1.5 font-sans text-xs">
+                            <span className={`font-bold ${isLight ? "text-slate-700" : "text-slate-300"}`}>{t("indicators.rsiSettings.period", "Период")}</span>
+                            <input
+                              type="number"
+                              step="1"
+                              min="2"
+                              max="50"
+                              value={selectedIndicator.settings.rsiPeriod ?? 14}
+                              onChange={(e) => {
+                                const v = parseInt(e.target.value, 10);
+                                updateSettings({ rsiPeriod: Number.isFinite(v) ? Math.max(2, Math.min(50, v)) : 14 });
+                              }}
+                              className={`rounded-xl px-3 py-2 text-xs outline-none transition-all duration-300 border ${isLight ? "bg-white border-slate-200 text-slate-800 focus:ring-1 focus:ring-blue-400" : "bg-[#0b0f19] border border-white/10 text-slate-200 focus:ring-1 focus:ring-yellow-500/40 hover:border-white/20"}`}
+                            />
+                          </label>
+
+                          <div className="flex items-center justify-between border-t border-dashed border-slate-700/20 pt-3">
+                            <span className={`font-bold ${isLight ? "text-slate-700" : "text-slate-300"}`}>{t("indicators.rsiSettings.lineColor", "Цвет линии")}</span>
+                            <div className="flex items-center gap-2">
+                              <input
+                                type="color"
+                                value={selectedIndicator.settings.rsiLineColor ?? "#a855f7"}
+                                onChange={(e) => updateSettings({ rsiLineColor: e.target.value })}
+                                className="w-7 h-7 rounded cursor-pointer border-0 p-0 overflow-hidden bg-transparent shrink-0"
+                              />
+                              <span className="text-[10px] font-mono text-slate-400 truncate w-14">
+                                {selectedIndicator.settings.rsiLineColor ?? "#a855f7"}
+                              </span>
+                            </div>
+                          </div>
+
+                          <div className="flex items-center justify-between border-t border-dashed border-slate-700/20 pt-3">
+                            <span className={`font-bold ${isLight ? "text-slate-700" : "text-slate-300"}`}>{t("indicators.rsiSettings.zoneColor", "Цвет зоны")}</span>
+                            <div className="flex items-center gap-2">
+                              <input
+                                type="color"
+                                value={selectedIndicator.settings.rsiZoneColor ?? "#64748b"}
+                                onChange={(e) => updateSettings({ rsiZoneColor: e.target.value })}
+                                className="w-7 h-7 rounded cursor-pointer border-0 p-0 overflow-hidden bg-transparent shrink-0"
+                              />
+                              <span className="text-[10px] font-mono text-slate-400 truncate w-14">
+                                {selectedIndicator.settings.rsiZoneColor ?? "#64748b"}
+                              </span>
+                            </div>
+                          </div>
+
+                          <div className="flex flex-col gap-2 border-t border-dashed border-slate-700/20 pt-3">
+                            <div className="flex justify-between font-bold">
+                              <span className={isLight ? "text-slate-700" : "text-slate-300"}>{t("indicators.rsiSettings.zoneOpacity", "Прозрачность зоны")}</span>
+                              <span className={`font-mono font-bold ${isLight ? "text-blue-700" : "text-yellow-500"}`}>
+                                {selectedIndicator.settings.rsiZoneOpacity ?? 12}%
+                              </span>
+                            </div>
+                            <input
+                              type="range"
+                              min="0"
+                              max="100"
+                              value={selectedIndicator.settings.rsiZoneOpacity ?? 12}
+                              onChange={(e) => updateSettings({ rsiZoneOpacity: parseInt(e.target.value, 10) })}
+                              className={`w-full accent-blue-600 rounded-lg h-1 ${isLight ? "bg-slate-250" : "bg-slate-800"}`}
+                            />
                           </div>
                         </div>
                       )}
