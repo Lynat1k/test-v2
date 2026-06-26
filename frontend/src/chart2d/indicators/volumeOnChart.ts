@@ -27,9 +27,9 @@ export const volumeOnChartIndicator: IndicatorModule & {
   description: "Накладывает вертикальную гистограмму проторгованного объема прямо поверх тела и теней свечей на график.",
   details: "Помогает сопоставлять ценовые уровни и проторгованную активность внутри каждой свечи, не переводя взгляд на отдельные подвальные индикаторы. Наглядно очерчивает ценовые зоны, вызвавшие наибольший интерес трейдеров.",
   defaultSettings: {
-    opacity: 0.4,
+    opacity: 0.9,
     volumeOnChartDeltaThreshold: 500,
-    volumeOnChartMaxHeightPercent: 20,
+    volumeOnChartMaxHeightPercent: 15,
   },
   isActiveDefault: true,
 

@@ -24,7 +24,7 @@ export const stackedImbalanceIndicator: IndicatorModule & {
     siVolume: 10,
     siColorNeg: "#FFC80000",
     siColorPos: "#FF228B22",
-    siLineWidth: 2
+    siLineWidth: 1
   },
   isActiveDefault: false
 };
