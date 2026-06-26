@@ -358,12 +358,12 @@ export function IndicatorsStorageProvider({ children }: { children: ReactNode })
     }
 
     const render: StoreEntry = entry ?? systemDefaultsEntry()
-    const hydrated = hydrateIndicators(render.indicators, favorites)
-    // If the cascade landed at 'system' and the row is empty, fall back to the
-    // catalogue's defaults so the chart isn't completely blank on first run.
-    const finalIndicators = (hydrated.length === 0 && render.source === 'system')
-      ? hydrateIndicators(defaultStoredIndicators(), favorites)
-      : hydrated
+    // source==='system' (нет настроек админа/пользователя) => берём заводские
+    // дефолты из каталога (isActiveDefault: сейчас активен только volumeOnChart).
+    // Для user/admin строк берём сохранённый набор как есть; недостающие индикаторы
+    // hydrateIndicators добивает как выключенные.
+    const baseStored = render.source === 'system' ? defaultStoredIndicators() : render.indicators
+    const finalIndicators = hydrateIndicators(baseStored, favorites)
 
     return {
       indicators: finalIndicators,

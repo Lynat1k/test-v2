@@ -76,7 +76,7 @@ export const clusterSearchIndicator: IndicatorModule & {
     csLargeOpacity: 0.9,
     csLargeTgAlert: false
   },
-  isActiveDefault: true,
+  isActiveDefault: false,
 
   drawShape: (ctx, shape, x, y, size, color, opacity, isLight = false) => {
     ctx.save();

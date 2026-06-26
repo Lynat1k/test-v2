@@ -74,13 +74,16 @@ export function hydrateIndicators(
   }
   for (const meta of MODULAR_INDICATORS) {
     if (seen.has(meta.id)) continue
+    // Недостающие в сохранённом наборе индикаторы добиваются как ВЫКЛЮЧЕННЫЕ,
+    // чтобы дефолты админа/пользователя оставались единственным источником
+    // правды и системные isActiveDefault не протекали поверх них.
     out.push({
       id: meta.id,
       label: meta.label,
       category: meta.category,
       type: meta.type,
       isFavorite: favorites.has(meta.id),
-      isActive: meta.isActiveDefault ?? false,
+      isActive: false,
       isVisible: true,
       settings: { ...meta.defaultSettings } as IndicatorSettings,
     })

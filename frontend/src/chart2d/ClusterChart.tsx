@@ -77,10 +77,10 @@ export default function ClusterChart({
   activePair,
   indicators,
   activeIndicators = {
-    clusterSearch: true,
-    delta: true,
+    clusterSearch: false,
+    delta: false,
     volume: false,
-    cvd: true,
+    cvd: false,
     stackedImbalance: false,
     depthOfMarket: false
   },

@@ -27,7 +27,7 @@ export const deltaIndicator: IndicatorModule & {
     sensitivity: 5,
     deltaPlotType: "candles"
   },
-  isActiveDefault: true,
+  isActiveDefault: false,
 
   getDeltaStyle: (delta, isLight) => {
     if (delta >= 0) {

@@ -36,7 +36,7 @@ export const cvdIndicator: IndicatorModule & {
     cvdPeriod: "all",
     cvdPlotType: "line"
   },
-  isActiveDefault: true,
+  isActiveDefault: false,
 
   calculateCVD: (candles: ClusterCandle[], period = "all", visibleStartIdx = 0, smoothing = 10) => {
     let runningSum = 0;
