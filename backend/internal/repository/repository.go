@@ -14,4 +14,6 @@ type MarketRepository interface {
 	GetLatestCandles(ctx context.Context, symbol, timeframe, market string, limit int, before *int64) ([]model.Candle, error)
 	GetClusters(ctx context.Context, symbol, timeframe string, candleOpen int64) ([]model.ClusterRow, error)
 	GetClustersBatch(ctx context.Context, symbol, timeframe, market string, candleOpens []int64, priceStep float64) (map[int64][]model.ClusterRow, error)
+	GetClustersBatchFromCache(ctx context.Context, symbol, market, timeframe string, candleOpens []int64, priceStep float64) (map[int64][]model.ClusterRow, error)
+	PutClustersBatchToCache(ctx context.Context, symbol, market, timeframe string, priceStep float64, byCandle map[int64][]model.ClusterRow) error
 }
