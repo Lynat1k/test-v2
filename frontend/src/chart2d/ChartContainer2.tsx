@@ -53,14 +53,14 @@ const LAYOUT_MAP: Record<string, '1' | '2h' | '2v'> = {
 }
 
 export function ChartContainer2({
-  symbol, market, timeframe, mode, volumeMode, palette, compression,
+  symbol, market, timeframe, chartIndex, mode, volumeMode, palette, compression,
   layoutMode, indicators, activeIndicators, onToggleIndicator, onToggleVisibility, onRemoveIndicator, onShowIndicatorsSettings,
   onLayoutChange, showAnomalies, onChangeShowAnomalies,
 }: ChartContainer2Props) {
   const { accessToken, user } = useAuthContext()
   const { limits } = useUserLimits()
   const { theme } = useTheme()
-  const { resolveTickerConfig, isConfigReady } = useChartControls()
+  const { resolveTickerConfig, isChartReady } = useChartControls()
   const { getSetting, setSetting } = useUserSettings()
 
   // Per (symbol + market) toggle for abbreviated cluster cell numbers (NOT per timeframe).
@@ -84,10 +84,13 @@ export function ChartContainer2({
   const baseCompression = isFutures ? tickerCfg.baseFutures : tickerCfg.baseSpot
   const priceTick = isFutures ? tickerCfg.futurePriceTick : tickerCfg.spotPriceTick
 
-  // Gate cluster loading until every input to priceStep has settled, so the chart
-  // issues exactly one clusters-batch request at the final step (no duplicate min-step
-  // fetch). Terminal-on-failure, so a 401 still lets clusters load via the fallback step.
-  const configReady = isConfigReady(symbol)
+  // Gate cluster loading until every input to priceStep has settled — config loaded AND the
+  // resolved compression is final for this slot. This issues exactly one clusters-batch at the
+  // authoritative step: without the compression-settled check the chart fetches at the transient
+  // min-step (e.g. 2.5) and re-fetches at the real step (the "messy clusters" race), most visible
+  // on timeframe switches. Terminal-on-failure via the adapter grace timer, so a 401 or a stuck
+  // resolve still lets clusters load via the fallback step.
+  const configReady = isChartReady(chartIndex)
 
   return (
     <div className="relative w-full h-full flex flex-col">

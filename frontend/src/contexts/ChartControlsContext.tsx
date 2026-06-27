@@ -88,6 +88,13 @@ interface ChartControlsValue {
   // chart must not fetch clusters yet (avoids the duplicate min-step cluster load).
   // Terminal-on-failure by design — never leaves the chart blocked when a request 401s.
   isConfigReady: (symbol: string) => boolean
+  // Stronger per-SLOT gate: isConfigReady AND the slot's compression is SETTLED — already the
+  // final resolved value for its symbol/market/tf, or an explicit in-session user pick. Until
+  // settled, `compression` may still re-resolve one render later (separate re-resolve effect),
+  // so the chart must NOT fetch clusters yet: fetching at the transient (min) step and then
+  // re-fetching at the real step is the duplicate clusters-batch race. Made terminal by the
+  // adapter's grace timer, so a stuck resolve never blocks the chart forever.
+  isChartReady: (slotIndex: 0 | 1) => boolean
 }
 
 const STORAGE_KEY = 'procluster_chart_controls'
@@ -464,12 +471,27 @@ export function ChartControlsProvider({ children }: { children: ReactNode }) {
     return settingsHydrated && tickersFetched && adminDefaultsFetched[symbol] === true
   }, [settingsHydrated, tickersFetched, adminDefaultsFetched])
 
+  // See interface doc. Gates the slot's cluster load on a SETTLED compression so the adapter
+  // never fetches at a transient min-step. Recomputed whenever slots change (compression
+  // updates flow through here), so the gate flips true on the same commit that finalizes
+  // compression → adapter's load effect then fires exactly one clusters-batch at the real step.
+  const isChartReady = useCallback((slotIndex: 0 | 1): boolean => {
+    const slot = slots[slotIndex]
+    if (!isConfigReady(slot.symbol)) return false
+    const tfKey = `${slot.market}_${slot.timeframe}`
+    // An explicit user pick IS the final value (the re-resolve effect skips it) → settled.
+    if (explicitChoiceRef.current.has(`${slot.symbol}_${tfKey}`)) return true
+    // Otherwise settled only when live compression equals what resolveCompression picks now.
+    // Mismatch = a transient value mid-re-resolve → keep clusters gated until it converges.
+    return slot.compression === resolveCompression(slot.symbol, slot.market, slot.timeframe, slot.compressionByTf)
+  }, [slots, isConfigReady, resolveCompression])
+
   return (
     <ChartControlsContext.Provider value={{
       activeSlot, setActiveSlot, getSlot, showIndicatorsModal,
       setSymbol, setMarket, setTimeframe, setCandleMode, setPalette, setVolumeMode, setCompression, setShowIndicatorsModal,
       getTickerConfig, getCompressionLevels, getAdminDefaultCompression, invalidateAdminDefaults,
-      serverTickers, refreshTickers, resolveTickerConfig, isConfigReady,
+      serverTickers, refreshTickers, resolveTickerConfig, isConfigReady, isChartReady,
     }}>
       {children}
     </ChartControlsContext.Provider>
