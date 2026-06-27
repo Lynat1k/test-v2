@@ -62,6 +62,37 @@ const parseHexColor = (hex: string): string => {
 // Overlays/global indicators are NOT included here.
 const REORDERABLE_PANEL_IDS = ["delta", "cvd", "rsi"] as const;
 
+// --- Price-scale tick helpers (TradingView-style "nice" round levels) ---
+// niceStep: pick a round step (1/2/5 * 10^n) so labels land ~targetPx apart.
+function niceStep(range: number, chartHeightPx: number, targetPx: number): number {
+  const tickCount = Math.max(1, chartHeightPx / targetPx);
+  const rawStep = range / tickCount;
+  if (!isFinite(rawStep) || rawStep <= 0) return 0;
+  const magnitude = Math.pow(10, Math.floor(Math.log10(rawStep)));
+  const norm = rawStep / magnitude;
+  let mul: number;
+  if (norm <= 1) mul = 1;
+  else if (norm <= 2) mul = 2;
+  else if (norm <= 5) mul = 5;
+  else mul = 10;
+  return mul * magnitude;
+}
+
+// decimalsForStep: how many fraction digits to show given the step and pair tick size.
+function decimalsForStep(step: number, priceStep: number): number {
+  const fromStep = step > 0 ? Math.max(0, Math.ceil(-Math.log10(step))) : 0;
+  const fromTick = priceStep > 0 && priceStep < 0.1
+    ? Math.max(0, Math.ceil(-Math.log10(priceStep))) : 0;
+  return Math.min(8, Math.max(fromStep, fromTick));
+}
+
+// snapStepToTick: round the nice step up to a whole multiple of the pair tick size.
+function snapStepToTick(niceS: number, priceStep: number): number {
+  if (!(priceStep > 0)) return niceS;
+  if (niceS < priceStep) return priceStep;
+  return Math.ceil(niceS / priceStep) * priceStep;
+}
+
 interface ClusterChartProps {
   candles: ClusterCandle[];
   activePair: CryptoPair;
@@ -475,7 +506,7 @@ export default function ClusterChart({
   // Zoom state: width of each candlestick in pixels
   const [candleWidth, setCandleWidth] = useState<number>(145);
   const candleSpacing = Math.max(1, candleWidth < 30 ? Math.floor(candleWidth * 0.35) : 12);
-  const margin = { top: 30, right: 90, bottom: 40, left: 60 };
+  const margin = { top: 30, right: 66, bottom: 40, left: 60 };
   const VISIBLE_CANDLES = 100;
 
   const candleWidthSpacing = candleWidth + candleSpacing;
@@ -4917,7 +4948,7 @@ export default function ClusterChart({
           className="absolute pointer-events-none select-none z-10 h-7 w-auto opacity-[0.20]"
           style={{
             bottom: `${margin.bottom + panelsHeightTotal + 26}px`,
-            right: `${(isMobile ? 58 : 90) + 16}px`,
+            right: `${(isMobile ? 54 : 66) + 16}px`,
           }}
         />
 
@@ -5015,16 +5046,28 @@ export default function ClusterChart({
         className={`flex-none border-l select-none transition-all duration-300 relative flex flex-col justify-between cursor-ns-resize ${
           isLight ? "bg-[#f8fafc] border-slate-200" : "bg-[#06080f] border-white/5"
         }`}
-        style={{ height: totalSvgHeight, width: isMobile ? "58px" : "90px", touchAction: "none" }}
+        style={{ height: totalSvgHeight, width: isMobile ? "54px" : "66px", touchAction: "none" }}
       >
         {(() => {
-          const scaleWidth = isMobile ? 58 : 90;
+          const scaleWidth = isMobile ? 54 : 66;
           const labelX = isMobile ? 4 : 8;
+          const labelRightX = scaleWidth - (isMobile ? 4 : 8);
           const badgeWidth = scaleWidth - 8;
-          const formatPrice = (p: number) => {
-            const fd = isMobile ? 0 : (activePair.priceStep < 0.1 ? 3 : 1);
+          const formatPrice = (p: number, decimals?: number) => {
+            const fd = decimals !== undefined
+              ? decimals
+              : (isMobile ? 0 : (activePair.priceStep < 0.1 ? 3 : 1));
             return "$" + p.toLocaleString(undefined, { minimumFractionDigits: fd, maximumFractionDigits: fd });
           };
+          // Round-level step + shared decimal count (TradingView style). Reused by the
+          // tick labels AND the live price badge so digit counts never disagree.
+          const scaleRange = maxPrice - minPrice;
+          let scaleStep = snapStepToTick(
+            niceStep(scaleRange, chartHeight, isMobile ? 70 : 55),
+            activePair.priceStep,
+          );
+          if (!(scaleStep > 0)) scaleStep = scaleRange;
+          const scaleDecimals = decimalsForStep(scaleStep, activePair.priceStep);
           return (
             <svg width={scaleWidth} height={totalSvgHeight} className="absolute inset-0 block pointer-events-none">
               {/* Price Scale Background Panel */}
@@ -5046,37 +5089,74 @@ export default function ClusterChart({
                 strokeWidth="1.5"
               />
 
-              {/* Price Ticks & Labels */}
-              {Array.from({ length: 6 }).map((_, i) => {
-                const ratio = i / 5;
-                const price = minPrice + ratio * (maxPrice - minPrice);
-                const gridY = priceToY(price);
-                return (
-                  <g key={`fixed-grid-label-${i}`}>
-                    {/* Tick Line */}
-                    <line
-                      x1={0}
-                      y1={gridY}
-                      x2={5}
-                      y2={gridY}
-                      stroke={isLight ? "#94a3b8" : "#475569"}
-                      strokeWidth="1.2"
-                    />
-                    {/* Label Text */}
-                    <text
-                      x={labelX}
-                      y={gridY + 4}
-                      fill={isLight ? "#1e293b" : "#cbd5e1"}
-                      fontSize={isMobile ? "8.5" : "10.5"}
-                      fontFamily="'Inter', -apple-system, sans-serif"
-                      fontWeight="600"
-                      textAnchor="start"
-                    >
-                      {formatPrice(price)}
-                    </text>
-                  </g>
-                );
-              })}
+              {/* Price Ticks & Labels — round levels, density follows vertical zoom (TradingView style) */}
+              {(() => {
+                const nodes: JSX.Element[] = [];
+                const range = maxPrice - minPrice;
+                // Degenerate range: show a single centered label and bail.
+                if (range <= 0 || !isFinite(range)) {
+                  const gridY = priceToY(minPrice);
+                  nodes.push(
+                    <g key="grid-label-0">
+                      <line
+                        x1={0}
+                        y1={gridY}
+                        x2={5}
+                        y2={gridY}
+                        stroke={isLight ? "#94a3b8" : "#475569"}
+                        strokeWidth="1.2"
+                      />
+                      <text
+                        x={labelRightX}
+                        y={gridY + 4}
+                        fill={isLight ? "#1e293b" : "#cbd5e1"}
+                        fontSize={isMobile ? "8.5" : "10.5"}
+                        fontFamily="'Inter', -apple-system, sans-serif"
+                        fontWeight="600"
+                        textAnchor="end"
+                      >
+                        {formatPrice(minPrice, scaleDecimals)}
+                      </text>
+                    </g>,
+                  );
+                  return nodes;
+                }
+                const firstLevel = Math.ceil(minPrice / scaleStep) * scaleStep;
+                const MAX_LEVELS = 50; // guard against runaway loop
+                for (
+                  let price = firstLevel, idx = 0;
+                  price <= maxPrice && idx < MAX_LEVELS;
+                  price += scaleStep, idx++
+                ) {
+                  const gridY = priceToY(price);
+                  nodes.push(
+                    <g key={`grid-label-${idx}`}>
+                      {/* Tick Line */}
+                      <line
+                        x1={0}
+                        y1={gridY}
+                        x2={5}
+                        y2={gridY}
+                        stroke={isLight ? "#94a3b8" : "#475569"}
+                        strokeWidth="1.2"
+                      />
+                      {/* Label Text */}
+                      <text
+                        x={labelRightX}
+                        y={gridY + 4}
+                        fill={isLight ? "#1e293b" : "#cbd5e1"}
+                        fontSize={isMobile ? "8.5" : "10.5"}
+                        fontFamily="'Inter', -apple-system, sans-serif"
+                        fontWeight="600"
+                        textAnchor="end"
+                      >
+                        {formatPrice(price, scaleDecimals)}
+                      </text>
+                    </g>,
+                  );
+                }
+                return nodes;
+              })()}
 
               {/* Live Active Price level label */}
               {(() => {
@@ -5097,16 +5177,16 @@ export default function ClusterChart({
                         strokeWidth="1.2"
                       />
                       <text
-                        x={labelX + 1}
+                        x={labelRightX}
                         y={activePriceY}
                         fill={isLight ? "#0f172a" : "#facc15"}
                         fontSize={isMobile ? "10" : "12.5"}
                         fontFamily="'Inter', -apple-system, sans-serif"
                         fontWeight="900"
-                        textAnchor="start"
+                        textAnchor="end"
                         dominantBaseline="central"
                       >
-                        {formatPrice(currentPrice)}
+                        {formatPrice(currentPrice, scaleDecimals)}
                       </text>
                     </g>
                   );
@@ -5369,7 +5449,7 @@ export default function ClusterChart({
             className="absolute z-30 flex items-center gap-2 px-3 py-1 rounded-lg border shadow-xl backdrop-blur-md transition-all duration-300 select-none"
             style={{
               top: `${panelTopY[id] + 1}px`,
-              right: "100px", // Pinned just to the left of the 90px price scale panel
+              right: "76px", // Pinned just to the left of the 66px price scale panel
               backgroundColor: isLight ? "rgba(241, 245, 249, 0.9)" : "rgba(15, 23, 42, 0.75)",
               borderColor: isLight ? "rgba(203, 213, 225, 0.8)" : "rgba(255, 255, 255, 0.08)",
             }}
