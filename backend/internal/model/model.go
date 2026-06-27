@@ -66,3 +66,19 @@ type DOMLevel struct {
 	BidSize    float64
 	AskSize    float64
 }
+
+// BookDepthRatio — снапшот суммарной глубины стакана (лимитные qty) в полосах
+// ±1/3/5% от центральной цены на момент закрытия минутной свечи. Источник для
+// индикатора Bid & Ask Ratio. Bid_N/Ask_N — сырые суммы объёма (truncate до 1
+// знака выполняется при вставке в ClickHouse).
+type BookDepthRatio struct {
+	Symbol     string
+	Market     string
+	SnapshotTS time.Time
+	Bid1       float64
+	Ask1       float64
+	Bid3       float64
+	Ask3       float64
+	Bid5       float64
+	Ask5       float64
+}

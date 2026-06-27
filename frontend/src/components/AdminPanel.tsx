@@ -999,6 +999,7 @@ function HistoryBlock({ isLight }: { isLight: boolean }) {
   const [tickers, setTickers] = useState<Ticker[]>([])
   const [symbol, setSymbol] = useState('')
   const [market, setMarket] = useState('futures')
+  const [dataType, setDataType] = useState('clusters')
   const [startDate, setStartDate] = useState('')
   const [endDate, setEndDate] = useState('')
   const [jobs, setJobs] = useState<DownloadJob[]>([])
@@ -1046,7 +1047,7 @@ function HistoryBlock({ isLight }: { isLight: boolean }) {
     setSubmitting(true)
     setStartErr(null)
     try {
-      await apiStartDownload({ symbol, market, startDate, endDate })
+      await apiStartDownload({ symbol, market, dataType, startDate, endDate })
       fetchJobs()
     } catch (e: any) {
       setStartErr(e?.message || JSON.stringify(e))
@@ -1085,13 +1086,32 @@ function HistoryBlock({ isLight }: { isLight: boolean }) {
           className="w-full"
         />
 
+        <StyledSelect
+          value={dataType}
+          options={[
+            { value: 'clusters', label: 'Кластера' },
+            { value: 'bookDepth', label: 'Глубина стакана' },
+          ]}
+          onChange={(v) => {
+            setDataType(v)
+            // bookDepth dumps exist only for futures — pin the market.
+            if (v === 'bookDepth') setMarket('futures')
+          }}
+          isLight={isLight}
+          className="w-full"
+        />
+
         <div className="flex gap-2">
           <StyledSelect
             value={market}
-            options={[
-              { value: 'futures', label: t('admin.database.futures') },
-              { value: 'spot', label: t('admin.database.spot') },
-            ]}
+            options={
+              dataType === 'bookDepth'
+                ? [{ value: 'futures', label: t('admin.database.futures') }]
+                : [
+                    { value: 'futures', label: t('admin.database.futures') },
+                    { value: 'spot', label: t('admin.database.spot') },
+                  ]
+            }
             onChange={(v) => setMarket(v)}
             isLight={isLight}
             className="flex-1"

@@ -283,6 +283,39 @@ func (ob *OrderBook) Stats() BookStats {
 	return s
 }
 
+// GetBandSums returns the summed limit-order qty within ±pct bands around
+// centerPrice, for each pct in pcts. bids[i] = Σ qty of bids with price >=
+// center*(1-pcts[i]); asks[i] = Σ qty of asks with price <= center*(1+pcts[i]).
+// No price-level aggregation — just raw sums (truncate happens at insert time).
+// Returns zero-filled slices when centerPrice is invalid.
+func (ob *OrderBook) GetBandSums(centerPrice float64, pcts []float64) (bids []float64, asks []float64) {
+	bids = make([]float64, len(pcts))
+	asks = make([]float64, len(pcts))
+	if centerPrice <= 0 {
+		return bids, asks
+	}
+
+	ob.mu.RLock()
+	defer ob.mu.RUnlock()
+
+	for i, pct := range pcts {
+		bidLow := centerPrice * (1 - pct)
+		for price, qty := range ob.bids {
+			if price >= bidLow && price <= centerPrice {
+				bids[i] += qty
+			}
+		}
+		askHigh := centerPrice * (1 + pct)
+		for price, qty := range ob.asks {
+			if price <= askHigh && price >= centerPrice {
+				asks[i] += qty
+			}
+		}
+	}
+
+	return bids, asks
+}
+
 func (ob *OrderBook) GetAggregatedLevels(centerPrice float64, pctRange float64, baseStep float64) []DOMLevel {
 	ob.mu.RLock()
 	defer ob.mu.RUnlock()

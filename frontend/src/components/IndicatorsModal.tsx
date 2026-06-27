@@ -1700,6 +1700,74 @@ export default function IndicatorsModal({ isOpen, onClose, symbol = "", market =
                         </div>
                       )}
 
+                      {selectedIndicator.id === "bidAskRatio" && (
+                        <div className={`flex flex-col gap-4 font-sans text-xs p-4.5 rounded-2xl border transition-all duration-300 ${isLight ? "bg-slate-100/40 border-slate-200/85" : "bg-slate-950/20 border-white/5"}`}>
+                          <span className="text-[10px] text-slate-500 uppercase tracking-widest font-black font-mono">
+                            ПАРАМЕТРЫ BID &amp; ASK RATIO
+                          </span>
+
+                          <div className="flex flex-col gap-1.5">
+                            <span className={`font-bold ${isLight ? "text-slate-700" : "text-slate-300"}`}>Диапазон</span>
+                            <select
+                              value={selectedIndicator.settings.bidAskRatioBand ?? "5"}
+                              onChange={(e) => updateSettings({ bidAskRatioBand: e.target.value as "1" | "3" | "5" })}
+                              className={`rounded-xl px-3 py-2 text-xs outline-none transition-all duration-300 border ${isLight ? "bg-white border-slate-200 text-slate-800 focus:ring-1 focus:ring-blue-400" : "bg-[#0b0f19] border border-white/10 text-slate-200 focus:ring-1 focus:ring-yellow-500/40 hover:border-white/20"}`}
+                            >
+                              <option value="1">±1%</option>
+                              <option value="3">±3%</option>
+                              <option value="5">±5%</option>
+                            </select>
+                          </div>
+
+                          <div className="flex items-center justify-between border-t border-dashed border-slate-700/20 pt-3">
+                            <span className={`font-bold ${isLight ? "text-slate-700" : "text-slate-300"}`}>Цвет bid</span>
+                            <div className="flex items-center gap-2">
+                              <input
+                                type="color"
+                                value={selectedIndicator.settings.bidAskRatioBullColor ?? "#10b981"}
+                                onChange={(e) => updateSettings({ bidAskRatioBullColor: e.target.value })}
+                                className="w-7 h-7 rounded cursor-pointer border-0 p-0 overflow-hidden bg-transparent shrink-0"
+                              />
+                              <span className="text-[10px] font-mono text-slate-400 truncate w-14">
+                                {selectedIndicator.settings.bidAskRatioBullColor ?? "#10b981"}
+                              </span>
+                            </div>
+                          </div>
+
+                          <div className="flex items-center justify-between border-t border-dashed border-slate-700/20 pt-3">
+                            <span className={`font-bold ${isLight ? "text-slate-700" : "text-slate-300"}`}>Цвет ask</span>
+                            <div className="flex items-center gap-2">
+                              <input
+                                type="color"
+                                value={selectedIndicator.settings.bidAskRatioBearColor ?? "#ef4444"}
+                                onChange={(e) => updateSettings({ bidAskRatioBearColor: e.target.value })}
+                                className="w-7 h-7 rounded cursor-pointer border-0 p-0 overflow-hidden bg-transparent shrink-0"
+                              />
+                              <span className="text-[10px] font-mono text-slate-400 truncate w-14">
+                                {selectedIndicator.settings.bidAskRatioBearColor ?? "#ef4444"}
+                              </span>
+                            </div>
+                          </div>
+
+                          <div className="flex flex-col gap-2 border-t border-dashed border-slate-700/20 pt-3">
+                            <div className="flex justify-between font-bold">
+                              <span className={isLight ? "text-slate-700" : "text-slate-300"}>Прозрачность</span>
+                              <span className={`font-mono font-bold ${isLight ? "text-blue-700" : "text-yellow-500"}`}>
+                                {selectedIndicator.settings.bidAskRatioOpacity ?? 100}%
+                              </span>
+                            </div>
+                            <input
+                              type="range"
+                              min="10"
+                              max="100"
+                              value={selectedIndicator.settings.bidAskRatioOpacity ?? 100}
+                              onChange={(e) => updateSettings({ bidAskRatioOpacity: parseInt(e.target.value, 10) })}
+                              className={`w-full accent-blue-600 rounded-lg h-1 ${isLight ? "bg-slate-250" : "bg-slate-800"}`}
+                            />
+                          </div>
+                        </div>
+                      )}
+
                       {selectedIndicator.id === "rsi" && (
                         <div className={`flex flex-col gap-4 font-sans text-xs p-4.5 rounded-2xl border transition-all duration-300 ${isLight ? "bg-slate-100/40 border-slate-200/85" : "bg-slate-950/20 border-white/5"}`}>
                           <span className="text-[10px] text-slate-500 uppercase tracking-widest font-black font-mono">

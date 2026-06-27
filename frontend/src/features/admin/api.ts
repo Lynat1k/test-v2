@@ -184,6 +184,7 @@ export interface DownloadJob {
   market: string
   startDate: string
   endDate: string
+  dataType: string
   status: string
   progress: number
   stepDetail: string
@@ -196,6 +197,7 @@ export async function apiStartDownload(data: {
   market: string
   startDate: string
   endDate: string
+  dataType?: string
 }): Promise<{ jobId: string }> {
   return request<{ jobId: string }>('/admin/history/download', {
     method: 'POST',

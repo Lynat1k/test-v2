@@ -442,6 +442,10 @@ func (m *mockClickHouse) DeleteClustersByRange(ctx context.Context, table, symbo
 	return m.deleteErr
 }
 
+func (m *mockClickHouse) InsertBookDepthRatioBatch(ctx context.Context, rows []model.BookDepthRatio) error {
+	return nil
+}
+
 func (m *mockClickHouse) InsertClusterBatch(ctx context.Context, rows []model.ClusterRow, table string) error {
 	m.insertCalls = append(m.insertCalls, insertCall{rows, table})
 	return m.insertErr

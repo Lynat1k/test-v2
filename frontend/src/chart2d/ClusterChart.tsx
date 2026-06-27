@@ -18,6 +18,7 @@ import { ChartToolsHeader } from "./ChartToolsHeader";
 import { useDrawingDefaults, getClientDefaults } from "@/contexts/DrawingDefaultsContext";
 import { apiGetDrawings, apiPutDrawings } from "@/features/drawings/api";
 import { useAuthContext } from "@/features/auth/AuthContext";
+import { fetchBookDepthRatio, type BookDepthRatioPoint } from "@/features/bookdepth/api";
 
 // Abbreviates a magnitude (>=1000) to "к/м" (RU/KZ) or "k/m" (EN), rounded to 1 decimal,
 // trailing ".0" trimmed: 2000→"2к", 2629→"2.6к", 25720→"25.7к", 1101565→"1.1м".
@@ -43,6 +44,20 @@ const rgbaToHex = (rgba: string): string => {
   return `#${r}${g}${b}`;
 };
 
+// hexToRgba: "#rrggbb" (or "#rrggbbaa") + alpha[0..1] -> "rgba(...)". Falls back
+// to the input string if it can't be parsed (e.g. already rgba()).
+const hexToRgba = (hex: string, alpha: number): string => {
+  if (!hex || !hex.startsWith("#")) return hex;
+  const clean = hex.slice(1);
+  if (clean.length !== 6 && clean.length !== 8) return hex;
+  const r = parseInt(clean.slice(0, 2), 16);
+  const g = parseInt(clean.slice(2, 4), 16);
+  const b = parseInt(clean.slice(4, 6), 16);
+  const baseA = clean.length === 8 ? parseInt(clean.slice(6, 8), 16) / 255 : 1;
+  const a = Math.max(0, Math.min(1, alpha)) * baseA;
+  return `rgba(${r}, ${g}, ${b}, ${a})`;
+};
+
 const parseHexColor = (hex: string): string => {
   if (!hex) return "#ffffff";
   let h = hex.trim();
@@ -60,7 +75,7 @@ const parseHexColor = (hex: string): string => {
 
 // Footer ("Подвальный") panels that can be reordered with the arrows on their plate.
 // Overlays/global indicators are NOT included here.
-const REORDERABLE_PANEL_IDS = ["delta", "cvd", "rsi"] as const;
+const REORDERABLE_PANEL_IDS = ["delta", "cvd", "rsi", "bidAskRatio"] as const;
 
 // --- Price-scale tick helpers (TradingView-style "nice" round levels) ---
 // niceStep: pick a round step (1/2/5 * 10^n) so labels land ~targetPx apart.
@@ -138,7 +153,8 @@ export default function ClusterChart({
     volume: false,
     cvd: false,
     stackedImbalance: false,
-    depthOfMarket: false
+    depthOfMarket: false,
+    bidAskRatio: false
   },
   marketType = "SPOT",
   onToggleMarketType,
@@ -211,6 +227,15 @@ export default function ClusterChart({
   const rsiLineColor = rsiSettings.rsiLineColor || "#a855f7";
   const rsiZoneColor = rsiSettings.rsiZoneColor || "#64748b";
   const rsiZoneOpacity = typeof rsiSettings.rsiZoneOpacity === "number" ? rsiSettings.rsiZoneOpacity : 12;
+
+  // Bid & Ask Ratio indicator specific settings (footer panel, fixed -1..+1 scale,
+  // data fetched from the backend — see bidAskRatioData effect below)
+  const bidAskRatioSettings = indicatorSettings?.bidAskRatio || {};
+  const bidAskRatioBand = bidAskRatioSettings.bidAskRatioBand || "5";
+  const bidAskRatioBullColor = bidAskRatioSettings.bidAskRatioBullColor || "#10b981";
+  const bidAskRatioBearColor = bidAskRatioSettings.bidAskRatioBearColor || "#ef4444";
+  const bidAskRatioOpacity = typeof bidAskRatioSettings.bidAskRatioOpacity === "number" ? bidAskRatioSettings.bidAskRatioOpacity : 100;
+  const bidAskRatioRKey: "r1" | "r3" | "r5" = bidAskRatioBand === "1" ? "r1" : bidAskRatioBand === "3" ? "r3" : "r5";
 
   // Delta indicator specific settings
   const deltaSettings = indicatorSettings?.delta || {};
@@ -581,6 +606,10 @@ export default function ClusterChart({
     const saved = storage.get("procluster_rsi_panel_height");
     return saved ? parseInt(saved, 10) : 120;
   });
+  const [bidAskRatioPanelHeight, setBidAskRatioPanelHeight] = useState<number>(() => {
+    const saved = storage.get("procluster_bidaskratio_panel_height");
+    return saved ? parseInt(saved, 10) : 120;
+  });
 
   useEffect(() => {
     storage.set("procluster_delta_panel_height", deltaPanelHeight.toString());
@@ -593,6 +622,10 @@ export default function ClusterChart({
   useEffect(() => {
     storage.set("procluster_rsi_panel_height", rsiPanelHeight.toString());
   }, [rsiPanelHeight]);
+
+  useEffect(() => {
+    storage.set("procluster_bidaskratio_panel_height", bidAskRatioPanelHeight.toString());
+  }, [bidAskRatioPanelHeight]);
 
   // Vertical stacking order of footer panels (top -> bottom). Persisted in LS.
   // Default is EMPTY: order is then built by activation order (append-on-enable effect below).
@@ -628,11 +661,11 @@ export default function ClusterChart({
     });
   }, [activeIndicators]);
 
-  const [resizingPanel, setResizingPanel] = useState<"delta" | "cvd" | "rsi" | null>(null);
+  const [resizingPanel, setResizingPanel] = useState<"delta" | "cvd" | "rsi" | "bidAskRatio" | null>(null);
 
   const panelGap = 24;
   const getPanelHeight = (id: string): number =>
-    id === "delta" ? deltaPanelHeight : id === "cvd" ? cvdPanelHeight : id === "rsi" ? rsiPanelHeight : 0;
+    id === "delta" ? deltaPanelHeight : id === "cvd" ? cvdPanelHeight : id === "rsi" ? rsiPanelHeight : id === "bidAskRatio" ? bidAskRatioPanelHeight : 0;
 
   // Active footer panels in render order (top -> bottom).
   const activePanels = panelOrder.filter(id => activeIndicators[id]);
@@ -658,6 +691,7 @@ export default function ClusterChart({
   const deltaTopY = panelTopY["delta"] ?? 0;
   const cvdTopY = panelTopY["cvd"] ?? 0;
   const rsiTopY = panelTopY["rsi"] ?? 0;
+  const bidAskRatioTopY = panelTopY["bidAskRatio"] ?? 0;
 
   const totalSvgHeight = margin.top + chartHeight + panelsHeightTotal + margin.bottom;
 
@@ -709,6 +743,7 @@ export default function ClusterChart({
   const deltaValueSpanRef = useRef<HTMLSpanElement>(null);
   const cvdValueSpanRef = useRef<HTMLSpanElement>(null);
   const rsiValueSpanRef = useRef<HTMLSpanElement>(null);
+  const bidAskRatioValueSpanRef = useRef<HTMLSpanElement>(null);
   const clusterTooltipRef = useRef<HTMLDivElement>(null);
   const clusterTooltipTitleWrapRef = useRef<HTMLSpanElement>(null);
   const clusterTooltipTitleTextRef = useRef<HTMLSpanElement>(null);
@@ -2872,6 +2907,47 @@ export default function ClusterChart({
     });
   }, [rsiValues, candleWidth, candleSpacing, margin.left]);
 
+  // --- Bid & Ask Ratio (footer panel) — data comes from the BACKEND, not from
+  // candles. Fetch when the indicator is active AND the market is futures.
+  const [bidAskRatioData, setBidAskRatioData] = useState<BookDepthRatioPoint[]>([]);
+
+  const candleMinTs = candles.length > 0 ? candles[0]!.timestamp : 0;
+  const candleMaxTs = candles.length > 0 ? candles[candles.length - 1]!.timestamp : 0;
+  const bidAskRatioActive = !!activeIndicators.bidAskRatio;
+  const isFuturesMarket = marketType === "FUTURES";
+
+  useEffect(() => {
+    if (!bidAskRatioActive || !isFuturesMarket) {
+      setBidAskRatioData([]);
+      return;
+    }
+    if (!candleMinTs || !candleMaxTs || !timeframe) return;
+    let cancelled = false;
+    // Normalize symbol to the storage form (no slash) — ClickHouse keeps "BTCUSDT", not "BTC/USDT".
+    const bdSymbol = activePair.symbol.toUpperCase().replace("/", "");
+    // +1 bucket of slack on `to` so the most recent (forming) candle is covered.
+    fetchBookDepthRatio(bdSymbol, "futures", timeframe, candleMinTs, candleMaxTs + 60_000, accessToken)
+      .then((pts) => { if (!cancelled) setBidAskRatioData(pts); })
+      .catch(() => { if (!cancelled) setBidAskRatioData([]); });
+    return () => { cancelled = true; };
+  }, [bidAskRatioActive, isFuturesMarket, activePair.symbol, timeframe, candleMinTs, candleMaxTs, accessToken]);
+
+  const bidAskRatioMap = useMemo(() => {
+    const m = new Map<number, BookDepthRatioPoint>();
+    for (const p of bidAskRatioData) m.set(p.t, p);
+    return m;
+  }, [bidAskRatioData]);
+
+  // Coordinate mapping (center-of-candle X) + ratio value matched by candle_open.
+  const bidAskRatioPoints = useMemo(() => {
+    return candles.map((c, i) => {
+      const cx = margin.left + i * (candleWidth + candleSpacing) + candleWidth / 2;
+      const pt = bidAskRatioMap.get(c.timestamp);
+      const value: number | null = pt ? pt[bidAskRatioRKey] : null;
+      return { cx, value };
+    });
+  }, [candles, bidAskRatioMap, bidAskRatioRKey, candleWidth, candleSpacing, margin.left]);
+
   // Dynamically calculate visible min and max cumulative delta for local auto-scaling to fill 80% height
   const { minCumDeltaVal, maxCumDeltaVal, cvdDeltaRange } = useMemo(() => {
     if (cumulativeDeltaPoints.length === 0) {
@@ -3062,6 +3138,10 @@ export default function ClusterChart({
         const rsiBottomY = rsiTopY + rsiPanelHeight;
         const newHeight = Math.max(50, Math.min(350, rsiBottomY - relativeY));
         setRsiPanelHeight(newHeight);
+      } else if (resizingPanel === "bidAskRatio") {
+        const barBottomY = bidAskRatioTopY + bidAskRatioPanelHeight;
+        const newHeight = Math.max(50, Math.min(350, barBottomY - relativeY));
+        setBidAskRatioPanelHeight(newHeight);
       }
     };
 
@@ -3075,7 +3155,7 @@ export default function ClusterChart({
       window.removeEventListener("mousemove", handleWindowMouseMove);
       window.removeEventListener("mouseup", handleWindowMouseUp);
     };
-  }, [resizingPanel, deltaTopY, deltaPanelHeight, cvdTopY, cvdPanelHeight, rsiTopY, rsiPanelHeight]);
+  }, [resizingPanel, deltaTopY, deltaPanelHeight, cvdTopY, cvdPanelHeight, rsiTopY, rsiPanelHeight, bidAskRatioTopY, bidAskRatioPanelHeight]);
 
   // Window-level mouse drag-zoom tracker for vertical price scale dragging
   useEffect(() => {
@@ -4446,6 +4526,68 @@ export default function ClusterChart({
     }
 
     // -------------------------------------------------------------------------
+    // Bid & Ask Ratio subchart (footer panel) — FIXED -1..+1 scale, zero line in
+    // the centre. Data is fetched from the backend (bidAskRatioPoints). On a
+    // non-futures market the panel is shown empty with a "Только futures" label.
+    // -------------------------------------------------------------------------
+    if (activeIndicators.bidAskRatio) {
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(margin.left, bidAskRatioTopY, scrollWidth - margin.left + 50, bidAskRatioPanelHeight);
+      ctx.clip();
+      ctx.translate(0, bidAskRatioTopY);
+
+      const panelH = bidAskRatioPanelHeight;
+      const midY = panelH / 2;
+      const usableHalf = panelH * 0.42; // leave ~8% margin top & bottom
+      const getRatioY = (v: number) => midY - Math.max(-1, Math.min(1, v)) * usableHalf;
+
+      // Zero reference line (centre)
+      ctx.beginPath();
+      ctx.strokeStyle = isLight ? "rgba(15, 23, 42, 0.18)" : "rgba(255, 255, 255, 0.14)";
+      ctx.lineWidth = 0.8;
+      ctx.setLineDash([3, 3]);
+      ctx.moveTo(margin.left, midY);
+      ctx.lineTo(scrollWidth, midY);
+      ctx.stroke();
+      ctx.setLineDash([]);
+
+      if (!isFuturesMarket) {
+        ctx.fillStyle = isLight ? "rgba(100, 116, 139, 0.9)" : "rgba(148, 163, 184, 0.9)";
+        ctx.font = "bold 12px 'Inter', sans-serif";
+        ctx.textAlign = "center";
+        ctx.fillText("Только futures", margin.left + (scrollWidth - margin.left) / 2, midY - 2);
+      } else {
+        const op = Math.max(0, Math.min(100, bidAskRatioOpacity)) / 100;
+        const bullFill = hexToRgba(bidAskRatioBullColor, op);
+        const bearFill = hexToRgba(bidAskRatioBearColor, op);
+        const barStartIdx = Math.max(0, startIdx - 1);
+        const barEndIdx = Math.min(bidAskRatioPoints.length - 1, endIdx + 1);
+        for (let idx = barStartIdx; idx <= barEndIdx; idx++) {
+          const p = bidAskRatioPoints[idx];
+          if (!p || p.value === null || p.value === undefined) continue;
+          const v = Math.max(-1, Math.min(1, p.value));
+          const yVal = getRatioY(v);
+          const x = p.cx - candleWidth / 2;
+          const top = v >= 0 ? yVal : midY;
+          const h = Math.max(1, Math.abs(midY - yVal));
+          ctx.fillStyle = v >= 0 ? bullFill : bearFill;
+          ctx.fillRect(x + 1, top, candleWidth - 2, h);
+        }
+      }
+
+      // Fixed axis labels (+1 / 0 / -1) on the left edge
+      ctx.fillStyle = isLight ? "rgba(15, 23, 42, 0.5)" : "rgba(148, 163, 184, 0.7)";
+      ctx.font = "9px 'Inter', sans-serif";
+      ctx.textAlign = "left";
+      ctx.fillText("+1", margin.left + 2, getRatioY(1) + 8);
+      ctx.fillText("0", margin.left + 2, midY - 2);
+      ctx.fillText("-1", margin.left + 2, getRatioY(-1) - 2);
+
+      ctx.restore();
+    }
+
+    // -------------------------------------------------------------------------
     // RENDER INTERACTIVE DRAWING OBJECTS (Foreground items: lines, handles, annotations, etc.)
     // -------------------------------------------------------------------------
     drawDrawingObjects(ctx, {
@@ -4643,6 +4785,11 @@ export default function ClusterChart({
     cvdCenterVal,
     deltaScale,
     cvdScale,
+    bidAskRatioPoints,
+    bidAskRatioBullColor,
+    bidAskRatioBearColor,
+    bidAskRatioOpacity,
+    marketType,
     profileBuckets,
     maxProfileVol,
     profileBucketSize,
@@ -5433,6 +5580,7 @@ export default function ClusterChart({
           id === "delta" ? { label: "(PROCLUSTER) DELTA", dotColor: null as string | null, valueRef: deltaValueSpanRef } :
           id === "cvd"   ? { label: "(PROCLUSTER) CVD",   dotColor: cvdLineColor as string | null, valueRef: cvdValueSpanRef } :
           id === "rsi"   ? { label: "(PROCLUSTER) RSI",   dotColor: rsiLineColor as string | null, valueRef: rsiValueSpanRef } :
+          id === "bidAskRatio" ? { label: "(PROCLUSTER) Bid & Ask Ratio", dotColor: bidAskRatioBullColor as string | null, valueRef: bidAskRatioValueSpanRef } :
           null;
         if (!meta) return null;
         const isFirst = idx === 0;
@@ -5560,6 +5708,25 @@ export default function ClusterChart({
             transform: "translateY(-7px)"
           }}
           title="Drag to resize RSI Panel"
+        >
+          {/* Subtle colored horizontal line that lights up when hovered */}
+          <div className="w-24 h-[3px] rounded-full bg-yellow-500/0 group-hover:bg-yellow-500/85 transition-all duration-200 shadow-md shadow-yellow-500/40" />
+        </div>
+      )}
+
+      {activeIndicators.bidAskRatio && (
+        <div
+          onMouseDown={(e) => {
+            e.preventDefault();
+            setResizingPanel("bidAskRatio");
+          }}
+          className={`absolute left-0 right-0 z-40 cursor-ns-resize flex items-center justify-center group`}
+          style={{
+            top: `${bidAskRatioTopY - panelGap / 2}px`,
+            height: "14px",
+            transform: "translateY(-7px)"
+          }}
+          title="Drag to resize Bid & Ask Ratio Panel"
         >
           {/* Subtle colored horizontal line that lights up when hovered */}
           <div className="w-24 h-[3px] rounded-full bg-yellow-500/0 group-hover:bg-yellow-500/85 transition-all duration-200 shadow-md shadow-yellow-500/40" />

@@ -138,6 +138,11 @@ export interface IndicatorSettings {
   domColorBid?: string;
   domColorAsk?: string;
   domOpacity?: number;
+
+  bidAskRatioBand?: "1" | "3" | "5";
+  bidAskRatioBullColor?: string;
+  bidAskRatioBearColor?: string;
+  bidAskRatioOpacity?: number;
 }
 
 export interface Indicator {

@@ -123,7 +123,10 @@ func NewServer(
 	}
 	betaGate := auth.BetaGate(authCfg, betaEnabledFn)
 
+	bookDepthRatioHandler := http.HandlerFunc(s.handleBookDepthRatio)
+
 	mux.Handle("GET /api/v1/candles", RateLimitMiddleware(restLimiter, betaGate(withMiddleware(rdb, authCfg, candlesHandler))))
+	mux.Handle("GET /api/v1/bookdepth-ratio", RateLimitMiddleware(restLimiter, betaGate(withMiddleware(rdb, authCfg, bookDepthRatioHandler))))
 	mux.Handle("GET /api/v1/candles/{symbol}/clusters/{candleOpen}", RateLimitMiddleware(restLimiter, betaGate(withMiddleware(rdb, authCfg, clusterHandler))))
 	mux.Handle("GET /api/v1/candles/{symbol}/clusters-batch", RateLimitMiddleware(restLimiter, betaGate(withMiddleware(rdb, authCfg, clustersBatchHandler))))
 	mux.Handle("GET /api/v1/fng", RateLimitMiddleware(restLimiter, betaGate(withMiddleware(rdb, authCfg, http.HandlerFunc(s.handleFNG)))))

@@ -3,6 +3,194 @@
 > Claude обновляет этот файл в КОНЦЕ каждой задачи. Новые записи — сверху.
 > Формат записи строго по шаблону. Это память между чатами.
 
+### [2026-06-28] feat: индикатор Bid & Ask Ratio — Фаза 1 (бэкенд: таблица + живая запись + API)
+
+- **Контекст**: новый индикатор соотношения глубины стакана bid/ask в полосах
+  ±1/3/5% от цены. Только futures. Источник realtime — уже работающий сбор
+  стакана (`depth/snapshotter` на закрытии минутной свечи). Формула
+  `ratio = (bid − ask)/(bid + ask)`, где bid/ask — суммарный qty лимиток в стакане.
+  Это СТАКАН, не проторгованный объём. Фаза 1 из 3.
+
+- **Сделано**:
+  - Миграция ClickHouse `bookdepth_ratio` (ReplacingMergeTree, PARTITION by месяц,
+    ORDER BY (symbol, market, snapshot_ts), TTL 1 год). Колонки bid/ask_1/3/5 Decimal(18,1).
+  - `model.BookDepthRatio`.
+  - Репозиторий: `InsertBookDepthRatioBatch` (truncate объёма до 1 знака, как у DOM) и
+    `GetBookDepthRatio(symbol, market, from, to)` — параметризованный SELECT, сортировка
+    по snapshot_ts. Оба добавлены в интерфейс `repository.MarketRepository`.
+  - `OrderBook.GetBandSums(centerPrice, pcts)` — суммы qty бидов/асков в полосах ±pct
+    под RLock, без агрегации по уровням.
+  - Живая запись в `snapshotter.takeSnapshot`: после DOM-снапшота собирает одну
+    `BookDepthRatio` (Market=futures, SnapshotTS = CandleOpen+1мин) и пишет батчем.
+    DOM-запись не тронута.
+  - API `GET /api/v1/bookdepth-ratio?symbol&market&timeframe&from&to`: группирует
+    снапшоты по бакету свечи запрошенного ТФ (AlignToTimeframe), суммирует bid_N/ask_N,
+    считает ratio_N (знаменатель 0 → 0). Ответ — массив `[{t,r1,r3,r5}]`. Лимит истории
+    по тарифу переиспользует `resolveHistoryDepth` (как handleCandles). Middleware
+    RateLimit+Auth(beta)+гость как у `/api/v1/candles`.
+
+- **Файлы**:
+  - `backend/internal/repository/clickhouse/migrations/007_bookdepth_ratio.sql` (новый)
+  - `backend/internal/model/model.go` (+BookDepthRatio)
+  - `backend/internal/repository/clickhouse/clickhouse.go` (+2 метода, import aggregation)
+  - `backend/internal/repository/repository.go` (+2 метода в интерфейс)
+  - `backend/internal/depth/orderbook.go` (+GetBandSums)
+  - `backend/internal/depth/snapshotter.go` (живая запись ratio)
+  - `backend/internal/api/bookdepth.go` (новый handler)
+  - `backend/internal/api/server.go` (регистрация маршрута)
+
+- **Verification**:
+  - `go build` ✓, `go vet` (depth/api/repository/model) ✓.
+  - Старт без ошибок, `[clickhouse] migrations applied`; `SHOW CREATE TABLE` совпал со спекой.
+  - Дождался 2 закрытий минутной свечи: `bookdepth_ratio` = 6 строк (BTC/ETH/SOL futures ×2),
+    bid_5 ≥ bid_3 ≥ bid_1, объёмы truncate до 1 знака. count() + max(snapshot_ts) ✓.
+  - API проверен вживую: 1m → 2 точки, 5m → 1 точка (корректная группировка/суммирование),
+    missing `from` → HTTP 400. Ratio сошёлся с ручным расчётом.
+  - procluster.exe остановлен (юзер запускает сам).
+
+- **Заметки/непонятки**:
+  - В `handleCandles` строка `role, _, _ := auth.ExtractUserFromRequest(...)` берёт ПЕРВЫЙ
+    возврат (userID), хотя сигнатура `(userID, role, err)` — т.е. в `role` попадает userID.
+    Залогиненные юзеры из-за этого получают «полную» историю (не falls в free=6мес).
+    Зеркально повторил в `bookdepth.go` ради идентичного поведения двух эндпоинтов.
+    Если это баг — фиксить надо синхронно в обоих местах (вопрос к тебе).
+  - `GetBandSums` для бидов доп. ограничивает `price <= center` (асков `>= center`) —
+    отсекает кросс-уровни; в чистой книге это no-op.
+  - `GetBookDepthRatio` — простой SELECT без FINAL. Снапшот уникален на минуту, дублей
+    в норме нет; для бэкфилла (Фаза 2) учесть ReplacingMergeTree-дедуп при перезаписи.
+
+- **TODO**:
+  - Фаза 2: бэкфилл истории `bookdepth_ratio` из depth-архивов (data.binance.vision),
+    по аналогии с загрузчиком трейдов (futures). Идемпотентность через ReplacingMergeTree.
+  - Фаза 3: фронт — рендер индикатора Bid & Ask Ratio (правки в `procluster/frontend`,
+    НЕ в design-src).
+  - Деплой на VPS (ручной: `bash /root/test-v2/deploy.sh`).
+
+### [2026-06-28] feat: Bid & Ask Ratio — Фаза 3 (фронт: подвал-индикатор + настройки)
+
+- **Контекст**: финал индикатора. Подвальный индикатор по данным с бэкенда
+  (`GET /api/v1/bookdepth-ratio`, массив `[{t,r1,r3,r5}]`, значения −1..+1, только futures).
+  В ОТЛИЧИЕ от CVD/Delta НЕ считается из свечей — фронт только фетчит, матчит к свечам и рисует.
+
+- **Сделано**:
+  - Модуль `chart2d/indicators/bidAskRatio.ts`: IndicatorModule id `bidAskRatio`,
+    label «(PROCLUSTER) Bid & Ask Ratio», type «Подвальный», описание+детали (RU). Без расчёта.
+    defaultSettings: band 5 / bull #10b981 / bear #ef4444 / opacity 100.
+  - Регистрация в `MODULAR_INDICATORS` (`indicators/index.ts`) → каталог, описания (`descriptions.ts`
+    reduce), хранилище подхватывают автоматически.
+  - Типы настроек в `chart2d/types.ts`: `bidAskRatioBand`/`Bull`/`BearColor`/`Opacity`
+    (ключи с префиксом — едины для модалки и графика; «короткие» имена из ТЗ это сокращение).
+  - API-клиент `features/bookdepth/api.ts`: `fetchBookDepthRatio(symbol,market,tf,from,to,token)`.
+    ВАЖНО: эндпоинт отдаёт ГОЛЫЙ массив (не {ok,data}), поэтому прямой fetch (не общий `request`),
+    Bearer-токен как в `hooks/useDOM.ts`. На любой ошибке → `[]` (не падает в render-loop).
+  - `ClusterChart.tsx`: панель «bidAskRatio» — REORDERABLE_PANEL_IDS, высота + LS
+    (`procluster_bidaskratio_panel_height`), panelTopY/resize/плашка/стрелки как у CVD/RSI.
+    Фетч-эффект (active && FUTURES; from/to по min/max ts свечей; рефетч при смене
+    symbol/market/tf и подгрузке истории; Abort-флаг). Матч точек к свече по `t === candle.timestamp`.
+    Отрисовка: ФИКС шкала −1..+1, нулевая линия по центру, бар вверх bullColor / вниз bearColor,
+    opacity; подписи оси +1/0/−1. Spot → пустой подвал с «Только futures», без падений.
+    Добавил `bidAskRatioPoints`/`marketType` в deps draw-замыкания (иначе пришедшие данные
+    не перерисуются — у draw нет в deps самих points-массивов, только `candles`).
+  - `IndicatorsModal.tsx`: блок настроек для `bidAskRatio` — select «Диапазон» (±1/3/5%),
+    color-picker «Цвет bid» и «Цвет ask», слайдер «Прозрачность».
+
+- **Файлы**:
+  - `frontend/src/chart2d/indicators/bidAskRatio.ts` (новый)
+  - `frontend/src/chart2d/indicators/index.ts`, `frontend/src/chart2d/types.ts`
+  - `frontend/src/features/bookdepth/api.ts` (новый)
+  - `frontend/src/chart2d/ClusterChart.tsx`, `frontend/src/components/IndicatorsModal.tsx`
+
+- **Verification**:
+  - `npm run build` (tsc + vite) ✓ без ошибок (CSS @import warning — пре-existing, не связан).
+  - Визуал/функционал (вкл. индикатор на BTCUSDT futures, гистограмма −1..+1, смена 1/3/5%
+    и цветов, 1m/5m+, spot → «Только futures», консоль) — за пользователем (по policy
+    Playwright не дёргаю на визуал; backend сейчас остановлен).
+
+- **Заметки/непонятки**:
+  - Значение в плашке подвала (`--`) к crosshair НЕ привязано (минимизация правок в большом
+    ClusterChart). Можно дописать позже (как cvd/rsi value-span).
+  - История из Фазы 2 — суб-минутная (см. запись Фазы 2): на 1m точки лягут в :04/:31, на 5m+ ок.
+    Совпадение live/история на 1m требует выравнивания snapshot_ts (см. TODO).
+
+- **TODO**:
+  - spot bookDepth (сейчас futures-only) + long/short ratio — отдельными задачами.
+  - Мелочь: выравнивание live snapshot_ts на минуту (консистентность 1m live↔история).
+  - Привязать значение подвала к crosshair.
+
+### [2026-06-28] feat: Bid & Ask Ratio — Фаза 2 (бэкфилл истории глубины)
+
+- **Контекст**: бэкфилл `bookdepth_ratio` из дампов data.binance.vision. НЕ новый
+  загрузчик — расширен существующий выбором «что качать» (dataType). Только futures.
+  Источник: `.../futures/um/daily/bookDepth/{SYM}/{SYM}-bookDepth-{YYYY-MM-DD}.zip`,
+  CSV `timestamp,percentage,depth,notional`. depth — кумулятивная глубина до ±N% от mid.
+
+- **Сделано (бэкенд)**:
+  - `DownloadJob.DataType` ("clusters"|"bookDepth", дефолт clusters). Колонка `data_type`
+    в SQLite `download_jobs` (+ идемпотентный ALTER для старых БД). CreateJob — вариадик
+    `dataType ...string` (старые вызовы не сломаны).
+  - `buildBookDepthURL` (futures-only). `downloadWorker` ветвится: bookDepth → новый
+    `downloadWorkerBookDepth` (downloading → parsing → inserting, без aggregating; clusters
+    путь не тронут).
+  - `parseBookDepthCSV`: группировка строк по timestamp, маппинг percentage → полоса
+    (-1/-3/-5=bid, 1/3/5=ask), одна `model.BookDepthRatio` на timestamp. Неполные минуты
+    (нет всех 6 полос) — пропуск со счётчиком. Незнакомые percentage — игнор. Объём
+    truncate до 1 знака на вставке (InsertBookDepthRatioBatch). timestamp понимает epoch
+    ms/sec и "YYYY-MM-DD HH:MM:SS".
+  - Идемпотентность — ReplacingMergeTree (повтор диапазона перезаписывает по ключу
+    symbol,market,snapshot_ts), без delete.
+  - `InsertBookDepthRatioBatch` добавлен в интерфейс `HistoryClickHouse` (+ в тест-мок).
+  - `handleStartDownload`: валидация `dataType` (enum, пусто→clusters); bookDepth+market≠futures
+    → 400. Проброс в CreateJob + audit log.
+
+- **Сделано (фронт, procluster/frontend)**:
+  - `AdminPanel.tsx` HistoryBlock: StyledSelect «Что качать» (Кластера/Глубина стакана);
+    при bookDepth рынок фиксируется на futures (spot убирается из опций). dataType уходит в запрос.
+  - `features/admin/api.ts`: `dataType` в `DownloadJob` и `apiStartDownload`.
+
+- **Файлы**:
+  - `backend/internal/admin/historyloader.go` (DataType, bookDepth worker, парсер)
+  - `backend/internal/admin/handlers.go` (валидация dataType)
+  - `backend/internal/admin/historyloader_test.go` (мок +InsertBookDepthRatioBatch)
+  - `backend/internal/admin/historyloader_bookdepth_integration_test.go` (новый, gated BOOKDEPTH_IT=1)
+  - `frontend/src/components/AdminPanel.tsx`, `frontend/src/features/admin/api.ts`
+
+- **Verification**:
+  - `go build` ✓, `go vet ./internal/admin/` ✓. Фронт `tsc --noEmit` ✓, `vite build` ✓.
+  - Интеграционный прогон реального воркера (BOOKDEPTH_IT=1) за 2026-06-26: download→parse→insert
+    job=completed. ClickHouse: **2880 строк** за день (00:00:04–23:59:31), 0 нарушений
+    bid5≥bid3≥bid1 / ask5≥ask3≥ask1. Старт бэкенда чистый, ALTER data_type без ошибок.
+  - procluster.exe остановлен (юзер запускает сам).
+
+- **⚠️ Расхождение (нужно решение к Фазе 3)**:
+  - Дампы Binance bookDepth идут с шагом ~30 сек (2 строки/мин) и timestamp НЕ на границе
+    минуты (00:00:04, 00:00:31...) → **2880 строк/день, а не ~1440** как ожидалось в ТЗ.
+    Реализация буквально по спеке (одна строка на timestamp).
+  - Live-путь (Фаза 1) пишет 1 строку/мин, snapshot_ts на границе (candleOpen+1мин).
+    История — сырой суб-минутный ts. В API (`AlignToTimeframe` для 1m НЕ обрезает) это
+    значит: на 1m история даст ~2 точки/мин в :04/:31, live — 1 в :00. Для 5m+ группировка
+    корректна. Ratio нормирован (scale-invariant), значения в норме.
+  - Варианты на Фазе 3: (а) оставить суб-минутную историю как есть и решать на фронте;
+    (б) даунсемплить историю до минуты под live-конвенцию (snapshot_ts=минута+1, дедуп
+    ReplacingMergeTree). Жду решение.
+  - Тест-файл `*_integration_test.go` хардкодит dev-пароль ClickHouse (`clickhouse`,
+    задокументирован в CLAUDE.md), gated — в обычном go test/vet пропускается. Удалить, если не нужен.
+
+- **TODO**:
+  - Фаза 3: фронт-индикатор Bid & Ask Ratio (рендер r1/r3/r5).
+  - Решить расхождение гранулярности/выравнивания истории vs live (см. выше).
+  - spot bookDepth (сейчас futures-only) + long/short ratio — отдельными задачами.
+
+### [2026-06-28] fix(api): тариф-лимит истории читал userID вместо role
+
+- **Корень**: `auth.ExtractUserFromRequest` имеет сигнатуру `(userID, role, err)`, но в
+  `handleCandles` и `handleBookDepthRatio` первый возврат читался в `role` → туда попадал
+  userID, тариф не матчился, `maxDepthForRole` падал в default (-1 = безлимит). Итог: любой
+  залогиненный юзер (включая free) получал безлимитную историю.
+- **Фикс**: взять ВТОРОЙ возврат — `_, role, _ := auth.ExtractUserFromRequest(...)` в обоих
+  местах. Логика `if role == "" { role = "guest" }` сохранена (гость по-прежнему "guest").
+- **Файлы**: `backend/internal/api/candles.go`, `backend/internal/api/bookdepth.go`.
+- **Verification**: `go build` ✓, `go vet ./internal/api/` ✓. procluster.exe остановлен.
+
 ### [2026-06-27] perf(api): gzip-сжатие ответов
 
 - **Контекст**: тяжёлые JSON (clusters-batch на 30m+/мелком шаге до ~2.9 МБ) летели несжатыми — упор в передачу+парсинг. nginx на VPS /api не жмёт.

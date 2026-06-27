@@ -141,5 +141,21 @@ func (s *Snapshotter) takeSnapshot(sig aggregator.CandleCloseSignal) error {
 		return err
 	}
 	log.Printf("[snapshotter] DOM snapshot %s:%s at %v (%d levels)", sig.Symbol, sig.Market, snapshotTS, len(rows))
+
+	// Bid & Ask Ratio: суммарная глубина стакана в полосах ±1/3/5% от цены
+	// на тот же момент. Отдельная запись — не ломает DOM-снапшот выше.
+	bids, asks := ob.GetBandSums(centerPrice, []float64{0.01, 0.03, 0.05})
+	ratioRow := model.BookDepthRatio{
+		Symbol:     sig.Symbol,
+		Market:     "futures",
+		SnapshotTS: snapshotTS,
+		Bid1:       bids[0], Ask1: asks[0],
+		Bid3:       bids[1], Ask3: asks[1],
+		Bid5:       bids[2], Ask5: asks[2],
+	}
+	if err := s.repo.InsertBookDepthRatioBatch(context.Background(), []model.BookDepthRatio{ratioRow}); err != nil {
+		log.Printf("[snapshotter] bookdepth_ratio insert error %s: %v", sig.Symbol, err)
+	}
+
 	return nil
 }

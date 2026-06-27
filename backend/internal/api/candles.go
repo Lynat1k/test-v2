@@ -117,7 +117,7 @@ func (s *Server) handleCandles(w http.ResponseWriter, r *http.Request) {
 		before = &parsed
 	}
 
-	role, _, _ := auth.ExtractUserFromRequest(s.authCfg, r)
+	_, role, _ := auth.ExtractUserFromRequest(s.authCfg, r)
 	if role == "" {
 		role = "guest"
 	}

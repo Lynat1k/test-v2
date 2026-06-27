@@ -8,10 +8,12 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"math"
 	"net"
 	"net/http"
 	"net/url"
 	"os"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -29,6 +31,7 @@ type DownloadJob struct {
 	Market      string     `json:"market"`
 	StartDate   string     `json:"startDate"`
 	EndDate     string     `json:"endDate"`
+	DataType    string     `json:"dataType"` // "clusters" (default) | "bookDepth"
 	Status      string     `json:"status"`
 	Progress    float64    `json:"progress"`
 	StepDetail  string     `json:"stepDetail"`
@@ -42,6 +45,7 @@ type DownloadJob struct {
 type HistoryClickHouse interface {
 	DeleteClustersByRange(ctx context.Context, table, symbol, timeframe string, from, to time.Time) error
 	InsertClusterBatch(ctx context.Context, rows []model.ClusterRow, table string) error
+	InsertBookDepthRatioBatch(ctx context.Context, rows []model.BookDepthRatio) error
 }
 
 type JobRegistry struct {
@@ -69,6 +73,7 @@ func (r *JobRegistry) ensureTable() {
 		market TEXT NOT NULL,
 		start_date TEXT NOT NULL,
 		end_date TEXT NOT NULL,
+		data_type TEXT NOT NULL DEFAULT 'clusters',
 		status TEXT NOT NULL DEFAULT 'pending',
 		progress REAL NOT NULL DEFAULT 0,
 		step_detail TEXT NOT NULL DEFAULT '',
@@ -81,9 +86,22 @@ func (r *JobRegistry) ensureTable() {
 	if _, err := r.db.Exec(ddl); err != nil {
 		log.Printf("[jobregistry] ensure table: %v", err)
 	}
+	// Idempotent column add for DBs created before data_type existed.
+	// Duplicate-column error on existing schemas is expected — ignore it.
+	if _, err := r.db.Exec(`ALTER TABLE download_jobs ADD COLUMN data_type TEXT NOT NULL DEFAULT 'clusters'`); err != nil &&
+		!strings.Contains(err.Error(), "duplicate column") {
+		log.Printf("[jobregistry] add data_type column: %v", err)
+	}
 }
 
-func (r *JobRegistry) CreateJob(symbol, market, startDate, endDate string) *DownloadJob {
+// CreateJob registers a new download job. dataType is optional (trailing variadic
+// for backward compatibility): empty or omitted → "clusters".
+func (r *JobRegistry) CreateJob(symbol, market, startDate, endDate string, dataType ...string) *DownloadJob {
+	dt := "clusters"
+	if len(dataType) > 0 && strings.TrimSpace(dataType[0]) != "" {
+		dt = dataType[0]
+	}
+
 	now := time.Now().UTC()
 	job := &DownloadJob{
 		ID:        uuid.New().String(),
@@ -91,6 +109,7 @@ func (r *JobRegistry) CreateJob(symbol, market, startDate, endDate string) *Down
 		Market:    market,
 		StartDate: startDate,
 		EndDate:   endDate,
+		DataType:  dt,
 		Status:    "pending",
 		CreatedAt: now,
 		UpdatedAt: now,
@@ -102,9 +121,9 @@ func (r *JobRegistry) CreateJob(symbol, market, startDate, endDate string) *Down
 	r.mu.Unlock()
 
 	_, err := r.db.Exec(
-		`INSERT INTO download_jobs (id, symbol, market, start_date, end_date, status, progress, step_detail, error, total_ticks, created_at, updated_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		job.ID, job.Symbol, job.Market, job.StartDate, job.EndDate,
+		`INSERT INTO download_jobs (id, symbol, market, start_date, end_date, data_type, status, progress, step_detail, error, total_ticks, created_at, updated_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		job.ID, job.Symbol, job.Market, job.StartDate, job.EndDate, job.DataType,
 		job.Status, job.Progress, job.StepDetail, job.Error, job.TotalTicks,
 		job.CreatedAt, job.UpdatedAt,
 	)
@@ -127,10 +146,10 @@ func (r *JobRegistry) GetJob(id string) (*DownloadJob, bool) {
 	var createdAt, updatedAt string
 	var completedAt sql.NullString
 	err := r.db.QueryRow(
-		`SELECT id, symbol, market, start_date, end_date, status, progress, step_detail, error, total_ticks, created_at, updated_at, completed_at
+		`SELECT id, symbol, market, start_date, end_date, data_type, status, progress, step_detail, error, total_ticks, created_at, updated_at, completed_at
 		 FROM download_jobs WHERE id = ?`, id,
 	).Scan(
-		&job.ID, &job.Symbol, &job.Market, &job.StartDate, &job.EndDate,
+		&job.ID, &job.Symbol, &job.Market, &job.StartDate, &job.EndDate, &job.DataType,
 		&job.Status, &job.Progress, &job.StepDetail, &job.Error, &job.TotalTicks,
 		&createdAt, &updatedAt, &completedAt,
 	)
@@ -154,7 +173,7 @@ func (r *JobRegistry) GetJob(id string) (*DownloadJob, bool) {
 
 func (r *JobRegistry) ListJobs() []*DownloadJob {
 	rows, err := r.db.Query(
-		`SELECT id, symbol, market, start_date, end_date, status, progress, step_detail, error, total_ticks, created_at, updated_at, completed_at
+		`SELECT id, symbol, market, start_date, end_date, data_type, status, progress, step_detail, error, total_ticks, created_at, updated_at, completed_at
 		 FROM download_jobs ORDER BY created_at DESC`,
 	)
 	if err != nil {
@@ -169,7 +188,7 @@ func (r *JobRegistry) ListJobs() []*DownloadJob {
 		var createdAt, updatedAt string
 		var completedAt sql.NullString
 		if err := rows.Scan(
-			&job.ID, &job.Symbol, &job.Market, &job.StartDate, &job.EndDate,
+			&job.ID, &job.Symbol, &job.Market, &job.StartDate, &job.EndDate, &job.DataType,
 			&job.Status, &job.Progress, &job.StepDetail, &job.Error, &job.TotalTicks,
 			&createdAt, &updatedAt, &completedAt,
 		); err != nil {
@@ -261,6 +280,12 @@ func (r *JobRegistry) downloadWorker(ctx context.Context, chRepo HistoryClickHou
 			r.UpdateJob(job)
 		}
 	}()
+
+	// bookDepth history goes through a dedicated path (no trade aggregation).
+	if job.DataType == "bookDepth" {
+		r.downloadWorkerBookDepth(ctx, chRepo, job)
+		return
+	}
 
 	startDate, err := time.Parse("2006-01-02", job.StartDate)
 	if err != nil {
@@ -502,6 +527,286 @@ var buildDownloadURL = func(market, symbol string, date time.Time) string {
 		return fmt.Sprintf("https://data.binance.vision/data/futures/um/daily/aggTrades/%s/%s-aggTrades-%s.zip", symbol, symbol, dateStr)
 	}
 	return fmt.Sprintf("https://data.binance.vision/data/spot/daily/aggTrades/%s/%s-aggTrades-%s.zip", symbol, symbol, dateStr)
+}
+
+// buildBookDepthURL builds the daily bookDepth archive URL. bookDepth dumps exist
+// only for USDⓂ futures on data.binance.vision.
+var buildBookDepthURL = func(symbol string, date time.Time) string {
+	dateStr := date.Format("2006-01-02")
+	return fmt.Sprintf("https://data.binance.vision/data/futures/um/daily/bookDepth/%s/%s-bookDepth-%s.zip", symbol, symbol, dateStr)
+}
+
+// downloadWorkerBookDepth backfills bookdepth_ratio from daily bookDepth archives.
+// Steps per day: downloading → parsing → inserting (no aggregation). Idempotency is
+// provided by the ReplacingMergeTree engine — re-running a range overwrites rows by
+// (symbol, market, snapshot_ts), so no pre-delete is needed.
+func (r *JobRegistry) downloadWorkerBookDepth(ctx context.Context, chRepo HistoryClickHouse, job *DownloadJob) {
+	startDate, err := time.Parse("2006-01-02", job.StartDate)
+	if err != nil {
+		r.failJob(job, fmt.Sprintf("invalid start date: %v", err))
+		return
+	}
+	endDate, err := time.Parse("2006-01-02", job.EndDate)
+	if err != nil {
+		r.failJob(job, fmt.Sprintf("invalid end date: %v", err))
+		return
+	}
+
+	totalDays := int(endDate.Sub(startDate).Hours()/24) + 1
+	successfulDays := 0
+	skippedDays := 0
+
+	tmpDir, err := os.MkdirTemp("", "procluster-bd-*")
+	if err != nil {
+		r.failJob(job, fmt.Sprintf("create temp dir: %v", err))
+		return
+	}
+	defer os.RemoveAll(tmpDir)
+
+	for dayIdx := 0; dayIdx < totalDays; dayIdx++ {
+		select {
+		case <-ctx.Done():
+			r.failJob(job, "context cancelled")
+			return
+		default:
+		}
+
+		date := startDate.AddDate(0, 0, dayIdx)
+		if date.After(endDate) {
+			break
+		}
+		dateStr := date.Format("2006-01-02")
+
+		// Step 1: downloading (3 steps per day → dayIdx*3)
+		job.Status = "downloading"
+		job.Progress = float64(dayIdx*3) / float64(totalDays*3) * 100
+		r.UpdateJob(job)
+
+		url := buildBookDepthURL(job.Symbol, date)
+		zipPath := tmpDir + "/" + job.Symbol + "-bookDepth-" + dateStr + ".zip"
+		if err := r.downloadFileWithRetries(ctx, url, zipPath, dayIdx+1, totalDays, dateStr, job); err != nil {
+			skippedDays++
+			continue
+		}
+
+		// Step 2: parsing
+		job.Status = "parsing"
+		job.StepDetail = fmt.Sprintf("Day %d/%d: parsing bookDepth...", dayIdx+1, totalDays)
+		job.Progress = float64(dayIdx*3+1) / float64(totalDays*3) * 100
+		r.UpdateJob(job)
+
+		rows, skippedMinutes, err := unzipAndParseBookDepth(zipPath, job.Symbol)
+		os.Remove(zipPath)
+		if err != nil {
+			log.Printf("[download] %s: bookDepth parse error (skipping): %v", dateStr, err)
+			skippedDays++
+			continue
+		}
+		if skippedMinutes > 0 {
+			log.Printf("[download] %s: bookDepth %d minutes skipped (incomplete ±1/3/5%% levels)", dateStr, skippedMinutes)
+		}
+		if len(rows) == 0 {
+			log.Printf("[download] %s: bookDepth produced 0 rows, skipping", dateStr)
+			skippedDays++
+			continue
+		}
+		log.Printf("[download] %s: bookDepth parsed %d minute rows", dateStr, len(rows))
+
+		// Step 3: inserting (ReplacingMergeTree → idempotent, no delete)
+		job.Status = "inserting"
+		job.StepDetail = fmt.Sprintf("Day %d/%d: inserting %d rows into bookdepth_ratio...", dayIdx+1, totalDays, len(rows))
+		job.Progress = float64(dayIdx*3+2) / float64(totalDays*3) * 100
+		r.UpdateJob(job)
+
+		if err := chRepo.InsertBookDepthRatioBatch(ctx, rows); err != nil {
+			log.Printf("[download] %s: bookDepth insert error: %v", dateStr, err)
+			r.failJob(job, fmt.Sprintf("insert bookDepth for %s: %v", dateStr, err))
+			return
+		}
+		log.Printf("[download] %s: inserted %d rows into bookdepth_ratio", dateStr, len(rows))
+		job.TotalTicks += int64(len(rows))
+		successfulDays++
+	}
+
+	now := time.Now().UTC()
+	job.CompletedAt = &now
+	job.Progress = 100
+	switch {
+	case successfulDays == 0 && job.TotalTicks == 0:
+		job.Status = "failed"
+		job.Error = "failed to download any days: all days skipped or produced 0 bookDepth rows"
+		job.StepDetail = fmt.Sprintf("0/%d days downloaded, %d skipped", totalDays, skippedDays)
+	case skippedDays > 0:
+		job.Status = "completed"
+		job.StepDetail = fmt.Sprintf("completed: %d/%d days, %d skipped", successfulDays, totalDays, skippedDays)
+		if job.Error == "" {
+			job.Error = fmt.Sprintf("%d days were skipped (download or parse errors)", skippedDays)
+		}
+	default:
+		job.Status = "completed"
+		job.StepDetail = fmt.Sprintf("All %d days processed successfully", totalDays)
+		job.Error = ""
+	}
+	r.UpdateJob(job)
+}
+
+// failJob marks a job failed with the given error and a completion timestamp.
+func (r *JobRegistry) failJob(job *DownloadJob, errMsg string) {
+	job.Status = "failed"
+	job.Error = errMsg
+	now := time.Now().UTC()
+	job.CompletedAt = &now
+	r.UpdateJob(job)
+}
+
+func unzipAndParseBookDepth(zipPath, symbol string) ([]model.BookDepthRatio, int, error) {
+	fi, err := os.Stat(zipPath)
+	if err != nil {
+		return nil, 0, fmt.Errorf("stat zip: %w", err)
+	}
+
+	zr, err := zip.NewReader(mustOpenFile(zipPath), fi.Size())
+	if err != nil {
+		return nil, 0, fmt.Errorf("open zip: %w", err)
+	}
+	if len(zr.File) == 0 {
+		return nil, 0, fmt.Errorf("zip archive is empty")
+	}
+
+	rc, err := zr.File[0].Open()
+	if err != nil {
+		return nil, 0, fmt.Errorf("open csv in zip: %w", err)
+	}
+	defer rc.Close()
+
+	return parseBookDepthCSV(rc, symbol)
+}
+
+// bookDepthAcc accumulates the six depth bands for a single timestamp (minute).
+type bookDepthAcc struct {
+	ts                                         time.Time
+	bid1, bid3, bid5, ask1, ask3, ask5         float64
+	has1n, has3n, has5n, has1p, has3p, has5p   bool
+}
+
+// parseBookDepthCSV parses a bookDepth daily CSV (timestamp,percentage,depth,notional).
+// Rows are grouped by timestamp; each group yields one BookDepthRatio mapping
+// percentage → band (-1/-3/-5 = bid, 1/3/5 = ask). Returns the rows plus a count of
+// minutes skipped because one of the six bands was missing. Unknown percentages are
+// ignored. depth volumes are truncated to 1 decimal at insert time (InsertBookDepthRatioBatch).
+func parseBookDepthCSV(reader io.Reader, symbol string) ([]model.BookDepthRatio, int, error) {
+	cr := csv.NewReader(reader)
+	cr.LazyQuotes = true
+	cr.FieldsPerRecord = -1
+
+	groups := make(map[string]*bookDepthAcc)
+	var order []string
+
+	lineNum := 0
+	for {
+		rec, err := cr.Read()
+		if err == io.EOF {
+			break
+		}
+		lineNum++
+		if err != nil {
+			log.Printf("[bookDepth csv] line %d: read error: %v, skipping", lineNum, err)
+			continue
+		}
+		if len(rec) < 4 {
+			continue
+		}
+		if lineNum == 1 && looksLikeBookDepthHeader(rec) {
+			continue
+		}
+
+		tsRaw := strings.TrimSpace(rec[0])
+		pctF, err := strconv.ParseFloat(strings.TrimSpace(rec[1]), 64)
+		if err != nil {
+			continue
+		}
+		depth, err := strconv.ParseFloat(strings.TrimSpace(rec[2]), 64)
+		if err != nil {
+			continue
+		}
+
+		g, ok := groups[tsRaw]
+		if !ok {
+			ts, perr := parseBookDepthTimestamp(tsRaw)
+			if perr != nil {
+				continue
+			}
+			g = &bookDepthAcc{ts: ts}
+			groups[tsRaw] = g
+			order = append(order, tsRaw)
+		}
+
+		switch int(math.Round(pctF)) {
+		case -1:
+			g.bid1, g.has1n = depth, true
+		case -3:
+			g.bid3, g.has3n = depth, true
+		case -5:
+			g.bid5, g.has5n = depth, true
+		case 1:
+			g.ask1, g.has1p = depth, true
+		case 3:
+			g.ask3, g.has3p = depth, true
+		case 5:
+			g.ask5, g.has5p = depth, true
+		default:
+			// unknown percentage level — ignore
+		}
+	}
+
+	rows := make([]model.BookDepthRatio, 0, len(order))
+	skipped := 0
+	for _, k := range order {
+		g := groups[k]
+		if !(g.has1n && g.has3n && g.has5n && g.has1p && g.has3p && g.has5p) {
+			skipped++
+			continue
+		}
+		rows = append(rows, model.BookDepthRatio{
+			Symbol:     symbol,
+			Market:     "futures",
+			SnapshotTS: g.ts,
+			Bid1:       g.bid1, Ask1: g.ask1,
+			Bid3:       g.bid3, Ask3: g.ask3,
+			Bid5:       g.bid5, Ask5: g.ask5,
+		})
+	}
+	sort.Slice(rows, func(i, j int) bool { return rows[i].SnapshotTS.Before(rows[j].SnapshotTS) })
+
+	return rows, skipped, nil
+}
+
+// parseBookDepthTimestamp accepts either epoch ms/seconds or a "YYYY-MM-DD HH:MM:SS"
+// datetime (UTC). Binance bookDepth dumps have used both forms across periods.
+func parseBookDepthTimestamp(raw string) (time.Time, error) {
+	if n, err := strconv.ParseInt(raw, 10, 64); err == nil {
+		switch {
+		case n > 1e12:
+			return time.UnixMilli(n).UTC(), nil
+		case n > 1e9:
+			return time.Unix(n, 0).UTC(), nil
+		default:
+			return time.Time{}, fmt.Errorf("implausible epoch %d", n)
+		}
+	}
+	for _, layout := range []string{"2006-01-02 15:04:05", "2006-01-02T15:04:05"} {
+		if t, err := time.Parse(layout, raw); err == nil {
+			return t.UTC(), nil
+		}
+	}
+	return time.Time{}, fmt.Errorf("unrecognized timestamp %q", raw)
+}
+
+func looksLikeBookDepthHeader(rec []string) bool {
+	joined := strings.ToLower(strings.Join(rec, ","))
+	return strings.Contains(joined, "timestamp") ||
+		strings.Contains(joined, "percentage") ||
+		strings.Contains(joined, "notional")
 }
 
 var downloadClient *http.Client

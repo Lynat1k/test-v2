@@ -6,6 +6,7 @@ import { clusterSearchIndicator } from "./clusterSearch";
 import { stackedImbalanceIndicator } from "./stackedImbalance";
 import { depthOfMarketIndicator } from "./depthOfMarket";
 import { rsiIndicator } from "./rsi";
+import { bidAskRatioIndicator } from "./bidAskRatio";
 
 export * from "./types";
 export * from "./volumeOnChart";
@@ -15,6 +16,7 @@ export * from "./clusterSearch";
 export * from "./stackedImbalance";
 export * from "./depthOfMarket";
 export * from "./rsi";
+export * from "./bidAskRatio";
 
 export const MODULAR_INDICATORS: IndicatorModule[] = [
   volumeOnChartIndicator,
@@ -23,5 +25,6 @@ export const MODULAR_INDICATORS: IndicatorModule[] = [
   clusterSearchIndicator,
   stackedImbalanceIndicator,
   depthOfMarketIndicator,
-  rsiIndicator
+  rsiIndicator,
+  bidAskRatioIndicator
 ];

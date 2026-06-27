@@ -437,6 +437,7 @@ func (h *AdminHandler) handleStartDownload(w http.ResponseWriter, r *http.Reques
 		Market    string `json:"market"`
 		StartDate string `json:"startDate"`
 		EndDate   string `json:"endDate"`
+		DataType  string `json:"dataType"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, "INVALID_BODY", "invalid request body")
@@ -450,6 +451,19 @@ func (h *AdminHandler) handleStartDownload(w http.ResponseWriter, r *http.Reques
 
 	if req.Market != "futures" && req.Market != "spot" {
 		writeError(w, http.StatusBadRequest, "INVALID_MARKET", "market must be 'futures' or 'spot'")
+		return
+	}
+
+	dataType := req.DataType
+	if dataType == "" {
+		dataType = "clusters"
+	}
+	if dataType != "clusters" && dataType != "bookDepth" {
+		writeError(w, http.StatusBadRequest, "INVALID_DATATYPE", "dataType must be 'clusters' or 'bookDepth'")
+		return
+	}
+	if dataType == "bookDepth" && req.Market != "futures" {
+		writeError(w, http.StatusBadRequest, "INVALID_MARKET", "bookDepth доступен только для futures")
 		return
 	}
 
@@ -502,10 +516,10 @@ func (h *AdminHandler) handleStartDownload(w http.ResponseWriter, r *http.Reques
 		}
 	}
 
-	job := h.jobRegistry.CreateJob(strings.ToUpper(req.Symbol), req.Market, req.StartDate, req.EndDate)
+	job := h.jobRegistry.CreateJob(strings.ToUpper(req.Symbol), req.Market, req.StartDate, req.EndDate, dataType)
 
 	userID, _ := r.Context().Value(auth.UserIDKey).(string)
-	LogAdminAction(r.Context(), h.db, userID, "start_download", req.Symbol, req.Market+" "+req.StartDate+"→"+req.EndDate, r.RemoteAddr)
+	LogAdminAction(r.Context(), h.db, userID, "start_download", req.Symbol, dataType+" "+req.Market+" "+req.StartDate+"→"+req.EndDate, r.RemoteAddr)
 
 	h.jobRegistry.StartDownload(h.chRepo, ticker.Symbol, compConfig, job)
 

@@ -12,6 +12,7 @@ import (
 	"github.com/ClickHouse/clickhouse-go/v2/lib/driver"
 	"github.com/shopspring/decimal"
 
+	"github.com/procluster/procluster/internal/aggregation"
 	"github.com/procluster/procluster/internal/model"
 )
 
@@ -196,6 +197,89 @@ func (r *ClickhouseRepository) InsertDOMSnapshotBatch(ctx context.Context, rows 
 	}
 
 	return nil
+}
+
+// InsertBookDepthRatioBatch вставляет батч снапшотов глубины стакана (полосы
+// ±1/3/5%). Объёмы truncate до 1 знака — единое правило округления (как у DOM).
+func (r *ClickhouseRepository) InsertBookDepthRatioBatch(ctx context.Context, rows []model.BookDepthRatio) error {
+	if len(rows) == 0 {
+		return nil
+	}
+
+	batch, err := r.conn.PrepareBatch(ctx, "INSERT INTO bookdepth_ratio")
+	if err != nil {
+		return fmt.Errorf("prepare bookdepth_ratio batch: %w", err)
+	}
+
+	for _, row := range rows {
+		if err := batch.Append(
+			row.Symbol,
+			row.Market,
+			row.SnapshotTS,
+			decimal.NewFromFloat(aggregation.TruncateVolume(row.Bid1)),
+			decimal.NewFromFloat(aggregation.TruncateVolume(row.Ask1)),
+			decimal.NewFromFloat(aggregation.TruncateVolume(row.Bid3)),
+			decimal.NewFromFloat(aggregation.TruncateVolume(row.Ask3)),
+			decimal.NewFromFloat(aggregation.TruncateVolume(row.Bid5)),
+			decimal.NewFromFloat(aggregation.TruncateVolume(row.Ask5)),
+		); err != nil {
+			return fmt.Errorf("append bookdepth_ratio row: %w", err)
+		}
+	}
+
+	if err := batch.Send(); err != nil {
+		return fmt.Errorf("send bookdepth_ratio batch: %w", err)
+	}
+
+	return nil
+}
+
+// GetBookDepthRatio читает снапшоты глубины за период [from, to], отсортированные
+// по времени. Группировку по таймфрейму и расчёт ratio делает API-слой.
+func (r *ClickhouseRepository) GetBookDepthRatio(ctx context.Context, symbol, market string, from, to time.Time) ([]model.BookDepthRatio, error) {
+	query := `
+		SELECT
+			symbol,
+			market,
+			snapshot_ts,
+			bid_1, ask_1,
+			bid_3, ask_3,
+			bid_5, ask_5
+		FROM bookdepth_ratio
+		WHERE symbol = ? AND market = ? AND snapshot_ts >= ? AND snapshot_ts <= ?
+		ORDER BY snapshot_ts ASC
+	`
+
+	rows, err := r.conn.Query(ctx, query, symbol, market, from, to)
+	if err != nil {
+		return nil, fmt.Errorf("query bookdepth_ratio: %w", err)
+	}
+	defer rows.Close()
+
+	var result []model.BookDepthRatio
+	for rows.Next() {
+		var row model.BookDepthRatio
+		var bid1, ask1, bid3, ask3, bid5, ask5 decimal.Decimal
+		if err := rows.Scan(
+			&row.Symbol,
+			&row.Market,
+			&row.SnapshotTS,
+			&bid1, &ask1,
+			&bid3, &ask3,
+			&bid5, &ask5,
+		); err != nil {
+			return nil, fmt.Errorf("scan bookdepth_ratio row: %w", err)
+		}
+		row.Bid1, _ = bid1.Float64()
+		row.Ask1, _ = ask1.Float64()
+		row.Bid3, _ = bid3.Float64()
+		row.Ask3, _ = ask3.Float64()
+		row.Bid5, _ = bid5.Float64()
+		row.Ask5, _ = ask5.Float64()
+		result = append(result, row)
+	}
+
+	return result, rows.Err()
 }
 
 func (r *ClickhouseRepository) GetLatestCandles(ctx context.Context, symbol, timeframe, market string, limit int, before *int64) ([]model.Candle, error) {
