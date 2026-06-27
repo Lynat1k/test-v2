@@ -3,6 +3,15 @@
 > Claude обновляет этот файл в КОНЦЕ каждой задачи. Новые записи — сверху.
 > Формат записи строго по шаблону. Это память между чатами.
 
+### [2026-06-27] perf(api): gzip-сжатие ответов
+
+- **Контекст**: тяжёлые JSON (clusters-batch на 30m+/мелком шаге до ~2.9 МБ) летели несжатыми — упор в передачу+парсинг. nginx на VPS /api не жмёт.
+- **Сделано**: gzip-middleware в `server.go`, обёрнут внешним слоем `Handler: gzipMiddleware(mux)` → покрывает все /api. stdlib `compress/gzip`, без новых зависимостей. На данные не влияет (lossless), только транспорт.
+- **Детали**: `/ws` пропускается БЕЗ обёртки (gzip ломает WebSocket upgrade/hijack); если клиент без `Accept-Encoding: gzip` — passthrough; иначе ставим `Content-Encoding: gzip` + `Vary: Accept-Encoding`, удаляем `Content-Length` (chunked). `gzipResponseWriter` создаёт gzip.Writer лениво на первый Write (204/OPTIONS без тела не плодят байт), `sync.Pool` для writer'ов (hot-path без аллокаций). writeJSON Content-Length не ставит — конфликта нет.
+- **Файлы**: `backend/internal/api/server.go`.
+- **Verification**: `go build ./...` ✓, `go vet ./internal/api/...` ✓. На проде: Response Headers `Content-Encoding: gzip` у candles/clusters-batch, transferred кратно меньше (2.9МБ→~300-500кБ); /ws живой; данные без изменений.
+- **Итог**: роадмап оптимизации загрузки закрыт (свечи+кэш, code-split, gzip; гонка кластеров и 401-конфиг пофикшены).
+
 ### [2026-06-27] fix(chart): интермиттентный 401 на /tickers,/compressions — гейт конфига по auth-ready
 
 - **Контекст**: ~1 из 10 свежих загрузок сжатие падало на минимум (25) на всех ТФ, плашки «рекомендуемое» нет. В Network — `/tickers` и `/compressions` 401, кластеры на min-шаге (через grace).

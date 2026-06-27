@@ -1,10 +1,12 @@
 package api
 
 import (
+	"compress/gzip"
 	"context"
 	"encoding/json"
 	"log"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -133,7 +135,7 @@ func NewServer(
 
 	s.httpServer = &http.Server{
 		Addr:         cfg.Addr,
-		Handler:      mux,
+		Handler:      gzipMiddleware(mux),
 		ReadTimeout:  cfg.ReadTimeout,
 		WriteTimeout: cfg.WriteTimeout,
 	}
@@ -157,6 +159,67 @@ func (s *Server) Hub() *Hub {
 
 func (s *Server) Mux() *http.ServeMux {
 	return s.mux
+}
+
+// gzipWriterPool reuses gzip.Writer instances across requests (hot-path: no extra allocs).
+var gzipWriterPool = sync.Pool{
+	New: func() interface{} { return gzip.NewWriter(nil) },
+}
+
+// gzipResponseWriter оборачивает http.ResponseWriter и пишет тело через gzip.
+// gzip.Writer создаётся лениво — на первый Write. Если тела нет (например 204 на
+// OPTIONS), сжатие не стартует и лишних байт в ответ не попадает.
+type gzipResponseWriter struct {
+	http.ResponseWriter
+	gz *gzip.Writer
+}
+
+func (w *gzipResponseWriter) WriteHeader(status int) {
+	w.ResponseWriter.WriteHeader(status)
+}
+
+func (w *gzipResponseWriter) Write(b []byte) (int, error) {
+	if w.gz == nil {
+		w.gz = gzipWriterPool.Get().(*gzip.Writer)
+		w.gz.Reset(w.ResponseWriter)
+	}
+	return w.gz.Write(b)
+}
+
+// close завершает gzip-поток (flush+close) и возвращает writer в пул.
+// Безопасен, если сжатие так и не стартовало.
+func (w *gzipResponseWriter) close() {
+	if w.gz != nil {
+		w.gz.Close()
+		gzipWriterPool.Put(w.gz)
+		w.gz = nil
+	}
+}
+
+// gzipMiddleware сжимает gzip-ом все ответы /api (тяжёлые JSON: clusters-batch до ~2.9МБ).
+// Только транспорт, на данные не влияет (lossless).
+func gzipMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// WebSocket НЕ сжимаем: gzip ломает upgrade-хендшейк (соединение хайджекается).
+		if r.URL.Path == "/ws" || strings.HasPrefix(r.URL.Path, "/ws/") {
+			next.ServeHTTP(w, r)
+			return
+		}
+		// Клиент не умеет gzip — отдаём как есть (passthrough, ничего не меняем).
+		if !strings.Contains(r.Header.Get("Accept-Encoding"), "gzip") {
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		w.Header().Set("Content-Encoding", "gzip")
+		w.Header().Set("Vary", "Accept-Encoding")
+		// Content-Length до сжатия неверен — убираем (chunked transfer).
+		w.Header().Del("Content-Length")
+
+		gzw := &gzipResponseWriter{ResponseWriter: w}
+		defer gzw.close()
+		next.ServeHTTP(gzw, r)
+	})
 }
 
 func withMiddleware(rdb *redis.Client, authCfg auth.AuthConfig, next http.Handler) http.Handler {
