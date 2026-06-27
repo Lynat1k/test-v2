@@ -17,6 +17,7 @@ type UserListItem struct {
 	Nickname  string `json:"nickname"`
 	Role      string `json:"role"`
 	CreatedAt string `json:"createdAt"`
+	LastLogin string `json:"lastLogin"`
 }
 
 var validRoles = map[string]bool{
@@ -28,7 +29,7 @@ var validRoles = map[string]bool{
 
 func ListUsers(ctx context.Context, db *sql.DB, limit, offset int) ([]UserListItem, error) {
 	rows, err := db.QueryContext(ctx,
-		`SELECT id, email, nickname, role, created_at FROM users ORDER BY created_at DESC LIMIT ? OFFSET ?`,
+		`SELECT id, email, nickname, role, created_at, last_login FROM users ORDER BY created_at DESC LIMIT ? OFFSET ?`,
 		limit, offset,
 	)
 	if err != nil {
@@ -39,7 +40,7 @@ func ListUsers(ctx context.Context, db *sql.DB, limit, offset int) ([]UserListIt
 	var users []UserListItem
 	for rows.Next() {
 		var u UserListItem
-		if err := rows.Scan(&u.ID, &u.Email, &u.Nickname, &u.Role, &u.CreatedAt); err != nil {
+		if err := rows.Scan(&u.ID, &u.Email, &u.Nickname, &u.Role, &u.CreatedAt, &u.LastLogin); err != nil {
 			return nil, fmt.Errorf("scan user: %w", err)
 		}
 		users = append(users, u)

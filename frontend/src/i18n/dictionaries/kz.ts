@@ -227,6 +227,7 @@ const kz = {
       emptyList: 'Пайдаланушылар жоқ',
       role: 'Рөл',
       registeredDate: 'Тіркелген',
+      lastLogin: 'Соңғы кіру',
       actions: 'Әрекеттер',
       addUserBtn: 'Қосу',
       save: 'Сақтау',

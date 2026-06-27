@@ -227,6 +227,7 @@ const en = {
       emptyList: 'No users found',
       role: 'Role',
       registeredDate: 'Registered',
+      lastLogin: 'Last login',
       actions: 'Actions',
       addUserBtn: 'Add',
       save: 'Save',

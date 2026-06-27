@@ -227,6 +227,7 @@ const ru = {
       emptyList: 'Пользователей нет',
       role: 'Роль',
       registeredDate: 'Зарегистрирован',
+      lastLogin: 'Последний визит',
       actions: 'Действия',
       addUserBtn: 'Добавить',
       save: 'Сохранить',

@@ -102,6 +102,7 @@ func Migrate(db *sql.DB) error {
 		{"subscription_status", "TEXT DEFAULT 'none'"},
 		{"subscription_paid_at", "TEXT DEFAULT ''"},
 		{"subscription_expires_at", "TEXT DEFAULT ''"},
+		{"last_login", "TEXT DEFAULT ''"},
 	}
 	existingCols := make(map[string]bool)
 	rows, err := db.Query("PRAGMA table_info(users)")
@@ -571,6 +572,22 @@ func UpdateUserPasswordHash(ctx context.Context, db *sql.DB, userID, passwordHas
 		passwordHash, time.Now().UTC().Format(time.RFC3339), userID,
 	)
 	return err
+}
+
+// UpdateLastLogin записывает время последнего визита (логин/refresh) с троттлом ~15 минут.
+// Один UPDATE с условием, без отдельного чтения. Формат времени идентичен created_at
+// (time.RFC3339, UTC) — строковое сравнение корректно. Ошибку только логируем,
+// наверх не возвращаем, чтобы не ломать логин/refresh.
+func UpdateLastLogin(ctx context.Context, db *sql.DB, userID string) {
+	now := time.Now().UTC()
+	throttle := now.Add(-15 * time.Minute)
+	_, err := db.ExecContext(ctx,
+		`UPDATE users SET last_login = ? WHERE id = ? AND (last_login = '' OR last_login < ?)`,
+		now.Format(time.RFC3339), userID, throttle.Format(time.RFC3339),
+	)
+	if err != nil {
+		log.Printf("[auth] update last_login user %s: %v", userID, err)
+	}
 }
 
 func GetUserByNickname(ctx context.Context, db *sql.DB, nickname string) (*User, error) {

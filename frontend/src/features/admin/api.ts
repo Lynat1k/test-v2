@@ -38,6 +38,7 @@ export interface UserListItem {
   nickname: string
   role: string
   createdAt: string
+  lastLogin: string
 }
 
 export interface UserStats {

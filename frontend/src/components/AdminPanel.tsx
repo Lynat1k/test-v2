@@ -1547,6 +1547,7 @@ function UsersTab({ isLight }: { isLight: boolean }) {
                   <th className="text-left py-2 pr-3">{t('auth.email')}</th>
                   <th className="text-left py-2 pr-3">{t('admin.users.role')}</th>
                   <th className="text-left py-2 pr-3">{t('admin.users.registeredDate')}</th>
+                  <th className="text-left py-2 pr-3">{t('admin.users.lastLogin')}</th>
                   <th className="text-right py-2">{t('admin.users.actions')}</th>
                 </tr>
               </thead>
@@ -1586,6 +1587,9 @@ function UsersTab({ isLight }: { isLight: boolean }) {
                       </td>
                       <td className="py-2 pr-3 font-mono text-slate-500 text-[10px]">
                         {formatDate(u.createdAt)}
+                      </td>
+                      <td className="py-2 pr-3 font-mono text-slate-500 text-[10px]">
+                        {u.lastLogin ? formatDateTime(u.lastLogin) : '—'}
                       </td>
                       <td className="py-2 text-right">
                         {isSelf ? (
@@ -1662,6 +1666,17 @@ function formatDate(dateStr: string): string {
   try {
     const d = new Date(dateStr)
     return d.toLocaleDateString('en-CA', { year: 'numeric', month: '2-digit', day: '2-digit' })
+  } catch {
+    return dateStr
+  }
+}
+
+function formatDateTime(dateStr: string): string {
+  try {
+    const d = new Date(dateStr)
+    const date = d.toLocaleDateString('en-CA', { year: 'numeric', month: '2-digit', day: '2-digit' })
+    const time = d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })
+    return `${date} ${time}`
   } catch {
     return dateStr
   }

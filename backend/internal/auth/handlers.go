@@ -319,6 +319,7 @@ func (h *Handler) handleLogin(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h.issueTokens(w, r, user)
+	UpdateLastLogin(r.Context(), h.db, user.ID)
 	log.Printf("[auth] login user %s", user.ID)
 }
 
@@ -397,6 +398,7 @@ func (h *Handler) handleRefresh(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h.issueTokens(w, r, user)
+	UpdateLastLogin(r.Context(), h.db, user.ID)
 	log.Printf("[auth] refresh for user %s", user.ID)
 }
 
