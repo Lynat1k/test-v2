@@ -201,7 +201,10 @@ export function ChartControlsProvider({ children }: { children: ReactNode }) {
   const [adminDefaultsFetched, setAdminDefaultsFetched] = useState<Record<string, boolean>>({})
 
   const { settings, getSetting, setSetting, settingsHydrated } = useUserSettings()
-  const { accessToken } = useAuthContext()
+  // `authLoading` = apiRefresh() still settling (access-token by refresh-cookie). While true the
+  // token is neither present nor confirmed-absent, so a config fetch would go out tokenless and
+  // 401 on prod beta-gate. Gate loadTickers + adminDefaults on !authLoading.
+  const { accessToken, loading: authLoading } = useAuthContext()
 
   useEffect(() => {
     saveToStorage(slots, activeSlot)
@@ -234,8 +237,10 @@ export function ChartControlsProvider({ children }: { children: ReactNode }) {
   // The first guest fetch may 401 on prod beta; re-fetching once the token arrives fixes
   // the list and base-compression. Mirrors the admin-defaults effect (also accessToken-keyed).
   useEffect(() => {
+    // Wait until apiRefresh() settled — fetching now (token still null) 401s on beta-gate.
+    if (authLoading) return
     loadTickers()
-  }, [accessToken, loadTickers])
+  }, [authLoading, accessToken, loadTickers])
 
   // Re-fetch the ticker list on demand (after admin add/update/delete).
   const refreshTickers = useCallback(() => {
@@ -245,6 +250,9 @@ export function ChartControlsProvider({ children }: { children: ReactNode }) {
   // Fetch admin compression defaults for every symbol currently held by a slot.
   // Each symbol fetched exactly once; an empty result is cached as {} (not undefined).
   useEffect(() => {
+    // Wait until apiRefresh() settled — fetching now (token still null) 401s on beta-gate,
+    // leaving adminDefaults empty → resolveCompression falls back to 1 (min), chart at min-step.
+    if (authLoading) return
     const symbols = Array.from(new Set([slots[0].symbol, slots[1].symbol]))
     for (const sym of symbols) {
       if (adminDefaults[sym] !== undefined) continue
@@ -273,7 +281,7 @@ export function ChartControlsProvider({ children }: { children: ReactNode }) {
         })
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [slots[0].symbol, slots[1].symbol, accessToken])
+  }, [slots[0].symbol, slots[1].symbol, authLoading, accessToken])
 
   const updateSlot = useCallback((index: 0 | 1, patch: Partial<ChartSlot>) => {
     setSlots(prev => {

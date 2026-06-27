@@ -3,6 +3,15 @@
 > Claude обновляет этот файл в КОНЦЕ каждой задачи. Новые записи — сверху.
 > Формат записи строго по шаблону. Это память между чатами.
 
+### [2026-06-27] fix(chart): интермиттентный 401 на /tickers,/compressions — гейт конфига по auth-ready
+
+- **Контекст**: ~1 из 10 свежих загрузок сжатие падало на минимум (25) на всех ТФ, плашки «рекомендуемое» нет. В Network — `/tickers` и `/compressions` 401, кластеры на min-шаге (через grace).
+- **Корень**: `apiRefresh()` (access-токен по refresh-куке) в AuthContext асинхронный и не дожидается. Конфиг-фетчи (loadTickers→/tickers, adminDefaults→/compressions) стартовали на маунте при `accessToken=null` → запрос без Authorization → beta-gate 401. Ретрай по accessToken спасал ~90%, остальное падало на фоллбэк-сжатие (resolveCompression→1).
+- **Фикс** (`ChartControlsContext.tsx`): взят `loading` из `useAuthContext()` как `authLoading`; оба конфиг-эффекта гейтятся `if (authLoading) return` + `authLoading` в deps. Фетч стартует только когда `apiRefresh()` осел (токен есть ИЛИ гость подтверждён) → tokenless-запрос исключён конструктивно. Ретрай по accessToken, terminal-флаги на success, grace 3s, isChartReady — сохранены.
+- **Файлы**: `frontend/src/contexts/ChartControlsContext.tsx`.
+- **Verification**: `npx tsc --noEmit` ✓, `npx vite build` ✓. Браузер (Disable cache + Slow 4G, много резетов): `/tickers`,`/compressions` 200, сжатие = админ-дефолт сразу, без 401/падения на 25.
+- **TODO (косметика)**: устаревший коммент у `tickersFetched/adminDefaultsFetched` (пишет «flip on success/failure», по факту только success). `settings 500` — отдельная серверная ошибка (похоже холодная SQLite после рестарта), не трогали.
+
 ### [2026-06-27] fix(chart): «мессиво» добито — гейт кластеров по СОШЕДШЕМУСЯ сжатию
 
 - **Контекст**: после гейта `configReady` мессиво всё равно возвращалось при СМЕНЕ ТФ (и иногда на перезагрузке). В Network снова два `clusters-batch` — `priceStep=2.5` (мин, ~3.7МБ) и правильный.
