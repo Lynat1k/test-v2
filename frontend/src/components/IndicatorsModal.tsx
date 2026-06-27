@@ -178,7 +178,13 @@ export default function IndicatorsModal({ isOpen, onClose, symbol = "", market =
   const dragStart = useRef({ x: 0, y: 0 })
   const modalOffset = useRef({ x: 0, y: 0 })
 
-  const prevIsOpen = useRef(isOpen)
+  // Init false (not isOpen) so a freshly-mounted-already-open instance still
+  // sees the closed→open transition and seeds the draft. App now mounts this
+  // lazily only while open, so isOpen is true on first render — without this
+  // the seed effect below would skip and the modal would open with an empty
+  // indicator list. No-op for the legacy always-mounted form (isOpen started
+  // false there anyway).
+  const prevIsOpen = useRef(false)
   // Snapshot of settings keyed by indicator id captured at seed time. Drives
   // the 'add_only' vs 'settings_changed' intent on save: if no settings object
   // changed compared to this snapshot, the request goes as 'add_only' so users
