@@ -5,7 +5,6 @@ import (
 	"embed"
 	"fmt"
 	"log"
-	"strings"
 	"time"
 
 	"github.com/ClickHouse/clickhouse-go/v2"
@@ -204,18 +203,6 @@ func (r *ClickhouseRepository) GetLatestCandles(ctx context.Context, symbol, tim
 		table = "clusters_spot"
 	}
 
-	timeFilter := ""
-	if before != nil {
-		timeFilter = " AND candle_open < toDateTime64(?, 3)"
-	}
-
-	// Two-step to avoid aggregating the whole symbol history:
-	//  1) inner subquery cheaply reads ONLY candle_open (PK-ordered column) to find
-	//     the candle_open of the Nth most-recent candle.
-	//  2) outer aggregation runs ONLY over that bounded candle_open range, so cost
-	//     scales with N, not with total history length.
-	// Result is identical to the old "aggregate all, then LIMIT N": candle_open >=
-	// Nth-most-recent selects exactly those N most-recent candles.
 	query := fmt.Sprintf(`
 		SELECT
 			symbol,
@@ -230,34 +217,19 @@ func (r *ClickhouseRepository) GetLatestCandles(ctx context.Context, symbol, tim
 			sum(bid_volume - ask_volume) AS total_delta,
 			sum(bid_volume + ask_volume) AS total_volume,
 			count(*) AS trades_count
-		FROM %[1]s
-		WHERE symbol = ? AND timeframe = ?%[2]s
-			AND candle_open >= (
-				SELECT min(candle_open) FROM (
-					SELECT candle_open
-					FROM %[1]s
-					WHERE symbol = ? AND timeframe = ?%[2]s
-					GROUP BY candle_open
-					ORDER BY candle_open DESC
-					LIMIT ?
-				)
-			)
+		FROM %s
+		WHERE symbol = ? AND timeframe = ?%s
 		GROUP BY symbol, timeframe, candle_open
 		ORDER BY candle_open DESC
 		LIMIT ?
-	`, table, timeFilter)
+	`, table, map[bool]string{true: " AND candle_open < toDateTime64(?, 3)", false: ""}[before != nil])
 
 	var args []interface{}
-	args = append(args, symbol, timeframe) // outer WHERE
+	args = append(args, symbol, timeframe)
 	if before != nil {
-		args = append(args, time.UnixMilli(*before)) // outer time filter
+		args = append(args, time.UnixMilli(*before))
 	}
-	args = append(args, symbol, timeframe) // inner WHERE
-	if before != nil {
-		args = append(args, time.UnixMilli(*before)) // inner time filter
-	}
-	args = append(args, limit) // inner LIMIT (Nth most-recent)
-	args = append(args, limit) // outer LIMIT (safety)
+	args = append(args, limit)
 
 	rows, err := r.conn.Query(ctx, query, args...)
 	if err != nil {
@@ -365,14 +337,16 @@ func (r *ClickhouseRepository) GetClustersBatch(ctx context.Context, symbol, tim
 		table = "clusters_spot"
 	}
 
-	// candle_open IN (?, ?, ...) — cheaper to plan than a long OR chain.
-	placeholders := make([]string, len(candleOpens))
+	// Build WHERE clause with explicit OR for DateTime64 compatibility
+	whereConditions := ""
 	args := []interface{}{symbol, timeframe}
 	for i, ts := range candleOpens {
-		placeholders[i] = "?"
+		if i > 0 {
+			whereConditions += " OR "
+		}
+		whereConditions += "candle_open = ?"
 		args = append(args, time.UnixMilli(ts))
 	}
-	inClause := "candle_open IN (" + strings.Join(placeholders, ", ") + ")"
 
 	var query string
 	if priceStep > 0 {
@@ -388,10 +362,10 @@ func (r *ClickhouseRepository) GetClustersBatch(ctx context.Context, symbol, tim
 				sum(ask_volume) AS ask_volume,
 				toUInt16(0) AS compression
 			FROM %s
-			WHERE symbol = ? AND timeframe = ? AND %s
+			WHERE symbol = ? AND timeframe = ? AND (%s)
 			GROUP BY symbol, timeframe, candle_open, floor(price_level / %g) * %g
 			ORDER BY candle_open, floor(price_level / %g) * %g ASC
-		`, priceStep, priceStep, table, inClause, priceStep, priceStep, priceStep, priceStep)
+		`, priceStep, priceStep, table, whereConditions, priceStep, priceStep, priceStep, priceStep)
 	} else {
 		// No aggregation — return raw clusters
 		query = fmt.Sprintf(`
@@ -404,9 +378,9 @@ func (r *ClickhouseRepository) GetClustersBatch(ctx context.Context, symbol, tim
 				ask_volume,
 				compression
 			FROM %s
-			WHERE symbol = ? AND timeframe = ? AND %s
+			WHERE symbol = ? AND timeframe = ? AND (%s)
 			ORDER BY candle_open, price_level ASC
-		`, table, inClause)
+		`, table, whereConditions)
 	}
 
 	log.Printf("[clickhouse] GetClustersBatch: symbol=%s tf=%s n=%d priceStep=%.2f", symbol, timeframe, len(candleOpens), priceStep)
@@ -448,98 +422,4 @@ func (r *ClickhouseRepository) GetClustersBatch(ctx context.Context, symbol, tim
 	}
 
 	return result, nil
-}
-
-// GetClustersBatchFromCache reads pre-aggregated cluster levels for the given
-// candleOpens at a specific priceStep from cluster_cache. Only candles present in
-// the cache are returned (the caller treats absent ones as misses). argMax over
-// updated_at collapses any duplicate ReplacingMergeTree versions on read.
-func (r *ClickhouseRepository) GetClustersBatchFromCache(ctx context.Context, symbol, market, timeframe string, candleOpens []int64, priceStep float64) (map[int64][]model.ClusterRow, error) {
-	if len(candleOpens) == 0 || priceStep <= 0 {
-		return nil, nil
-	}
-
-	placeholders := make([]string, len(candleOpens))
-	args := []interface{}{symbol, market, timeframe, decimal.NewFromFloat(priceStep)}
-	for i, ts := range candleOpens {
-		placeholders[i] = "?"
-		args = append(args, time.UnixMilli(ts))
-	}
-
-	query := fmt.Sprintf(`
-		SELECT
-			candle_open,
-			price_bucket,
-			argMax(bid_volume, updated_at) AS bid_volume,
-			argMax(ask_volume, updated_at) AS ask_volume
-		FROM cluster_cache
-		WHERE symbol = ? AND market = ? AND timeframe = ? AND price_step = ?
-			AND candle_open IN (%s)
-		GROUP BY candle_open, price_bucket
-		ORDER BY candle_open, price_bucket ASC
-	`, strings.Join(placeholders, ", "))
-
-	rows, err := r.conn.Query(ctx, query, args...)
-	if err != nil {
-		return nil, fmt.Errorf("query cluster_cache: %w", err)
-	}
-	defer rows.Close()
-
-	result := make(map[int64][]model.ClusterRow)
-	for rows.Next() {
-		var row model.ClusterRow
-		var priceBucket, bidVolume, askVolume decimal.Decimal
-		if err := rows.Scan(&row.CandleOpen, &priceBucket, &bidVolume, &askVolume); err != nil {
-			return nil, fmt.Errorf("scan cluster_cache row: %w", err)
-		}
-		row.Symbol = symbol
-		row.Timeframe = timeframe
-		row.PriceLevel, _ = priceBucket.Float64()
-		row.BidVolume, _ = bidVolume.Float64()
-		row.AskVolume, _ = askVolume.Float64()
-
-		key := row.CandleOpen.UnixMilli()
-		result[key] = append(result[key], row)
-	}
-
-	return result, rows.Err()
-}
-
-// PutClustersBatchToCache writes pre-aggregated cluster levels for the given closed
-// candles into cluster_cache. updated_at is left to its DEFAULT now(). Callers must
-// pass only CLOSED candles at the admin-default priceStep.
-func (r *ClickhouseRepository) PutClustersBatchToCache(ctx context.Context, symbol, market, timeframe string, priceStep float64, byCandle map[int64][]model.ClusterRow) error {
-	if len(byCandle) == 0 || priceStep <= 0 {
-		return nil
-	}
-
-	batch, err := r.conn.PrepareBatch(ctx, "INSERT INTO cluster_cache (symbol, market, timeframe, candle_open, price_step, price_bucket, bid_volume, ask_volume)")
-	if err != nil {
-		return fmt.Errorf("prepare cluster_cache batch: %w", err)
-	}
-
-	stepDec := decimal.NewFromFloat(priceStep)
-	for ts, levels := range byCandle {
-		candleOpen := time.UnixMilli(ts)
-		for _, row := range levels {
-			if err := batch.Append(
-				symbol,
-				market,
-				timeframe,
-				candleOpen,
-				stepDec,
-				decimal.NewFromFloat(row.PriceLevel),
-				decimal.NewFromFloat(row.BidVolume),
-				decimal.NewFromFloat(row.AskVolume),
-			); err != nil {
-				return fmt.Errorf("append cluster_cache row: %w", err)
-			}
-		}
-	}
-
-	if err := batch.Send(); err != nil {
-		return fmt.Errorf("send cluster_cache batch: %w", err)
-	}
-
-	return nil
 }

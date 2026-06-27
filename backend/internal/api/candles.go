@@ -2,8 +2,6 @@ package api
 
 import (
 	"encoding/json"
-	"log"
-	"math"
 	"net/http"
 	"strconv"
 	"strings"
@@ -12,28 +10,6 @@ import (
 	"github.com/procluster/procluster/internal/auth"
 	"github.com/procluster/procluster/internal/model"
 )
-
-// tfDurations maps a timeframe to its bucket length — used to decide whether a
-// candle is already closed (and therefore safe to cache).
-var tfDurations = map[string]time.Duration{
-	"1m":  time.Minute,
-	"5m":  5 * time.Minute,
-	"15m": 15 * time.Minute,
-	"30m": 30 * time.Minute,
-	"1h":  time.Hour,
-	"4h":  4 * time.Hour,
-	"1d":  24 * time.Hour,
-}
-
-// candleClosed reports whether the candle opened at candleOpenMs has fully closed
-// by now (candle_open + timeframe <= now). The current forming candle is never cached.
-func candleClosed(timeframe string, candleOpenMs int64, now time.Time) bool {
-	d, ok := tfDurations[timeframe]
-	if !ok {
-		return false
-	}
-	return !time.UnixMilli(candleOpenMs).Add(d).After(now)
-}
 
 type APIResponse struct {
 	OK        bool        `json:"ok"`
@@ -286,70 +262,15 @@ func (s *Server) handleClustersBatch(w http.ResponseWriter, r *http.Request) {
 
 	ctx := r.Context()
 
-	// Cache is only valid for the admin-default priceStep of this symbol/market/tf.
-	// Any other priceStep (or unknown ticker) bypasses the cache entirely — same
-	// behaviour as before.
-	defaultStep := s.defaultPriceStep(symbol, market, timeframe)
-	cacheEligible := priceStep > 0 && defaultStep > 0 && math.Abs(priceStep-defaultStep) <= defaultStep*1e-6
-
-	if !cacheEligible {
-		clustersMap, err := s.repo.GetClustersBatch(ctx, symbol, timeframe, market, candleOpens, priceStep)
-		if err != nil {
-			writeError(w, http.StatusInternalServerError, "DB_ERROR", "failed to fetch clusters batch")
-			return
-		}
-		writeJSON(w, http.StatusOK, APIResponse{
-			OK:   true,
-			Data: map[string]interface{}{"clusters": clustersMap},
-		})
-		return
-	}
-
-	// Read-through cache: serve closed candles from cluster_cache, compute the rest
-	// from clusters_* and write the freshly-computed CLOSED candles back.
-	result, err := s.repo.GetClustersBatchFromCache(ctx, symbol, market, timeframe, candleOpens, priceStep)
+	clustersMap, err := s.repo.GetClustersBatch(ctx, symbol, timeframe, market, candleOpens, priceStep)
 	if err != nil {
-		log.Printf("[api] clusters-batch cache read failed (symbol=%s tf=%s): %v", symbol, timeframe, err)
-		result = make(map[int64][]model.ClusterRow)
-	}
-
-	var missing []int64
-	for _, ts := range candleOpens {
-		if _, ok := result[ts]; !ok {
-			missing = append(missing, ts)
-		}
-	}
-
-	if len(missing) > 0 {
-		fresh, err := s.repo.GetClustersBatch(ctx, symbol, timeframe, market, missing, priceStep)
-		if err != nil {
-			writeError(w, http.StatusInternalServerError, "DB_ERROR", "failed to fetch clusters batch")
-			return
-		}
-
-		now := time.Now()
-		toCache := make(map[int64][]model.ClusterRow)
-		for _, ts := range missing {
-			rows := fresh[ts]
-			if len(rows) == 0 {
-				continue // empty candles are never stored (cheap to recompute)
-			}
-			result[ts] = rows
-			if candleClosed(timeframe, ts, now) {
-				toCache[ts] = rows
-			}
-		}
-
-		if len(toCache) > 0 {
-			if err := s.repo.PutClustersBatchToCache(ctx, symbol, market, timeframe, priceStep, toCache); err != nil {
-				log.Printf("[api] clusters-batch cache write failed (symbol=%s tf=%s): %v", symbol, timeframe, err)
-			}
-		}
+		writeError(w, http.StatusInternalServerError, "DB_ERROR", "failed to fetch clusters batch")
+		return
 	}
 
 	writeJSON(w, http.StatusOK, APIResponse{
 		OK:   true,
-		Data: map[string]interface{}{"clusters": result},
+		Data: map[string]interface{}{"clusters": clustersMap},
 	})
 }
 
@@ -367,49 +288,6 @@ func writeError(w http.ResponseWriter, status int, code, message string) {
 			Message: message,
 		},
 	})
-}
-
-// defaultPriceStep returns the admin-configured default priceStep for a
-// symbol/market/timeframe: priceTick (from the active ticker) * default
-// compression multiplier (from default_compressions). This equals the priceStep
-// the frontend sends when the user sits at the admin-default compression level.
-// Returns 0 when the ticker or the default compression is unknown — callers treat
-// 0 as "not cache-eligible" and fall back to on-the-fly aggregation.
-func (s *Server) defaultPriceStep(symbol, market, timeframe string) float64 {
-	sym := strings.ToUpper(symbol)
-
-	var tick float64
-	s.tickersMu.RLock()
-	for _, t := range s.activeTickers {
-		if strings.ToUpper(t.Symbol) != sym {
-			continue
-		}
-		if market == "spot" {
-			tick = t.PriceTickSpot
-		} else {
-			tick = t.PriceTickFutures
-		}
-		break
-	}
-	s.tickersMu.RUnlock()
-	if tick <= 0 {
-		return 0
-	}
-
-	var mult int
-	s.comprMu.RLock()
-	for _, c := range s.activeCompressions[sym] {
-		if c.Market == market && c.Timeframe == timeframe {
-			mult = c.Multiplier
-			break
-		}
-	}
-	s.comprMu.RUnlock()
-	if mult <= 0 {
-		return 0
-	}
-
-	return tick * float64(mult)
 }
 
 func (s *Server) resolveHistoryDepth(role string) time.Duration {
