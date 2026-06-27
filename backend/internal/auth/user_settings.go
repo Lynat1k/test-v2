@@ -16,12 +16,17 @@ type UserSettings struct {
 
 func GetUserSettings(ctx context.Context, db *sql.DB, userID string) (*UserSettings, error) {
 	s := &UserSettings{}
+	// updated_at is a TEXT column (project convention): scan into a string and
+	// parse, never directly into time.Time — modernc returns TEXT as string and
+	// database/sql cannot convert string -> time.Time on Scan (that was the 500).
+	var updatedAt string
 	err := db.QueryRowContext(ctx,
 		`SELECT user_id, settings_json, updated_at FROM user_settings WHERE user_id = ?`, userID,
-	).Scan(&s.UserID, &s.SettingsJSON, &s.UpdatedAt)
+	).Scan(&s.UserID, &s.SettingsJSON, &updatedAt)
 	if err != nil {
 		return nil, err
 	}
+	s.UpdatedAt, _ = time.Parse(time.RFC3339, updatedAt) // legacy rows may not parse — non-fatal
 	return s, nil
 }
 
@@ -30,7 +35,7 @@ func UpsertUserSettings(ctx context.Context, db *sql.DB, userID, settingsJSON st
 		`INSERT INTO user_settings (user_id, settings_json, updated_at)
 		 VALUES (?, ?, ?)
 		 ON CONFLICT(user_id) DO UPDATE SET settings_json = excluded.settings_json, updated_at = excluded.updated_at`,
-		userID, settingsJSON, time.Now().UTC(),
+		userID, settingsJSON, time.Now().UTC().Format(time.RFC3339),
 	)
 	return err
 }
@@ -74,7 +79,7 @@ func SetUserSettingsField(ctx context.Context, db *sql.DB, userID, field string,
 		`INSERT INTO user_settings (user_id, settings_json, updated_at)
 		 VALUES (?, ?, ?)
 		 ON CONFLICT(user_id) DO UPDATE SET settings_json = excluded.settings_json, updated_at = excluded.updated_at`,
-		userID, string(encoded), time.Now().UTC(),
+		userID, string(encoded), time.Now().UTC().Format(time.RFC3339),
 	)
 	if err != nil {
 		return fmt.Errorf("set user_settings field: write: %w", err)
