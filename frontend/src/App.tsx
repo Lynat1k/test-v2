@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef, useEffect, lazy, Suspense } from 'react'
+import { useState, useCallback, useRef, useEffect } from 'react'
 import { ThemeProvider } from '@/contexts/ThemeContext'
 import { I18nProvider, useTranslation } from '@/i18n'
 import { CandlePaletteProvider } from '@/contexts/CandlePaletteContext'
@@ -13,15 +13,18 @@ import { DrawingDefaultsProvider } from '@/contexts/DrawingDefaultsContext'
 import { LoginModal } from '@/features/auth/LoginModal'
 import { RegisterModal } from '@/features/auth/RegisterModal'
 import { VerifyEmailBanner } from '@/features/auth/VerifyEmailBanner'
+import { UserProfile } from '@/components/UserProfile'
+import { AdminPanel } from '@/components/AdminPanel'
 import { ChartContainer } from '@/components/ChartContainer'
 import { ChartPanel } from '@/components/ChartPanel'
 import { ChartContainer2 } from '@/chart2d/ChartContainer2'
 import { ChartHeader } from '@/components/ChartHeader'
 import { Logo } from '@/components/Logo'
+import IndicatorsModal from '@/components/IndicatorsModal'
 import { IndicatorsStorageProvider, useIndicatorsForKey, useIndicatorsStorage } from '@/features/indicators/IndicatorsStorageContext'
 import { computeActiveIndicators } from '@/features/indicators/storage'
 import { UserDropdown } from '@/components/UserDropdown'
-import { ChartLoader } from '@/components/ChartLoader'
+import RoadmapModal from '@/components/RoadmapModal'
 import ToastHost from '@/features/notify/ToastHost'
 import { Splitter } from '@/components/Splitter'
 import { DOMSidebar } from '@/components/DOMSidebar'
@@ -30,13 +33,6 @@ import type { Indicator } from '@/chart2d/types'
 import { useTheme } from '@/contexts/ThemeContext'
 import { Sparkles, Sliders, X, Layers, ChevronLeft, ChevronRight } from 'lucide-react'
 import { AnimatePresence, motion } from 'motion/react'
-
-// Code-split heavy components into their own chunks (Vite splits on dynamic
-// import). AdminPanel ships ONLY to admins; the modals load on first open.
-const AdminPanel = lazy(() => import('@/components/AdminPanel').then(m => ({ default: m.AdminPanel })))
-const UserProfile = lazy(() => import('@/components/UserProfile').then(m => ({ default: m.UserProfile })))
-const IndicatorsModal = lazy(() => import('@/components/IndicatorsModal'))
-const RoadmapModal = lazy(() => import('@/components/RoadmapModal'))
 
 type View = 'terminal' | 'admin' | 'profile'
 
@@ -893,46 +889,34 @@ function AppShell() {
           </div>
         )}
         {currentView === 'admin' && (
-          <Suspense fallback={<ChartLoader theme={theme} />}>
-            <AdminPanel onClose={() => setCurrentView('terminal')} />
-          </Suspense>
+          <AdminPanel onClose={() => setCurrentView('terminal')} />
         )}
         {currentView === 'profile' && (
-          <Suspense fallback={<ChartLoader theme={theme} />}>
-            <UserProfile onClose={() => setCurrentView('terminal')} />
-          </Suspense>
+          <UserProfile onClose={() => setCurrentView('terminal')} />
         )}
       </div>
 
-      {showIndicatorsModal && (
-        <Suspense fallback={null}>
-          <IndicatorsModal
-            isOpen
-            onClose={handleCloseIndicatorsModal}
-            symbol={activeSlotData.symbol}
-            market={activeSlotData.market}
-            timeframe={activeSlotData.timeframe}
-            indicators={activeSlotInd.indicators}
-            source={activeSlotInd.source}
-            focusIndicatorId={focusIndicatorId}
-            onApplyIndicators={activeSlotInd.handlers.onApplyIndicators}
-            onPropagateIndicator={handlePropagateIndicator}
-            onPreviewIndicators={handlePreviewIndicators}
-            onCancelPreview={handleCancelPreview}
-            adminDefaultsTf={activeSlotInd.adminDefaultsTf}
-            adminDefaultsAllTf={activeSlotInd.adminDefaultsAllTf}
-            onRefreshAdminDefaults={activeSlotInd.handlers.refreshKey}
-          />
-        </Suspense>
-      )}
+      <IndicatorsModal
+        isOpen={showIndicatorsModal}
+        onClose={handleCloseIndicatorsModal}
+        symbol={activeSlotData.symbol}
+        market={activeSlotData.market}
+        timeframe={activeSlotData.timeframe}
+        indicators={activeSlotInd.indicators}
+        source={activeSlotInd.source}
+        focusIndicatorId={focusIndicatorId}
+        onApplyIndicators={activeSlotInd.handlers.onApplyIndicators}
+        onPropagateIndicator={handlePropagateIndicator}
+        onPreviewIndicators={handlePreviewIndicators}
+        onCancelPreview={handleCancelPreview}
+        adminDefaultsTf={activeSlotInd.adminDefaultsTf}
+        adminDefaultsAllTf={activeSlotInd.adminDefaultsAllTf}
+        onRefreshAdminDefaults={activeSlotInd.handlers.refreshKey}
+      />
 
       <LoginModal open={loginOpen} onClose={() => setLoginOpen(false)} onSwitchToRegister={() => { setLoginOpen(false); setRegisterOpen(true) }} />
       <RegisterModal open={registerOpen} onClose={() => setRegisterOpen(false)} onSwitchToLogin={() => { setRegisterOpen(false); setLoginOpen(true) }} />
-      {isRoadmapOpen && (
-        <Suspense fallback={null}>
-          <RoadmapModal isOpen onClose={() => setIsRoadmapOpen(false)} language={language} />
-        </Suspense>
-      )}
+      <RoadmapModal isOpen={isRoadmapOpen} onClose={() => setIsRoadmapOpen(false)} language={language} />
       <ToastHost />
     </div>
   )
