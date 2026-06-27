@@ -3,6 +3,30 @@
 > Claude обновляет этот файл в КОНЦЕ каждой задачи. Новые записи — сверху.
 > Формат записи строго по шаблону. Это память между чатами.
 
+### [2026-06-27] perf(chart): ускорение первой загрузки — свечи без скана истории + кэш кластеров
+
+- **Контекст**: первая загрузка графика ~10с при CPU <15% (упор в I/O ClickHouse). Два REST-запроса
+  (candles, clusters-batch) по 1–3с.
+- **Задача 1 (свечи)**: `GetLatestCandles` переписан — подзапрос дёшево читает только `candle_open`
+  (узкая PK-колонка) и находит candle_open N-й свежей свечи; внешняя агрегация идёт ТОЛЬКО по этому
+  диапазону. Тяжёлые колонки больше не читаются по всей истории. `before` (скролл) сохранён,
+  значения через placeholders, начальное число свечей не менялось (TF_LIMIT 500/400/300/200).
+- **Задача 2 (кластеры)**: новая таблица `cluster_cache` (ReplacingMergeTree, миграция
+  `006_cluster_cache.sql`). clusters-batch стал read-through: закрытые свечи берутся из кэша,
+  промахи считаются из `clusters_*` и пишутся обратно. Кэшируются ТОЛЬКО закрытые свечи и ТОЛЬКО
+  при админском дефолтном priceStep (`defaultPriceStep` = priceTick × default_compressions.multiplier);
+  прочие priceStep — мимо кэша. Чтение через `argMax(updated_at)` (защита от гонки).
+  `OR`-цепочка заменена на `candle_open IN (…)`. RAM/Redis не затронуты (кэш на диске CH, TTL 90 дней).
+- **Файлы**: `migrations/006_cluster_cache.sql` (новый), `clickhouse.go`, `repository.go`,
+  `api/candles.go`.
+- **Verification**: `go build`/`go vet`/`go test ./internal/api/... ./internal/admin/...` ✓.
+  Миграция применена в БД `procluster`. Задача 1: вывод old==new (count+cityHash) на 6 сериях
+  (futures/spot, 1m..4h); read_bytes 40.6→9.3 MiB (~4.4× меньше I/O) на BTCUSDT 1m (835k строк).
+  Задача 2: round-trip source↔cache бит-в-бит; дубль-вставка 56→28 строк на чтении (argMax dedup);
+  OR==IN совпал. Тестовые строки из cluster_cache удалены.
+- **TODO**: юзеру перезапустить свой backend новым `procluster.exe` (миграция уже применена,
+  повторно безопасно). Деплой на VPS — ручной (push в main + `/root/test-v2/deploy.sh`).
+
 ### [2026-06-26] fix(dom): объёмы size в стакане целыми числами (без центов)
 
 - **Контекст**: в стакане (DOM ladder) size показывался с двумя знаками после запятой — центы не нужны.
