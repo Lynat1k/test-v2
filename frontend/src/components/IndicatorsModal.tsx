@@ -691,7 +691,7 @@ export default function IndicatorsModal({ isOpen, onClose, symbol = "", market =
                 <span className="text-[10px] font-bold text-slate-500 tracking-widest uppercase mb-1 block font-mono pl-1">
                   АКТИВНЫЕ ({addedIndicators.length})
                 </span>
-                <div className={`flex-1 overflow-y-auto pr-1 flex flex-col gap-1.5 ${isLight ? "scrollbar-thin-light" : "scrollbar-thin-dark"}`}>
+                <div className={`flex-1 overflow-y-auto pr-1 flex flex-col gap-1 ${isLight ? "scrollbar-thin-light" : "scrollbar-thin-dark"}`}>
                   <AnimatePresence initial={false}>
                     {addedIndicators.length === 0 ? (
                       <div className="text-slate-500 text-[11px] italic pl-1.5 pt-1">
@@ -707,7 +707,7 @@ export default function IndicatorsModal({ isOpen, onClose, symbol = "", market =
                             exit={{ opacity: 0, x: -8 }}
                             key={ind.id}
                             onClick={() => selectIndicatorMobile(ind.id)}
-                            className={`flex items-center justify-between px-3 py-2 rounded-xl border transition-all cursor-pointer no-drag ${!isVisible ? "opacity-60" : ""} ${selectedId === ind.id
+                            className={`flex items-center justify-between px-3 py-1 rounded-xl border transition-all cursor-pointer no-drag ${!isVisible ? "opacity-60" : ""} ${selectedId === ind.id
                               ? isLight
                                 ? "bg-blue-50 border-blue-200 text-blue-850 animate-pulse"
                                 : "bg-blue-600/15 border-blue-500/30 text-slate-100"
@@ -811,7 +811,7 @@ export default function IndicatorsModal({ isOpen, onClose, symbol = "", market =
                             animate={{ height: "auto", opacity: 1 }}
                             exit={{ height: 0, opacity: 0 }}
                             transition={{ duration: 0.18 }}
-                            className="overflow-hidden flex flex-col gap-1 pl-1"
+                            className="overflow-hidden flex flex-col gap-0.5 pl-1"
                           >
                             {items.length === 0 ? (
                               <div className="text-slate-500 text-[10.5px] italic pl-6 py-1.5">
@@ -824,7 +824,7 @@ export default function IndicatorsModal({ isOpen, onClose, symbol = "", market =
                                   <div
                                     key={ind.id}
                                     onClick={() => selectIndicatorMobile(ind.id)}
-                                    className={`flex items-center justify-between p-2 rounded-xl cursor-pointer transition select-none border no-drag ${isSelected
+                                    className={`flex items-center justify-between px-2 py-1 rounded-xl cursor-pointer transition select-none border no-drag ${isSelected
                                       ? isLight
                                         ? "bg-blue-50 border-blue-205"
                                         : "bg-blue-600/10 border border-blue-500/20"
