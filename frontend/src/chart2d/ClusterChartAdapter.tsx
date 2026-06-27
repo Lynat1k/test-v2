@@ -163,7 +163,7 @@ export default function ClusterChartAdapter({
   useEffect(() => {
     if (configReady !== false) return; // ready or preview — no fallback timer needed
     setGraceElapsed(false);
-    const id = setTimeout(() => setGraceElapsed(true), 6000);
+    const id = setTimeout(() => setGraceElapsed(true), 3000);
     return () => clearTimeout(id);
   }, [configReady]);
   const clustersReady = configReady !== false || graceElapsed;

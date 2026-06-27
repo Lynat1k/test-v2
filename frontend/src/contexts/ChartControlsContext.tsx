@@ -215,9 +215,12 @@ export function ChartControlsProvider({ children }: { children: ReactNode }) {
           spotPriceTick: t.spotPriceTick,
         }))
         setServerTickers(list)
+        // Terminal ONLY on success. A first guest 401 must NOT flip this, otherwise
+        // configReady would unblock with the fallback base before the token arrives.
+        // The accessToken-change effect re-fetches and reaches 200.
+        setTickersFetched(true)
       })
-      .catch(() => { /* silent — keep serverTickers, retry when accessToken changes */ })
-      .finally(() => { setTickersFetched(true) })
+      .catch(() => { /* silent — keep serverTickers + tickersFetched unset, retry when accessToken changes */ })
   }, [])
 
   // Load on mount and re-load whenever the access token changes (login / auth hydration).
@@ -249,15 +252,17 @@ export function ChartControlsProvider({ children }: { children: ReactNode }) {
             }
           }
           setAdminDefaults(prev => prev[sym] !== undefined ? prev : { ...prev, [sym]: map })
+          // Mark terminal ONLY on success (empty [] is a valid "no defaults configured").
+          // On failure we leave fetched UNSET so the accessToken-change effect re-requests
+          // and reaches 200 — keeps configReady waiting for the REAL admin default instead
+          // of committing the fallback (e.g. 25) before the token lands.
+          setAdminDefaultsFetched(prev => prev[sym] ? prev : { ...prev, [sym]: true })
         })
         .catch(() => {
-          // не кэшируем — повторим при смене accessToken
+          // не кэшируем adminDefaults и НЕ ставим fetched — повторим при смене accessToken
         })
         .finally(() => {
           adminFetchInflightRef.current.delete(sym)
-          // Mark terminal (settled) even on failure so isConfigReady can proceed with
-          // the fallback compression instead of blocking cluster load indefinitely.
-          setAdminDefaultsFetched(prev => prev[sym] ? prev : { ...prev, [sym]: true })
         })
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
