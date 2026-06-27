@@ -2687,3 +2687,37 @@ ATAS). Стопкой под панелями Delta и CVD. Бэкенд не т
 ### TODO
 - Деплой на VPS (ручной: `/root/test-v2/deploy.sh` на сервере).
 - Проверить в UI у чистого юзера (сброс localStorage) что дефолты подставляются.
+
+## 2026-06-27 — Фикс: GET /api/v1/user/settings отдавал 500
+
+### Симптом
+Красный `settings` (500, `{"code":"INTERNAL"}`) в Network у залогиненного юзера на проде.
+
+### Корень
+`user_settings.updated_at` — колонка TEXT, но `UpsertUserSettings` писал сырой
+`time.Time`, а `GetUserSettings` сканировал его обратно в `time.Time`. Драйвер
+`modernc.org/sqlite` отдаёт TEXT строкой, `database/sql` не умеет конвертить
+`string → time.Time` при Scan → ошибка → 500. Падало у каждого юзера, у кого
+есть строка настроек (без строки → ErrNoRows → 200 `{}`). PUT работал (без
+scan-back), поэтому настройки сохранялись, но GET падал — фронт молча откатывался
+на localStorage, виден был только красный 500.
+
+### Фикс
+Приведено к конвенции проекта (`scanUser`): пишем `time.Now().UTC().Format(time.RFC3339)`,
+читаем `updated_at` в `string` + `time.Parse` (парс legacy-строк не критичен, `_`).
+Legacy-строки на проде теперь читаются без ошибки.
+
+### Файлы
+- `backend/internal/auth/user_settings.go`
+- `backend/internal/auth/user_settings_test.go` (новый, `TestUserSettingsRoundTrip`)
+
+### Verification
+- `TestUserSettingsRoundTrip`: падал до фикса (точная ошибка
+  `unsupported Scan ... string into type *time.Time`), зелёный после.
+- `go build` ✓. Прочие падения в пакете auth (`Indicator*`,
+  `CUSTOM_SETTINGS_FORBIDDEN`) — пре-existing на ветке tier-policies, не связаны.
+- Коммит `93d1dcc`, запушен в `main`.
+
+### TODO
+- Деплой на VPS (ручной: `bash /root/test-v2/deploy.sh`).
+- Проверить на проде: `settings` = 200, настройки тянутся с сервера (не из LS).
