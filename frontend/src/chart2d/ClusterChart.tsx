@@ -1131,7 +1131,7 @@ export default function ClusterChart({
         // Ctrl + Wheel -> zoom horizontally centered on mouse position!
         const multiplier = direction < 0 ? 1.08 : 0.92;
         const nextWidth = curCandleWidth * multiplier;
-        const minW = (candleType === "japanese" || candleType === "auto" || candleType === "bars") ? 2 : 8;
+        const minW = (candleType === "japanese" || candleType === "auto" || candleType === "bars") ? 1 : 8;
         const nextWidthClamped = Math.min(100, Math.max(minW, nextWidth));
 
         if (nextWidthClamped !== curCandleWidth) {
@@ -1183,7 +1183,7 @@ export default function ClusterChart({
         // 1. Horizontal zoom
         const hMultiplier = direction < 0 ? 1.08 : 0.92;
         const nextWidth = curCandleWidth * hMultiplier;
-        const minW = (candleType === "japanese" || candleType === "auto" || candleType === "bars") ? 2 : 8;
+        const minW = (candleType === "japanese" || candleType === "auto" || candleType === "bars") ? 1 : 8;
         const nextWidthClamped = Math.min(100, Math.max(minW, nextWidth));
 
         let updatedScaleCandleWidth = curCandleWidth;
@@ -1345,7 +1345,7 @@ export default function ClusterChart({
   // Adjust canvas zoom
   const handleZoom = useCallback((factor: number) => {
     const prev = candleWidthRef.current;
-    const minW = (candleType === "japanese" || candleType === "auto" || candleType === "bars") ? 2 : 8;
+    const minW = (candleType === "japanese" || candleType === "auto" || candleType === "bars") ? 1 : 8;
     const next = Math.min(100, Math.max(minW, prev + factor));
     candleWidthRef.current = next;
     setCandleWidth(next);
@@ -2066,7 +2066,7 @@ export default function ClusterChart({
       const ratio = currentDistance / touchZoomRef.current.initialDistance;
 
       // Horizontal: candleWidth scale, pivot scrollLeft so touchCenterX stays on the same chart X.
-      const minW = (candleType === "japanese" || candleType === "auto" || candleType === "bars") ? 2 : 8;
+      const minW = (candleType === "japanese" || candleType === "auto" || candleType === "bars") ? 1 : 8;
       const nextWidth = touchZoomRef.current.initialCandleWidth * ratio;
       const nextWidthClamped = Math.min(100, Math.max(minW, nextWidth));
 
@@ -2131,7 +2131,7 @@ export default function ClusterChart({
       const deltaX = touch.clientX - startTimeScaleXRef.current;
       const speed = 0.55;
       const nextWidth = startCandleWidthRef.current + deltaX * speed;
-      const minW = (candleType === "japanese" || candleType === "auto" || candleType === "bars") ? 2 : 8;
+      const minW = (candleType === "japanese" || candleType === "auto" || candleType === "bars") ? 1 : 8;
       const nextWidthClamped = Math.min(100, Math.max(minW, nextWidth));
 
       if (nextWidthClamped !== candleWidth && zoomAnchorIndexRef.current !== null) {
@@ -3129,7 +3129,7 @@ export default function ClusterChart({
       // If we move mouse to the right, we stretch (increase candleWidth).
       // If we move mouse to the left, we squeeze (decrease candleWidth).
       const nextW = startCandleWidthRef.current + deltaX * 1.0;
-      const minW = (candleType === "japanese" || candleType === "auto" || candleType === "bars") ? 2 : 8;
+      const minW = (candleType === "japanese" || candleType === "auto" || candleType === "bars") ? 1 : 8;
       const clampedW = Math.min(100, Math.max(minW, nextW));
 
       candleWidthRef.current = clampedW;
