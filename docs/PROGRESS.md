@@ -37,6 +37,24 @@
 - **Файлы**: `frontend/src/contexts/UserSettingsContext.tsx` (флаг `settingsHydrated`), `frontend/src/contexts/ChartControlsContext.tsx` (`tickersFetched`/`adminDefaultsFetched`/`isConfigReady`), `frontend/src/chart2d/ChartContainer2.tsx` (проброс `configReady`), `frontend/src/chart2d/ClusterChartAdapter.tsx` (гейт `clustersReady`, grace, guard скролл/visible, `loadKeyRef` от мигания лоадера).
 - **Verification**: `npx tsc --noEmit` ✓, `npx vite build` ✓. Браузер: при сжатии ≠ минимум запрос `priceStep=2.5` больше НЕ летит (структурное доказательство — один фетч на правильном шаге, гонке нечем перетереть).
 - **TODO**: проверка на проде после деплоя. Затем поочерёдно вернуть откаченные оптимизации (свечи+кэш `661772d`, code-split `d8792a9`, gzip) — каждую отдельным деплоем с проверкой.
+### [2026-06-27] perf(frontend): code-splitting тяжёлых компонентов (lazy load) (ПЕРЕПРИМЕНЕНО)
+
+- **Контекст**: после ускорения данных остался «хвост» первой загрузки — крупный JS-бандл грузил
+  наперёд всем тяжёлые редко-нужные части (AdminPanel ~395кБ виден только админам, IndicatorsModal,
+  RoadmapModal, UserProfile).
+- **Сделано**: 4 компонента в `App.tsx` переведены на `React.lazy` + `Suspense`. AdminPanel грузится
+  ТОЛЬКО при заходе в админку (не-админ чанк не качает). Модалки (Indicators/Roadmap) монтируются
+  по флагу открытия → чанк грузится при первом открытии. Fallback: ChartLoader для полно-экранных
+  (admin/profile), `null` для модалок.
+- **Баг по пути**: seed-эффект IndicatorsModal (`prevIsOpen = useRef(isOpen)`) при ленивом монтаже
+  рождался с `isOpen=true` → seed пропускался → пустой список индикаторов. Фикс: `useRef(false)`
+  (no-op для старой always-mounted формы).
+- **Чанки (vite build)**: AdminPanel 77.8кБ, IndicatorsModal 79.2кБ, UserProfile 23.6кБ,
+  RoadmapModal 17.6кБ — все вышли из главного бандла.
+- **Файлы**: `frontend/src/App.tsx`, `frontend/src/components/IndicatorsModal.tsx`.
+- **Проверка**: tsc чисто, vite build ✓, браузер — список индикаторов на месте, всё грузится по клику.
+- **TODO**: деплой VPS.
+
 ### [2026-06-27] perf(chart): ускорение первой загрузки — свечи без скана истории + кэш кластеров (ПЕРЕПРИМЕНЕНО после фикса гонки)
 
 - **Контекст**: первая загрузка графика ~10с при CPU <15% (упор в I/O ClickHouse). Два REST-запроса
