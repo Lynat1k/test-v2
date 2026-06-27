@@ -1083,19 +1083,21 @@ export default function IndicatorsModal({ isOpen, onClose, symbol = "", market =
                       <div className="flex flex-col items-end gap-0.5">
                       <button
                         onClick={() => toggleActive(selectedIndicator.id)}
-                        title={selectedIndicator.isActive ? "Активно: 1 шт." : "Деактивирован"}
-                        className={`inline-flex items-center px-1.5 sm:px-3 h-6 sm:h-8 font-bold text-[9px] sm:text-[11px] rounded-md sm:rounded-lg cursor-pointer transition-all active:scale-[0.98] text-white ${selectedIndicator.isActive ? "bg-emerald-600 hover:bg-emerald-500" : "bg-blue-650 hover:bg-blue-600/90"}`}
+                        title={selectedIndicator.isActive ? "Активно: 1 шт." : "Добавить"}
+                        className={`inline-flex items-center px-1.5 sm:px-3 h-6 sm:h-8 font-bold text-[9px] sm:text-[11px] rounded-md sm:rounded-lg cursor-pointer transition-all active:scale-[0.98] text-white ${selectedIndicator.isActive ? "bg-emerald-600 hover:bg-emerald-500" : "bg-blue-600 hover:bg-blue-500 shadow-sm shadow-blue-600/40"}`}
                       >
                         {selectedIndicator.isActive ? (
                           <>
                             <span className="sm:hidden">АКТИВЕН</span>
                             <span className="hidden sm:inline">Добавить еще</span>
                           </>
-                        ) : "Активировать"}
+                        ) : "Добавить"}
                       </button>
-                      <span className={`hidden sm:block text-[10px] font-bold font-mono leading-none ${selectedIndicator.isActive ? isLight ? "text-emerald-600" : "text-emerald-400" : isLight ? "text-amber-600" : "text-amber-500"}`}>
-                        {selectedIndicator.isActive ? "Активно: 1 шт." : "Деактивирован"}
-                      </span>
+                      {selectedIndicator.isActive && (
+                        <span className={`hidden sm:block text-[10px] font-bold font-mono leading-none ${isLight ? "text-emerald-600" : "text-emerald-400"}`}>
+                          Активно: 1 шт.
+                        </span>
+                      )}
                       </div>
                     </div>
                   </div>
