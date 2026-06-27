@@ -6,6 +6,10 @@ interface UserSettingsContextValue {
   settings: Record<string, any>
   setSetting: (key: string, value: any) => void
   getSetting: <T = any>(key: string, fallback?: T) => T
+  // True once settings reached a terminal state: guests immediately (localStorage),
+  // auth users after apiGetSettings settles (success OR failure). Consumers gate
+  // compression-dependent work on this so they don't act on a half-resolved value.
+  settingsHydrated: boolean
 }
 
 const UserSettingsContext = createContext<UserSettingsContextValue | null>(null)
@@ -26,6 +30,9 @@ function writeLocal(data: Record<string, any>) {
 export function UserSettingsProvider({ children }: { children: ReactNode }) {
   const { user } = useAuthContext()
   const [settings, setSettings] = useState<Record<string, any>>(() => readLocal())
+  // Terminal-state flag for compression resolution gating. Starts false; flips true
+  // for guests (LS is synchronous) and for auth users once the server fetch settles.
+  const [settingsHydrated, setSettingsHydrated] = useState(false)
   const settingsRef = useRef<Record<string, any>>(settings)
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const dirtyRef = useRef(false)
@@ -37,10 +44,14 @@ export function UserSettingsProvider({ children }: { children: ReactNode }) {
       settingsRef.current = local
       setSettings(local)
       loadedFromApiRef.current = false
+      // Guests resolve synchronously from localStorage — already terminal.
+      setSettingsHydrated(true)
       return
     }
     if (loadedFromApiRef.current) return
     loadedFromApiRef.current = true
+    // Auth user: server settings still in flight — not terminal until it settles.
+    setSettingsHydrated(false)
 
     ;(async () => {
       try {
@@ -71,6 +82,9 @@ export function UserSettingsProvider({ children }: { children: ReactNode }) {
         const local = readLocal()
         settingsRef.current = local
         setSettings(local)
+      } finally {
+        // Terminal regardless of success/failure — never leave consumers gated forever.
+        setSettingsHydrated(true)
       }
     })()
   }, [user])
@@ -107,7 +121,7 @@ export function UserSettingsProvider({ children }: { children: ReactNode }) {
   }, [settings])
 
   return (
-    <UserSettingsContext.Provider value={{ settings, setSetting, getSetting }}>
+    <UserSettingsContext.Provider value={{ settings, setSetting, getSetting, settingsHydrated }}>
       {children}
     </UserSettingsContext.Provider>
   )

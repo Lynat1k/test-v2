@@ -35,6 +35,10 @@ export interface ClusterChartAdapterProps {
   // the standalone preview (mounted outside ChartControlsProvider) can fall back.
   baseCompression?: number;
   priceTick?: number;
+  // Gate for cluster loading. false = config inputs (base/tick + compression) not yet
+  // settled, so hold off cluster fetches to avoid a duplicate min-step load; true = settled.
+  // Omitted by the standalone preview, where it defaults to "ready" (fallback step).
+  configReady?: boolean;
   candleType?: "auto" | "japanese" | "footprint" | "clusters" | "bars";
   candleDataType?: "bid_ask" | "delta" | "volume";
   candlePalette?: "default" | "alternative";
@@ -103,6 +107,7 @@ export default function ClusterChartAdapter({
   compression = 1,
   baseCompression,
   priceTick,
+  configReady,
   candleType = "auto",
   candleDataType = "bid_ask",
   candlePalette = "default",
@@ -145,6 +150,26 @@ export default function ClusterChartAdapter({
   const accessTokenRef = useRef(accessToken);
   const candlesRef = useRef<ClusterCandle[]>(candles);
   const prependScrollRef = useRef<((addedCount: number) => void) | null>(null);
+  // Identifies the current dataset (symbol/market/tf/compression). The loader only shows
+  // when this changes — not on the extra load re-run when the cluster gate opens, which
+  // would otherwise flash ChartLoader over candles that are already on screen.
+  const loadKeyRef = useRef('');
+
+  // Cluster-load gate. Preview passes no configReady (undefined) → ready immediately with
+  // the fallback step. In the app, hold clusters until configReady becomes true so exactly
+  // one clusters-batch fetch fires at the authoritative priceStep. graceElapsed is a safety
+  // net: if a config request hangs and never settles, load anyway rather than blank the chart.
+  const [graceElapsed, setGraceElapsed] = useState(false);
+  useEffect(() => {
+    if (configReady !== false) return; // ready or preview — no fallback timer needed
+    setGraceElapsed(false);
+    const id = setTimeout(() => setGraceElapsed(true), 6000);
+    return () => clearTimeout(id);
+  }, [configReady]);
+  const clustersReady = configReady !== false || graceElapsed;
+  // Ref mirror for the scroll/visible-range callbacks (memoized, must not re-create on gate flip).
+  const clustersReadyRef = useRef(clustersReady);
+  useEffect(() => { clustersReadyRef.current = clustersReady; }, [clustersReady]);
 
   useEffect(() => {
     accessTokenRef.current = accessToken;
@@ -222,6 +247,9 @@ export default function ClusterChartAdapter({
   }, [symbol, market, timeframe, priceStep]);
 
   const handleNeedHistory = useCallback(async (oldestTimestamp: number) => {
+    // Hold history (it fetches clusters too) until the priceStep has settled — otherwise a
+    // scroll during the brief pre-config window would issue a min-step request.
+    if (!clustersReadyRef.current) return;
     if (allHistoryLoadedRef.current) return;
     if (historyLoadingRef.current) return;
     historyLoadingRef.current = true;
@@ -276,6 +304,8 @@ export default function ClusterChartAdapter({
   }, [symbol, market, timeframe, fetchClustersBatch]);
 
   const handleVisibleTimestampsChange = useCallback((timestamps: number[]) => {
+    // Same gate: no cluster fetch on the authoritative step until config has settled.
+    if (!clustersReadyRef.current) return;
     fetchClustersBatch(timestamps).then(clusterMap => {
       let anyChanged = false;
       for (const c of candlesRef.current) {
@@ -307,7 +337,10 @@ export default function ClusterChartAdapter({
     let cancelled = false;
 
     async function load() {
-      setLoading(true);
+      // Only show the loader for a genuinely new dataset; a gate-open re-run keeps candles.
+      const loadKey = `${symbol}|${market}|${timeframe}|${compression}`;
+      if (loadKeyRef.current !== loadKey) setLoading(true);
+      loadKeyRef.current = loadKey;
       setError(null);
       allHistoryLoadedRef.current = false;
       historyLoadingRef.current = false;
@@ -328,7 +361,13 @@ export default function ClusterChartAdapter({
           new Date(c.CandleOpen).getTime()
         );
 
-        const clusterMap = await fetchClustersBatch(timestamps);
+        // Candles render immediately; clusters wait for the settled priceStep. While
+        // gated we adapt with an empty cluster map so the chart shows candles without the
+        // min-step mess. When configReady flips true the effect re-runs (it's in the deps)
+        // and fetches clusters exactly once at the authoritative step.
+        const clusterMap = clustersReady
+          ? await fetchClustersBatch(timestamps)
+          : new Map<number, ApiClusterRow[]>();
 
         if (!cancelled) {
           for (const [ts, levels] of clusterMap.entries()) {
@@ -350,7 +389,7 @@ export default function ClusterChartAdapter({
 
     load();
     return () => { cancelled = true; };
-  }, [symbol, market, timeframe, compression, !!accessToken]);
+  }, [symbol, market, timeframe, compression, !!accessToken, clustersReady]);
 
   const activePair = useMemo(() => makePair(symbol, market), [symbol, market]);
 

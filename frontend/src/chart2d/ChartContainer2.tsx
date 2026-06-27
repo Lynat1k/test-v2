@@ -60,7 +60,7 @@ export function ChartContainer2({
   const { accessToken, user } = useAuthContext()
   const { limits } = useUserLimits()
   const { theme } = useTheme()
-  const { resolveTickerConfig } = useChartControls()
+  const { resolveTickerConfig, isConfigReady } = useChartControls()
   const { getSetting, setSetting } = useUserSettings()
 
   // Per (symbol + market) toggle for abbreviated cluster cell numbers (NOT per timeframe).
@@ -84,6 +84,11 @@ export function ChartContainer2({
   const baseCompression = isFutures ? tickerCfg.baseFutures : tickerCfg.baseSpot
   const priceTick = isFutures ? tickerCfg.futurePriceTick : tickerCfg.spotPriceTick
 
+  // Gate cluster loading until every input to priceStep has settled, so the chart
+  // issues exactly one clusters-batch request at the final step (no duplicate min-step
+  // fetch). Terminal-on-failure, so a 401 still lets clusters load via the fallback step.
+  const configReady = isConfigReady(symbol)
+
   return (
     <div className="relative w-full h-full flex flex-col">
       <ClusterChartAdapter
@@ -93,6 +98,7 @@ export function ChartContainer2({
         compression={compression}
         baseCompression={baseCompression}
         priceTick={priceTick}
+        configReady={configReady}
         candleType={MODE_MAP[mode] ?? 'auto'}
         candleDataType={VOLUME_MAP[volumeMode] ?? 'bid_ask'}
         candlePalette={palette}

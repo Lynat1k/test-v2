@@ -3,6 +3,15 @@
 > Claude обновляет этот файл в КОНЦЕ каждой задачи. Новые записи — сверху.
 > Формат записи строго по шаблону. Это память между чатами.
 
+### [2026-06-27] fix(chart): «мессиво» кластеров — устранена двойная загрузка (race)
+
+- **Контекст**: периодически поверх нормальных кластеров рисовались мелкие сырые уровни (min-шаг), FPS 2–4. Недетерминированно (race) — мог появиться и на проде, и локально после рестарта бэкенда. Не зависел от сегодняшней оптимизации (воспроизводился на откаченном коде).
+- **Корень**: двойная загрузка кластеров. На старте `compression` = `1` (DEFAULT_SLOT, до гидрации настроек) → `priceStep` = минимальный → первый `clusters-batch` на min-шаге (2.9 МБ). Потом приходят settings/adminDefaults → `compression`=4 → второй `clusters-batch` на правильном шаге. Оба в deps load-эффекта (`compression`, `!!accessToken`). Какой ответ придёт последним — тот и рисуется; под задержкой побеждал мелкий → мессиво. (Гейт по `baseCompression/priceTick` был бы пустышкой — `resolveTickerConfig` всегда даёт ненулевой фоллбэк.)
+- **Фикс**: гейт `configReady` = `settingsHydrated && tickersFetched && adminDefaultsFetched[symbol]` (все флаги ТЕРМИНАЛЬНЫ — true даже на ошибке/401, иначе гость завис бы). Кластеры не фетчатся пока конфиг не осел → `compression` финальный → ровно ОДИН `clusters-batch` на правильном шаге. Свечи грузятся всегда. Grace-таймер 6s — страховка от зависшего конфига. Preview (без пропа `configReady`) грузится сразу на фоллбэк-шаге.
+- **Файлы**: `frontend/src/contexts/UserSettingsContext.tsx` (флаг `settingsHydrated`), `frontend/src/contexts/ChartControlsContext.tsx` (`tickersFetched`/`adminDefaultsFetched`/`isConfigReady`), `frontend/src/chart2d/ChartContainer2.tsx` (проброс `configReady`), `frontend/src/chart2d/ClusterChartAdapter.tsx` (гейт `clustersReady`, grace, guard скролл/visible, `loadKeyRef` от мигания лоадера).
+- **Verification**: `npx tsc --noEmit` ✓, `npx vite build` ✓. Браузер: при сжатии ≠ минимум запрос `priceStep=2.5` больше НЕ летит (структурное доказательство — один фетч на правильном шаге, гонке нечем перетереть).
+- **TODO**: проверка на проде после деплоя. Затем поочерёдно вернуть откаченные оптимизации (свечи+кэш `661772d`, code-split `d8792a9`, gzip) — каждую отдельным деплоем с проверкой.
+
 ### [2026-06-26] fix(dom): объёмы size в стакане целыми числами (без центов)
 
 - **Контекст**: в стакане (DOM ladder) size показывался с двумя знаками после запятой — центы не нужны.

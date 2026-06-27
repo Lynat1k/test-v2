@@ -82,6 +82,12 @@ interface ChartControlsValue {
   // Drop the cached admin-defaults entry for a symbol — the fetch effect will
   // re-request it on next render. Called after the admin saves new defaults.
   invalidateAdminDefaults: (symbol: string) => void
+  // True once every async input to priceStep for `symbol` reached a TERMINAL state
+  // (settled, success or failure): user settings hydrated, ticker list fetched, and
+  // admin-defaults fetched. Until then `compression` may still re-resolve, so the
+  // chart must not fetch clusters yet (avoids the duplicate min-step cluster load).
+  // Terminal-on-failure by design — never leaves the chart blocked when a request 401s.
+  isConfigReady: (symbol: string) => boolean
 }
 
 const STORAGE_KEY = 'procluster_chart_controls'
@@ -182,8 +188,12 @@ export function ChartControlsProvider({ children }: { children: ReactNode }) {
   // admin/server overrides from overwriting an in-session manual choice.
   const explicitChoiceRef = useRef<Set<string>>(new Set())
   const adminFetchInflightRef = useRef<Set<string>>(new Set())
+  // Terminal-state markers feeding isConfigReady. Both flip true on settle regardless
+  // of success/failure, so a 401 (guest on prod beta) can't block the chart forever.
+  const [tickersFetched, setTickersFetched] = useState(false)
+  const [adminDefaultsFetched, setAdminDefaultsFetched] = useState<Record<string, boolean>>({})
 
-  const { settings, getSetting, setSetting } = useUserSettings()
+  const { settings, getSetting, setSetting, settingsHydrated } = useUserSettings()
   const { accessToken } = useAuthContext()
 
   useEffect(() => {
@@ -207,6 +217,7 @@ export function ChartControlsProvider({ children }: { children: ReactNode }) {
         setServerTickers(list)
       })
       .catch(() => { /* silent — keep serverTickers, retry when accessToken changes */ })
+      .finally(() => { setTickersFetched(true) })
   }, [])
 
   // Load on mount and re-load whenever the access token changes (login / auth hydration).
@@ -242,7 +253,12 @@ export function ChartControlsProvider({ children }: { children: ReactNode }) {
         .catch(() => {
           // не кэшируем — повторим при смене accessToken
         })
-        .finally(() => { adminFetchInflightRef.current.delete(sym) })
+        .finally(() => {
+          adminFetchInflightRef.current.delete(sym)
+          // Mark terminal (settled) even on failure so isConfigReady can proceed with
+          // the fallback compression instead of blocking cluster load indefinitely.
+          setAdminDefaultsFetched(prev => prev[sym] ? prev : { ...prev, [sym]: true })
+        })
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [slots[0].symbol, slots[1].symbol, accessToken])
@@ -427,14 +443,28 @@ export function ChartControlsProvider({ children }: { children: ReactNode }) {
       delete next[sym]
       return next
     })
+    // Re-gate config readiness for this symbol: the upcoming refetch may change the
+    // resolved compression, so clusters should wait for it rather than load at the stale step.
+    setAdminDefaultsFetched(prev => {
+      if (prev[sym] === undefined) return prev
+      const next = { ...prev }
+      delete next[sym]
+      return next
+    })
   }, [])
+
+  // See interface doc. Per-symbol because admin-defaults are fetched per symbol; the
+  // other two inputs (settings, ticker list) are global so they gate every symbol.
+  const isConfigReady = useCallback((symbol: string): boolean => {
+    return settingsHydrated && tickersFetched && adminDefaultsFetched[symbol] === true
+  }, [settingsHydrated, tickersFetched, adminDefaultsFetched])
 
   return (
     <ChartControlsContext.Provider value={{
       activeSlot, setActiveSlot, getSlot, showIndicatorsModal,
       setSymbol, setMarket, setTimeframe, setCandleMode, setPalette, setVolumeMode, setCompression, setShowIndicatorsModal,
       getTickerConfig, getCompressionLevels, getAdminDefaultCompression, invalidateAdminDefaults,
-      serverTickers, refreshTickers, resolveTickerConfig,
+      serverTickers, refreshTickers, resolveTickerConfig, isConfigReady,
     }}>
       {children}
     </ChartControlsContext.Provider>
