@@ -1768,6 +1768,41 @@ export default function IndicatorsModal({ isOpen, onClose, symbol = "", market =
                         </div>
                       )}
 
+                      {selectedIndicator.id === "longShortRatio" && (
+                        <div className={`flex flex-col gap-4 font-sans text-xs p-4.5 rounded-2xl border transition-all duration-300 ${isLight ? "bg-slate-100/40 border-slate-200/85" : "bg-slate-950/20 border-white/5"}`}>
+                          <span className="text-[10px] text-slate-500 uppercase tracking-widest font-black font-mono">
+                            ПАРАМЕТРЫ LONG/SHORT RATIO
+                          </span>
+
+                          <div className="flex flex-col gap-1.5">
+                            <span className={`font-bold ${isLight ? "text-slate-700" : "text-slate-300"}`}>Режим</span>
+                            <select
+                              value={selectedIndicator.settings.longShortRatioDisplayMode ?? "ratio"}
+                              onChange={(e) => updateSettings({ longShortRatioDisplayMode: e.target.value as "ratio" | "longPct" })}
+                              className={`rounded-xl px-3 py-2 text-xs outline-none transition-all duration-300 border ${isLight ? "bg-white border-slate-200 text-slate-800 focus:ring-1 focus:ring-blue-400" : "bg-[#0b0f19] border border-white/10 text-slate-200 focus:ring-1 focus:ring-yellow-500/40 hover:border-white/20"}`}
+                            >
+                              <option value="ratio">Ratio</option>
+                              <option value="longPct">Long %</option>
+                            </select>
+                          </div>
+
+                          <div className="flex flex-col gap-1.5">
+                            <span className={`font-bold ${isLight ? "text-slate-700" : "text-slate-300"}`}>Цвет линии</span>
+                            <div className="flex items-center gap-2">
+                              <input
+                                type="color"
+                                value={selectedIndicator.settings.longShortRatioLineColor ?? "#a855f7"}
+                                onChange={(e) => updateSettings({ longShortRatioLineColor: e.target.value })}
+                                className="w-7 h-7 rounded cursor-pointer border-0 p-0 overflow-hidden bg-transparent shrink-0"
+                              />
+                              <span className="text-[10px] font-mono text-slate-400 truncate w-14">
+                                {selectedIndicator.settings.longShortRatioLineColor ?? "#a855f7"}
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+
                       {selectedIndicator.id === "rsi" && (
                         <div className={`flex flex-col gap-4 font-sans text-xs p-4.5 rounded-2xl border transition-all duration-300 ${isLight ? "bg-slate-100/40 border-slate-200/85" : "bg-slate-950/20 border-white/5"}`}>
                           <span className="text-[10px] text-slate-500 uppercase tracking-widest font-black font-mono">

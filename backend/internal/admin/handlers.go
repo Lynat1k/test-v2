@@ -458,12 +458,16 @@ func (h *AdminHandler) handleStartDownload(w http.ResponseWriter, r *http.Reques
 	if dataType == "" {
 		dataType = "clusters"
 	}
-	if dataType != "clusters" && dataType != "bookDepth" {
-		writeError(w, http.StatusBadRequest, "INVALID_DATATYPE", "dataType must be 'clusters' or 'bookDepth'")
+	if dataType != "clusters" && dataType != "bookDepth" && dataType != "longShortRatio" {
+		writeError(w, http.StatusBadRequest, "INVALID_DATATYPE", "dataType must be 'clusters', 'bookDepth' or 'longShortRatio'")
 		return
 	}
 	if dataType == "bookDepth" && req.Market != "futures" {
 		writeError(w, http.StatusBadRequest, "INVALID_MARKET", "bookDepth доступен только для futures")
+		return
+	}
+	if dataType == "longShortRatio" && req.Market != "futures" {
+		writeError(w, http.StatusBadRequest, "INVALID_MARKET", "longShortRatio доступен только для futures")
 		return
 	}
 

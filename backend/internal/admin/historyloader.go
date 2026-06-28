@@ -46,6 +46,7 @@ type HistoryClickHouse interface {
 	DeleteClustersByRange(ctx context.Context, table, symbol, timeframe string, from, to time.Time) error
 	InsertClusterBatch(ctx context.Context, rows []model.ClusterRow, table string) error
 	InsertBookDepthRatioBatch(ctx context.Context, rows []model.BookDepthRatio) error
+	InsertLongShortRatioBatch(ctx context.Context, rows []model.LongShortRatio) error
 }
 
 type JobRegistry struct {
@@ -284,6 +285,12 @@ func (r *JobRegistry) downloadWorker(ctx context.Context, chRepo HistoryClickHou
 	// bookDepth history goes through a dedicated path (no trade aggregation).
 	if job.DataType == "bookDepth" {
 		r.downloadWorkerBookDepth(ctx, chRepo, job)
+		return
+	}
+
+	// longShortRatio history: daily metrics dumps, no trade aggregation.
+	if job.DataType == "longShortRatio" {
+		r.downloadWorkerLongShort(ctx, chRepo, job)
 		return
 	}
 
@@ -536,6 +543,13 @@ var buildBookDepthURL = func(symbol string, date time.Time) string {
 	return fmt.Sprintf("https://data.binance.vision/data/futures/um/daily/bookDepth/%s/%s-bookDepth-%s.zip", symbol, symbol, dateStr)
 }
 
+// buildMetricsURL builds the daily metrics archive URL. metrics dumps (which carry
+// the global long/short account ratio) exist only for USDⓂ futures.
+var buildMetricsURL = func(symbol string, date time.Time) string {
+	dateStr := date.Format("2006-01-02")
+	return fmt.Sprintf("https://data.binance.vision/data/futures/um/daily/metrics/%s/%s-metrics-%s.zip", symbol, symbol, dateStr)
+}
+
 // downloadWorkerBookDepth backfills bookdepth_ratio from daily bookDepth archives.
 // Steps per day: downloading → parsing → inserting (no aggregation). Idempotency is
 // provided by the ReplacingMergeTree engine — re-running a range overwrites rows by
@@ -648,6 +662,220 @@ func (r *JobRegistry) downloadWorkerBookDepth(ctx context.Context, chRepo Histor
 		job.Error = ""
 	}
 	r.UpdateJob(job)
+}
+
+// downloadWorkerLongShort backfills long_short_ratio from daily metrics archives.
+// Steps per day: downloading → parsing → inserting (no aggregation). Idempotency is
+// provided by the ReplacingMergeTree engine — re-running a range overwrites rows by
+// (symbol, market, ts), so no pre-delete is needed.
+func (r *JobRegistry) downloadWorkerLongShort(ctx context.Context, chRepo HistoryClickHouse, job *DownloadJob) {
+	startDate, err := time.Parse("2006-01-02", job.StartDate)
+	if err != nil {
+		r.failJob(job, fmt.Sprintf("invalid start date: %v", err))
+		return
+	}
+	endDate, err := time.Parse("2006-01-02", job.EndDate)
+	if err != nil {
+		r.failJob(job, fmt.Sprintf("invalid end date: %v", err))
+		return
+	}
+
+	totalDays := int(endDate.Sub(startDate).Hours()/24) + 1
+	successfulDays := 0
+	skippedDays := 0
+
+	tmpDir, err := os.MkdirTemp("", "procluster-lsr-*")
+	if err != nil {
+		r.failJob(job, fmt.Sprintf("create temp dir: %v", err))
+		return
+	}
+	defer os.RemoveAll(tmpDir)
+
+	for dayIdx := 0; dayIdx < totalDays; dayIdx++ {
+		select {
+		case <-ctx.Done():
+			r.failJob(job, "context cancelled")
+			return
+		default:
+		}
+
+		date := startDate.AddDate(0, 0, dayIdx)
+		if date.After(endDate) {
+			break
+		}
+		dateStr := date.Format("2006-01-02")
+
+		// Step 1: downloading (3 steps per day → dayIdx*3)
+		job.Status = "downloading"
+		job.Progress = float64(dayIdx*3) / float64(totalDays*3) * 100
+		r.UpdateJob(job)
+
+		url := buildMetricsURL(job.Symbol, date)
+		zipPath := tmpDir + "/" + job.Symbol + "-metrics-" + dateStr + ".zip"
+		if err := r.downloadFileWithRetries(ctx, url, zipPath, dayIdx+1, totalDays, dateStr, job); err != nil {
+			skippedDays++
+			continue
+		}
+
+		// Step 2: parsing
+		job.Status = "parsing"
+		job.StepDetail = fmt.Sprintf("Day %d/%d: parsing metrics...", dayIdx+1, totalDays)
+		job.Progress = float64(dayIdx*3+1) / float64(totalDays*3) * 100
+		r.UpdateJob(job)
+
+		rows, skippedLines, err := unzipAndParseMetricsLongShort(zipPath, job.Symbol)
+		os.Remove(zipPath)
+		if err != nil {
+			log.Printf("[download] %s: metrics parse error (skipping): %v", dateStr, err)
+			skippedDays++
+			continue
+		}
+		if skippedLines > 0 {
+			log.Printf("[download] %s: metrics %d rows skipped (empty/bad ratio)", dateStr, skippedLines)
+		}
+		if len(rows) == 0 {
+			log.Printf("[download] %s: metrics produced 0 rows, skipping", dateStr)
+			skippedDays++
+			continue
+		}
+		log.Printf("[download] %s: metrics parsed %d long/short rows", dateStr, len(rows))
+
+		// Step 3: inserting (ReplacingMergeTree → idempotent, no delete)
+		job.Status = "inserting"
+		job.StepDetail = fmt.Sprintf("Day %d/%d: inserting %d rows into long_short_ratio...", dayIdx+1, totalDays, len(rows))
+		job.Progress = float64(dayIdx*3+2) / float64(totalDays*3) * 100
+		r.UpdateJob(job)
+
+		if err := chRepo.InsertLongShortRatioBatch(ctx, rows); err != nil {
+			log.Printf("[download] %s: long/short insert error: %v", dateStr, err)
+			r.failJob(job, fmt.Sprintf("insert long/short for %s: %v", dateStr, err))
+			return
+		}
+		log.Printf("[download] %s: inserted %d rows into long_short_ratio", dateStr, len(rows))
+		job.TotalTicks += int64(len(rows))
+		successfulDays++
+	}
+
+	now := time.Now().UTC()
+	job.CompletedAt = &now
+	job.Progress = 100
+	switch {
+	case successfulDays == 0 && job.TotalTicks == 0:
+		job.Status = "failed"
+		job.Error = "failed to download any days: all days skipped or produced 0 long/short rows"
+		job.StepDetail = fmt.Sprintf("0/%d days downloaded, %d skipped", totalDays, skippedDays)
+	case skippedDays > 0:
+		job.Status = "completed"
+		job.StepDetail = fmt.Sprintf("completed: %d/%d days, %d skipped", successfulDays, totalDays, skippedDays)
+		if job.Error == "" {
+			job.Error = fmt.Sprintf("%d days were skipped (download or parse errors)", skippedDays)
+		}
+	default:
+		job.Status = "completed"
+		job.StepDetail = fmt.Sprintf("All %d days processed successfully", totalDays)
+		job.Error = ""
+	}
+	r.UpdateJob(job)
+}
+
+func unzipAndParseMetricsLongShort(zipPath, symbol string) ([]model.LongShortRatio, int, error) {
+	fi, err := os.Stat(zipPath)
+	if err != nil {
+		return nil, 0, fmt.Errorf("stat zip: %w", err)
+	}
+
+	zr, err := zip.NewReader(mustOpenFile(zipPath), fi.Size())
+	if err != nil {
+		return nil, 0, fmt.Errorf("open zip: %w", err)
+	}
+	if len(zr.File) == 0 {
+		return nil, 0, fmt.Errorf("zip archive is empty")
+	}
+
+	rc, err := zr.File[0].Open()
+	if err != nil {
+		return nil, 0, fmt.Errorf("open csv in zip: %w", err)
+	}
+	defer rc.Close()
+
+	return parseMetricsLongShortCSV(rc, symbol)
+}
+
+// parseMetricsLongShortCSV parses a daily metrics CSV (header + ~288 rows). Column
+// indices are resolved by NAME from the header (create_time, count_long_short_ratio)
+// because column order may change across periods. count_long_short_ratio is the
+// GLOBAL account long/short ratio. create_time is "YYYY-MM-DD HH:MM:SS" UTC. Rows with
+// an empty/unparseable ratio are skipped; the second return value is the skip count.
+func parseMetricsLongShortCSV(reader io.Reader, symbol string) ([]model.LongShortRatio, int, error) {
+	cr := csv.NewReader(reader)
+	cr.LazyQuotes = true
+	cr.FieldsPerRecord = -1
+
+	header, err := cr.Read()
+	if err != nil {
+		return nil, 0, fmt.Errorf("read metrics header: %w", err)
+	}
+
+	tsIdx, ratioIdx := -1, -1
+	for i, col := range header {
+		switch strings.ToLower(strings.TrimSpace(col)) {
+		case "create_time":
+			tsIdx = i
+		case "count_long_short_ratio":
+			ratioIdx = i
+		}
+	}
+	if tsIdx < 0 || ratioIdx < 0 {
+		return nil, 0, fmt.Errorf("metrics CSV missing required columns (create_time idx=%d, count_long_short_ratio idx=%d)", tsIdx, ratioIdx)
+	}
+
+	maxIdx := tsIdx
+	if ratioIdx > maxIdx {
+		maxIdx = ratioIdx
+	}
+
+	var rows []model.LongShortRatio
+	skipped := 0
+	lineNum := 1 // header already consumed
+	for {
+		rec, err := cr.Read()
+		if err == io.EOF {
+			break
+		}
+		lineNum++
+		if err != nil {
+			log.Printf("[metrics csv] line %d: read error: %v, skipping", lineNum, err)
+			skipped++
+			continue
+		}
+		if len(rec) <= maxIdx {
+			skipped++
+			continue
+		}
+
+		ts, perr := parseBookDepthTimestamp(strings.TrimSpace(rec[tsIdx]))
+		if perr != nil {
+			skipped++
+			continue
+		}
+
+		ratioRaw := strings.TrimSpace(rec[ratioIdx])
+		ratio, ferr := strconv.ParseFloat(ratioRaw, 64)
+		if ferr != nil || ratio <= 0 {
+			skipped++
+			continue
+		}
+
+		rows = append(rows, model.LongShortRatio{
+			Symbol: symbol,
+			Market: "futures",
+			TS:     ts,
+			Ratio:  ratio,
+		})
+	}
+
+	sort.Slice(rows, func(i, j int) bool { return rows[i].TS.Before(rows[j].TS) })
+	return rows, skipped, nil
 }
 
 // failJob marks a job failed with the given error and a completion timestamp.

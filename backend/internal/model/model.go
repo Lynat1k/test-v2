@@ -82,3 +82,14 @@ type BookDepthRatio struct {
 	Bid5       float64
 	Ask5       float64
 }
+
+// LongShortRatio — глобальный long/short account ratio (отношение числа аккаунтов
+// в long к числу в short) на 5-минутной сетке. Только futures. Доли
+// восстанавливаются точно: long% = ratio/(ratio+1)*100. Источник для индикатора
+// Long/Short Account Ratio.
+type LongShortRatio struct {
+	Symbol string
+	Market string
+	TS     time.Time
+	Ratio  float64
+}

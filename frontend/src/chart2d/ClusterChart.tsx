@@ -19,6 +19,7 @@ import { useDrawingDefaults, getClientDefaults } from "@/contexts/DrawingDefault
 import { apiGetDrawings, apiPutDrawings } from "@/features/drawings/api";
 import { useAuthContext } from "@/features/auth/AuthContext";
 import { fetchBookDepthRatio, type BookDepthRatioPoint } from "@/features/bookdepth/api";
+import { fetchLongShortRatio, type LongShortRatioPoint } from "@/features/longshort/api";
 
 // Abbreviates a magnitude (>=1000) to "к/м" (RU/KZ) or "k/m" (EN), rounded to 1 decimal,
 // trailing ".0" trimmed: 2000→"2к", 2629→"2.6к", 25720→"25.7к", 1101565→"1.1м".
@@ -75,7 +76,7 @@ const parseHexColor = (hex: string): string => {
 
 // Footer ("Подвальный") panels that can be reordered with the arrows on their plate.
 // Overlays/global indicators are NOT included here.
-const REORDERABLE_PANEL_IDS = ["delta", "cvd", "rsi", "bidAskRatio"] as const;
+const REORDERABLE_PANEL_IDS = ["delta", "cvd", "rsi", "bidAskRatio", "longShortRatio"] as const;
 
 // --- Price-scale tick helpers (TradingView-style "nice" round levels) ---
 // niceStep: pick a round step (1/2/5 * 10^n) so labels land ~targetPx apart.
@@ -154,7 +155,8 @@ export default function ClusterChart({
     cvd: false,
     stackedImbalance: false,
     depthOfMarket: false,
-    bidAskRatio: false
+    bidAskRatio: false,
+    longShortRatio: false
   },
   marketType = "SPOT",
   onToggleMarketType,
@@ -236,6 +238,12 @@ export default function ClusterChart({
   const bidAskRatioBearColor = bidAskRatioSettings.bidAskRatioBearColor || "#ef4444";
   const bidAskRatioOpacity = typeof bidAskRatioSettings.bidAskRatioOpacity === "number" ? bidAskRatioSettings.bidAskRatioOpacity : 100;
   const bidAskRatioRKey: "r1" | "r3" | "r5" = bidAskRatioBand === "1" ? "r1" : bidAskRatioBand === "3" ? "r3" : "r5";
+
+  // Long/Short Account Ratio indicator settings (footer panel, line, auto-scale;
+  // data fetched from the backend — see longShortRatioData effect below)
+  const longShortRatioSettings = indicatorSettings?.longShortRatio || {};
+  const longShortRatioLineColor = longShortRatioSettings.longShortRatioLineColor || "#a855f7";
+  const longShortRatioDisplayMode: "ratio" | "longPct" = longShortRatioSettings.longShortRatioDisplayMode === "longPct" ? "longPct" : "ratio";
 
   // Delta indicator specific settings
   const deltaSettings = indicatorSettings?.delta || {};
@@ -610,6 +618,10 @@ export default function ClusterChart({
     const saved = storage.get("procluster_bidaskratio_panel_height");
     return saved ? parseInt(saved, 10) : 120;
   });
+  const [longShortRatioPanelHeight, setLongShortRatioPanelHeight] = useState<number>(() => {
+    const saved = storage.get("procluster_longshortratio_panel_height");
+    return saved ? parseInt(saved, 10) : 120;
+  });
 
   useEffect(() => {
     storage.set("procluster_delta_panel_height", deltaPanelHeight.toString());
@@ -626,6 +638,10 @@ export default function ClusterChart({
   useEffect(() => {
     storage.set("procluster_bidaskratio_panel_height", bidAskRatioPanelHeight.toString());
   }, [bidAskRatioPanelHeight]);
+
+  useEffect(() => {
+    storage.set("procluster_longshortratio_panel_height", longShortRatioPanelHeight.toString());
+  }, [longShortRatioPanelHeight]);
 
   // Vertical stacking order of footer panels (top -> bottom). Persisted in LS.
   // Default is EMPTY: order is then built by activation order (append-on-enable effect below).
@@ -661,11 +677,11 @@ export default function ClusterChart({
     });
   }, [activeIndicators]);
 
-  const [resizingPanel, setResizingPanel] = useState<"delta" | "cvd" | "rsi" | "bidAskRatio" | null>(null);
+  const [resizingPanel, setResizingPanel] = useState<"delta" | "cvd" | "rsi" | "bidAskRatio" | "longShortRatio" | null>(null);
 
   const panelGap = 24;
   const getPanelHeight = (id: string): number =>
-    id === "delta" ? deltaPanelHeight : id === "cvd" ? cvdPanelHeight : id === "rsi" ? rsiPanelHeight : id === "bidAskRatio" ? bidAskRatioPanelHeight : 0;
+    id === "delta" ? deltaPanelHeight : id === "cvd" ? cvdPanelHeight : id === "rsi" ? rsiPanelHeight : id === "bidAskRatio" ? bidAskRatioPanelHeight : id === "longShortRatio" ? longShortRatioPanelHeight : 0;
 
   // Active footer panels in render order (top -> bottom).
   const activePanels = panelOrder.filter(id => activeIndicators[id]);
@@ -692,6 +708,7 @@ export default function ClusterChart({
   const cvdTopY = panelTopY["cvd"] ?? 0;
   const rsiTopY = panelTopY["rsi"] ?? 0;
   const bidAskRatioTopY = panelTopY["bidAskRatio"] ?? 0;
+  const longShortRatioTopY = panelTopY["longShortRatio"] ?? 0;
 
   const totalSvgHeight = margin.top + chartHeight + panelsHeightTotal + margin.bottom;
 
@@ -744,6 +761,7 @@ export default function ClusterChart({
   const cvdValueSpanRef = useRef<HTMLSpanElement>(null);
   const rsiValueSpanRef = useRef<HTMLSpanElement>(null);
   const bidAskRatioValueSpanRef = useRef<HTMLSpanElement>(null);
+  const longShortRatioValueSpanRef = useRef<HTMLSpanElement>(null);
   const clusterTooltipRef = useRef<HTMLDivElement>(null);
   const clusterTooltipTitleWrapRef = useRef<HTMLSpanElement>(null);
   const clusterTooltipTitleTextRef = useRef<HTMLSpanElement>(null);
@@ -1029,6 +1047,40 @@ export default function ClusterChart({
   const startBidAskRatioScaleYRef = useRef<number>(0);
   const startBidAskRatioScaleRef = useRef<number>(1.0);
 
+  const [longShortRatioScale, setLongShortRatioScale] = useState<number>(1.0);
+  const [isDraggingLongShortRatioScale, setIsDraggingLongShortRatioScale] = useState(false);
+  const startLongShortRatioScaleYRef = useRef<number>(0);
+  const startLongShortRatioScaleRef = useRef<number>(1.0);
+
+  // Per-panel vertical body-pan offsets (px). A drag that starts on a footer panel
+  // body moves that panel's line/bars vertically within the panel instead of
+  // panning the main price chart. Horizontal (time) scroll is unaffected.
+  const [deltaOffset, setDeltaOffset] = useState(0);
+  const [cvdOffset, setCvdOffset] = useState(0);
+  const [rsiOffset, setRsiOffset] = useState(0);
+  const [bidAskRatioOffset, setBidAskRatioOffset] = useState(0);
+  const [longShortRatioOffset, setLongShortRatioOffset] = useState(0);
+  // Which panel (if any) is being body-dragged, and its offset at mousedown.
+  const activePanelDragIdRef = useRef<string | null>(null);
+  const panelDragStartOffsetRef = useRef<number>(0);
+
+  const getPanelOffset = (id: string): number =>
+    id === "delta" ? deltaOffset : id === "cvd" ? cvdOffset : id === "rsi" ? rsiOffset : id === "bidAskRatio" ? bidAskRatioOffset : id === "longShortRatio" ? longShortRatioOffset : 0;
+  const setPanelOffset = (id: string, v: number) => {
+    if (id === "delta") setDeltaOffset(v);
+    else if (id === "cvd") setCvdOffset(v);
+    else if (id === "rsi") setRsiOffset(v);
+    else if (id === "bidAskRatio") setBidAskRatioOffset(v);
+    else if (id === "longShortRatio") setLongShortRatioOffset(v);
+  };
+  const resetPanelScale = (id: string) => {
+    if (id === "delta") setDeltaScale(1.0);
+    else if (id === "cvd") setCvdScale(1.0);
+    else if (id === "rsi") setRsiScale(1.0);
+    else if (id === "bidAskRatio") setBidAskRatioScale(1.0);
+    else if (id === "longShortRatio") setLongShortRatioScale(1.0);
+  };
+
   // States and refs for interactive horizontal timescale zoom/scale dragging
   const [isDraggingTimeScale, setIsDraggingTimeScale] = useState(false);
   const startTimeScaleXRef = useRef<number>(0);
@@ -1048,6 +1100,7 @@ export default function ClusterChart({
   const isDraggingCvdScaleRefTouch = useRef<boolean>(false);
   const isDraggingRsiScaleRefTouch = useRef<boolean>(false);
   const isDraggingBidAskRatioScaleRefTouch = useRef<boolean>(false);
+  const isDraggingLongShortRatioScaleRefTouch = useRef<boolean>(false);
   const touchStartRef = useRef<{
     x: number;
     y: number;
@@ -1797,13 +1850,14 @@ export default function ClusterChart({
 
     // Check if the click is in the timeline zone (at the bottom margin area of the canvas/container)
     const rect = containerRef.current?.getBoundingClientRect();
+    activePanelDragIdRef.current = null;
     if (rect) {
       const clickY = e.clientY - rect.top;
       if (clickY >= totalSvgHeight - margin.bottom) {
         setIsDraggingTimeScale(true);
         startTimeScaleXRef.current = e.clientX;
         startCandleWidthRef.current = candleWidth;
-        
+
         const clickXInContainer = e.clientX - rect.left;
         const currentScroll = containerRef.current?.scrollLeft || 0;
         const absoluteX = currentScroll + clickXInContainer;
@@ -1811,6 +1865,19 @@ export default function ClusterChart({
         zoomAnchorIndexRef.current = xFromLeft / (candleWidth + candleSpacing);
         zoomAnchorClickXRef.current = clickXInContainer;
         return; // skip standard 2D panning/dragging
+      }
+
+      // Per-panel body drag: a drag starting inside a footer panel body pans that
+      // panel's content vertically (offset). We still fall through to the normal
+      // pan setup so HORIZONTAL (time) scroll keeps working; only the vertical
+      // branch in handleMouseMove diverges (offset instead of price).
+      for (const id of REORDERABLE_PANEL_IDS) {
+        if (activeIndicators[id] && panelTopY[id] != null &&
+            clickY >= panelTopY[id] && clickY < panelTopY[id] + getPanelHeight(id)) {
+          activePanelDragIdRef.current = id;
+          panelDragStartOffsetRef.current = getPanelOffset(id);
+          break;
+        }
       }
     }
 
@@ -1971,11 +2038,20 @@ export default function ClusterChart({
 
     const y = e.pageY - containerRef.current.offsetTop;
     const deltaY = y - startY;
-    
-    // Mathematically perfect 1:1 vertical mouse tracking based on current price range
-    const currentPriceRange = maxPrice - minPrice;
-    const priceChange = (deltaY / Math.max(1, chartHeight)) * currentPriceRange;
-    setPriceCenterOffset(startPriceOffset + priceChange);
+
+    // Vertical: if the drag started on a footer panel body, pan THAT panel's
+    // content (offset) — the main price must not move. Otherwise pan the price.
+    const panelDragId = activePanelDragIdRef.current;
+    if (panelDragId) {
+      const limit = getPanelHeight(panelDragId); // clamp so the line can't leave the panel
+      const next = Math.max(-limit, Math.min(limit, panelDragStartOffsetRef.current + deltaY));
+      setPanelOffset(panelDragId, next);
+    } else {
+      // Mathematically perfect 1:1 vertical mouse tracking based on current price range
+      const currentPriceRange = maxPrice - minPrice;
+      const priceChange = (deltaY / Math.max(1, chartHeight)) * currentPriceRange;
+      setPriceCenterOffset(startPriceOffset + priceChange);
+    }
   };
 
   const handleMouseUpOrLeave = () => {
@@ -2021,6 +2097,7 @@ export default function ClusterChart({
       return;
     }
 
+    activePanelDragIdRef.current = null;
     setIsDragging(false);
   };
 
@@ -2063,6 +2140,17 @@ export default function ClusterChart({
         // Block native scroll/zoom so subsequent touchmove events stay cancelable.
         if (e.cancelable) e.preventDefault();
         return;
+      }
+
+      // Per-panel body drag (1 finger): pan the panel's content vertically.
+      activePanelDragIdRef.current = null;
+      for (const id of REORDERABLE_PANEL_IDS) {
+        if (activeIndicators[id] && panelTopY[id] != null &&
+            clickY >= panelTopY[id] && clickY < panelTopY[id] + getPanelHeight(id)) {
+          activePanelDragIdRef.current = id;
+          panelDragStartOffsetRef.current = getPanelOffset(id);
+          break;
+        }
       }
 
       setIsDragging(true);
@@ -2123,11 +2211,18 @@ export default function ClusterChart({
       setVisibleScrollLeftSync(nextScroll);
 
       const deltaY = touch.clientY - touchStartRef.current.y;
-      const currentPriceRange = maxPrice - minPrice;
-      const priceChange = (deltaY / Math.max(1, chartHeight)) * currentPriceRange;
-      const nextOffset = touchStartRef.current.priceCenterOffset + priceChange;
-      setPriceCenterOffset(nextOffset);
-      priceCenterOffsetRef.current = nextOffset;
+      const panelDragId = activePanelDragIdRef.current;
+      if (panelDragId) {
+        const limit = getPanelHeight(panelDragId);
+        const next = Math.max(-limit, Math.min(limit, panelDragStartOffsetRef.current + deltaY));
+        setPanelOffset(panelDragId, next);
+      } else {
+        const currentPriceRange = maxPrice - minPrice;
+        const priceChange = (deltaY / Math.max(1, chartHeight)) * currentPriceRange;
+        const nextOffset = touchStartRef.current.priceCenterOffset + priceChange;
+        setPriceCenterOffset(nextOffset);
+        priceCenterOffsetRef.current = nextOffset;
+      }
       return;
     }
 
@@ -2234,6 +2329,7 @@ export default function ClusterChart({
     setIsDragging(false);
     setIsDraggingTimeScale(false);
     isDraggingPriceScaleRef.current = false;
+    activePanelDragIdRef.current = null;
     touchStartRef.current = null;
     touchZoomRef.current = null;
     zoomAnchorIndexRef.current = null;
@@ -2269,6 +2365,17 @@ export default function ClusterChart({
     const clickY = e.clientY - rect.top;
 
     if (clickY >= margin.top && clickY <= totalSvgHeight - margin.bottom && clickX >= margin.left) {
+      // Double-click on a footer panel body resets that panel's vertical pan + zoom.
+      for (const id of REORDERABLE_PANEL_IDS) {
+        if (activeIndicators[id] && panelTopY[id] != null &&
+            clickY >= panelTopY[id] && clickY < panelTopY[id] + getPanelHeight(id)) {
+          setPanelOffset(id, 0);
+          resetPanelScale(id);
+          e.preventDefault();
+          e.stopPropagation();
+          return;
+        }
+      }
       if (areDrawingsVisible) {
         for (let i = drawings.length - 1; i >= 0; i--) {
           const d = drawings[i];
@@ -3002,7 +3109,7 @@ export default function ClusterChart({
   const zoomedCvdMin = useMemo(() => cvdCenterVal - zoomedCvdDeltaRange * 0.5, [cvdCenterVal, zoomedCvdDeltaRange]);
 
   const getCvdY = (val: number, panelH: number) => {
-    return panelH - ((val - zoomedCvdMin) / zoomedCvdDeltaRange) * (panelH * 0.8) - (panelH * 0.1);
+    return panelH - ((val - zoomedCvdMin) / zoomedCvdDeltaRange) * (panelH * 0.8) - (panelH * 0.1) + cvdOffset;
   };
 
   // RSI vertical zoom around the centre (50). scale=1 → [0,100] (unzoomed).
@@ -3011,7 +3118,7 @@ export default function ClusterChart({
   const zoomedRsiMin = 50 - zoomedRsiHalf;
   // Panel-local Y for an RSI value (0 at top). Shared by canvas draw and SVG ticks.
   const rsiYInPanel = (v: number) =>
-    rsiPanelHeight - ((v - zoomedRsiMin) / (zoomedRsiMax - zoomedRsiMin)) * rsiPanelHeight;
+    rsiPanelHeight - ((v - zoomedRsiMin) / (zoomedRsiMax - zoomedRsiMin)) * rsiPanelHeight + rsiOffset;
 
   // Bid & Ask Ratio vertical zoom, symmetric around 0. scale=1 → [-1,+1].
   const zoomedRatioMax = 1.0 / Math.max(0.01, bidAskRatioScale);
@@ -3021,7 +3128,92 @@ export default function ClusterChart({
     const mid = bidAskRatioPanelHeight / 2;
     const half = bidAskRatioPanelHeight * 0.42;
     const cl = Math.max(zoomedRatioMin, Math.min(zoomedRatioMax, v));
-    return mid - (cl / zoomedRatioMax) * half;
+    return mid - (cl / zoomedRatioMax) * half + bidAskRatioOffset;
+  };
+
+  // --- Long/Short Account Ratio (footer panel) — LINE, data from the BACKEND
+  // (not candles). Fetch when active AND market is futures. Auto-scales on the
+  // visible min/max (like CVD); the neutral line is ratio=1 (or 50% in longPct).
+  const [longShortRatioData, setLongShortRatioData] = useState<LongShortRatioPoint[]>([]);
+  const longShortRatioActive = !!activeIndicators.longShortRatio;
+
+  useEffect(() => {
+    if (!longShortRatioActive || !isFuturesMarket) {
+      setLongShortRatioData([]);
+      return;
+    }
+    if (!candleMinTs || !candleMaxTs || !timeframe) return;
+    let cancelled = false;
+    // Normalize symbol to storage form (no slash) — ClickHouse keeps "BTCUSDT".
+    const lsrSymbol = activePair.symbol.toUpperCase().replace("/", "");
+    fetchLongShortRatio(lsrSymbol, "futures", timeframe, candleMinTs, candleMaxTs + 60_000, accessToken)
+      .then((pts) => { if (!cancelled) setLongShortRatioData(pts); })
+      .catch(() => { if (!cancelled) setLongShortRatioData([]); });
+    return () => { cancelled = true; };
+  }, [longShortRatioActive, isFuturesMarket, activePair.symbol, timeframe, candleMinTs, candleMaxTs, accessToken]);
+
+  const longShortRatioMap = useMemo(() => {
+    const m = new Map<number, number>();
+    for (const p of longShortRatioData) m.set(p.t, p.ratio);
+    return m;
+  }, [longShortRatioData]);
+
+  // Neutral reference value in the active display mode.
+  const longShortRatioNeutral = longShortRatioDisplayMode === "longPct" ? 50 : 1;
+
+  // Coordinate mapping (center-of-candle X) + display value matched by candle_open.
+  // value=null where no point exists for that candle (line skips to next point).
+  const longShortRatioPoints = useMemo(() => {
+    return candles.map((c, i) => {
+      const cx = margin.left + i * (candleWidth + candleSpacing) + candleWidth / 2;
+      const ratio = longShortRatioMap.get(c.timestamp);
+      let value: number | null = null;
+      if (typeof ratio === "number") {
+        value = longShortRatioDisplayMode === "longPct" ? (ratio / (ratio + 1)) * 100 : ratio;
+      }
+      return { cx, value };
+    });
+  }, [candles, longShortRatioMap, longShortRatioDisplayMode, candleWidth, candleSpacing, margin.left]);
+
+  // Visible min/max of the display value for auto-scale (like CVD).
+  const { lsrMinVal, lsrMaxVal, lsrRange } = useMemo(() => {
+    const defaults = longShortRatioDisplayMode === "longPct"
+      ? { lsrMinVal: 0, lsrMaxVal: 100, lsrRange: 100 }
+      : { lsrMinVal: 0, lsrMaxVal: 2, lsrRange: 2 };
+    if (longShortRatioPoints.length === 0) return defaults;
+    const viewportWidth = visibleClientWidth || 800;
+    const startIdx = Math.max(0, Math.floor((visibleScrollLeft - margin.left - candleWidth) / (candleWidth + candleSpacing)));
+    const endIdx = Math.min(longShortRatioPoints.length - 1, Math.ceil((visibleScrollLeft + viewportWidth - margin.left) / (candleWidth + candleSpacing)));
+    let minV = Infinity;
+    let maxV = -Infinity;
+    for (let i = startIdx; i <= endIdx; i++) {
+      const p = longShortRatioPoints[i];
+      if (!p || p.value === null) continue;
+      if (p.value < minV) minV = p.value;
+      if (p.value > maxV) maxV = p.value;
+    }
+    if (minV === Infinity || maxV === -Infinity) {
+      for (const p of longShortRatioPoints) {
+        if (!p || p.value === null) continue;
+        if (p.value < minV) minV = p.value;
+        if (p.value > maxV) maxV = p.value;
+      }
+    }
+    if (minV === Infinity || maxV === -Infinity) return defaults;
+    // Keep the neutral line inside the visible band.
+    minV = Math.min(minV, longShortRatioNeutral);
+    maxV = Math.max(maxV, longShortRatioNeutral);
+    const range = Math.max(longShortRatioDisplayMode === "longPct" ? 1 : 0.05, maxV - minV);
+    return { lsrMinVal: minV, lsrMaxVal: maxV, lsrRange: range };
+  }, [longShortRatioPoints, visibleScrollLeft, visibleClientWidth, candleWidth, candleSpacing, longShortRatioDisplayMode, longShortRatioNeutral]);
+
+  const zoomedLsrRange = useMemo(() => lsrRange / Math.max(0.01, longShortRatioScale), [lsrRange, longShortRatioScale]);
+  const lsrCenterVal = useMemo(() => (lsrMaxVal + lsrMinVal) / 2, [lsrMaxVal, lsrMinVal]);
+  const zoomedLsrMax = useMemo(() => lsrCenterVal + zoomedLsrRange * 0.5, [lsrCenterVal, zoomedLsrRange]);
+  const zoomedLsrMin = useMemo(() => lsrCenterVal - zoomedLsrRange * 0.5, [lsrCenterVal, zoomedLsrRange]);
+
+  const getLsrY = (val: number, panelH: number) => {
+    return panelH - ((val - zoomedLsrMin) / zoomedLsrRange) * (panelH * 0.8) - (panelH * 0.1) + longShortRatioOffset;
   };
 
   // R: visibleMaxCellVol / visibleMaxSingleVol useMemos deleted — both consumed
@@ -3173,6 +3365,10 @@ export default function ClusterChart({
         const barBottomY = bidAskRatioTopY + bidAskRatioPanelHeight;
         const newHeight = Math.max(50, Math.min(350, barBottomY - relativeY));
         setBidAskRatioPanelHeight(newHeight);
+      } else if (resizingPanel === "longShortRatio") {
+        const lsrBottomY = longShortRatioTopY + longShortRatioPanelHeight;
+        const newHeight = Math.max(50, Math.min(350, lsrBottomY - relativeY));
+        setLongShortRatioPanelHeight(newHeight);
       }
     };
 
@@ -3186,7 +3382,7 @@ export default function ClusterChart({
       window.removeEventListener("mousemove", handleWindowMouseMove);
       window.removeEventListener("mouseup", handleWindowMouseUp);
     };
-  }, [resizingPanel, deltaTopY, deltaPanelHeight, cvdTopY, cvdPanelHeight, rsiTopY, rsiPanelHeight, bidAskRatioTopY, bidAskRatioPanelHeight]);
+  }, [resizingPanel, deltaTopY, deltaPanelHeight, cvdTopY, cvdPanelHeight, rsiTopY, rsiPanelHeight, bidAskRatioTopY, bidAskRatioPanelHeight, longShortRatioTopY, longShortRatioPanelHeight]);
 
   // Window-level mouse drag-zoom tracker for vertical price scale dragging
   useEffect(() => {
@@ -3308,6 +3504,30 @@ export default function ClusterChart({
       window.removeEventListener("mouseup", handleWindowMouseUp);
     };
   }, [isDraggingBidAskRatioScale]);
+
+  // Window-level mouse drag-zoom tracker for vertical Long/Short Ratio scale dragging
+  useEffect(() => {
+    if (!isDraggingLongShortRatioScale) return;
+
+    const handleWindowMouseMove = (e: MouseEvent) => {
+      const deltaY = startLongShortRatioScaleYRef.current - e.clientY;
+      const multiplier = Math.exp(deltaY / 200);
+      const nextScale = startLongShortRatioScaleRef.current * multiplier;
+      const clampedScale = Math.min(200.0, Math.max(0.01, nextScale));
+      setLongShortRatioScale(clampedScale);
+    };
+
+    const handleWindowMouseUp = () => {
+      setIsDraggingLongShortRatioScale(false);
+    };
+
+    window.addEventListener("mousemove", handleWindowMouseMove);
+    window.addEventListener("mouseup", handleWindowMouseUp);
+    return () => {
+      window.removeEventListener("mousemove", handleWindowMouseMove);
+      window.removeEventListener("mouseup", handleWindowMouseUp);
+    };
+  }, [isDraggingLongShortRatioScale]);
 
   // Window-level mouse drag-zoom tracker for horizontal timeline scale dragging
   useEffect(() => {
@@ -4363,7 +4583,7 @@ export default function ClusterChart({
         ctx.clip();
         ctx.translate(0, deltaTopY);
 
-        const deltaMidY = deltaPanelHeight / 2;
+        const deltaMidY = deltaPanelHeight / 2 + deltaOffset;
         const maxBarScaledHeight = deltaPanelHeight * 0.45;
         const deltaShowLabels = deltaSettings.showLabels !== false;
         const deltaSensitivity = typeof deltaSettings.sensitivity === "number" ? deltaSettings.sensitivity : 5;
@@ -4662,6 +4882,69 @@ export default function ClusterChart({
     }
 
     // -------------------------------------------------------------------------
+    // Long/Short Account Ratio subchart (footer panel) — LINE, auto-scaled on the
+    // visible range. Data is fetched from the backend (longShortRatioPoints). On a
+    // non-futures market the panel shows a "Только futures" label. The line stays
+    // continuous across candles that have no point (connect to the next available).
+    // -------------------------------------------------------------------------
+    if (activeIndicators.longShortRatio) {
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(margin.left, longShortRatioTopY, scrollWidth - margin.left + 50, longShortRatioPanelHeight);
+      ctx.clip();
+      ctx.translate(0, longShortRatioTopY);
+
+      const panelH = longShortRatioPanelHeight;
+
+      if (!isFuturesMarket) {
+        ctx.fillStyle = isLight ? "rgba(100, 116, 139, 0.9)" : "rgba(148, 163, 184, 0.9)";
+        ctx.font = "bold 12px 'Inter', sans-serif";
+        ctx.textAlign = "center";
+        ctx.fillText("Только futures", margin.left + (scrollWidth - margin.left) / 2, panelH / 2 - 2);
+        ctx.textAlign = "left";
+      } else {
+        // Neutral reference line (ratio = 1, or 50% in longPct mode), dashed.
+        const neutralY = getLsrY(longShortRatioNeutral, panelH);
+        ctx.beginPath();
+        ctx.strokeStyle = isLight ? "rgba(15, 23, 42, 0.18)" : "rgba(255, 255, 255, 0.14)";
+        ctx.lineWidth = 0.8;
+        ctx.setLineDash([3, 3]);
+        ctx.moveTo(margin.left, neutralY);
+        ctx.lineTo(scrollWidth, neutralY);
+        ctx.stroke();
+        ctx.setLineDash([]);
+
+        // Continuous line over visible candles. Candles without a point are skipped
+        // WITHOUT breaking the path, so the line connects to the next available point.
+        const lsrStartIdx = Math.max(0, startIdx - 1);
+        const lsrEndIdx = Math.min(longShortRatioPoints.length - 1, endIdx + 1);
+        ctx.beginPath();
+        let lsrPathStarted = false;
+        for (let idx = lsrStartIdx; idx <= lsrEndIdx; idx++) {
+          const p = longShortRatioPoints[idx];
+          if (!p || p.value === null) continue;
+          const cy = getLsrY(p.value, panelH);
+          if (!lsrPathStarted) {
+            ctx.moveTo(p.cx, cy);
+            lsrPathStarted = true;
+          } else {
+            ctx.lineTo(p.cx, cy);
+          }
+        }
+        ctx.shadowColor = longShortRatioLineColor;
+        ctx.shadowBlur = 6;
+        ctx.strokeStyle = longShortRatioLineColor;
+        ctx.lineWidth = 2.0;
+        ctx.lineCap = "round";
+        ctx.lineJoin = "round";
+        ctx.stroke();
+        ctx.shadowBlur = 0;
+      }
+
+      ctx.restore();
+    }
+
+    // -------------------------------------------------------------------------
     // RENDER INTERACTIVE DRAWING OBJECTS (Foreground items: lines, handles, annotations, etc.)
     // -------------------------------------------------------------------------
     drawDrawingObjects(ctx, {
@@ -4861,10 +5144,24 @@ export default function ClusterChart({
     cvdScale,
     rsiScale,
     bidAskRatioScale,
+    deltaOffset,
+    cvdOffset,
+    rsiOffset,
+    bidAskRatioOffset,
+    longShortRatioOffset,
     bidAskRatioPoints,
     bidAskRatioBullColor,
     bidAskRatioBearColor,
     bidAskRatioOpacity,
+    longShortRatioScale,
+    longShortRatioPoints,
+    longShortRatioLineColor,
+    longShortRatioDisplayMode,
+    longShortRatioNeutral,
+    zoomedLsrMin,
+    zoomedLsrMax,
+    zoomedLsrRange,
+    lsrCenterVal,
     marketType,
     profileBuckets,
     maxProfileVol,
@@ -5213,6 +5510,10 @@ export default function ClusterChart({
             setIsDraggingBidAskRatioScale(true);
             startBidAskRatioScaleYRef.current = e.clientY;
             startBidAskRatioScaleRef.current = bidAskRatioScale;
+          } else if (inPanelZone("longShortRatio")) {
+            setIsDraggingLongShortRatioScale(true);
+            startLongShortRatioScaleYRef.current = e.clientY;
+            startLongShortRatioScaleRef.current = longShortRatioScale;
           } else {
             setIsDraggingPriceScale(true);
             startPriceScaleYRef.current = e.clientY;
@@ -5244,6 +5545,10 @@ export default function ClusterChart({
             isDraggingBidAskRatioScaleRefTouch.current = true;
             startBidAskRatioScaleYRef.current = t.clientY;
             startBidAskRatioScaleRef.current = bidAskRatioScale;
+          } else if (inPanelZoneTouch("longShortRatio")) {
+            isDraggingLongShortRatioScaleRefTouch.current = true;
+            startLongShortRatioScaleYRef.current = t.clientY;
+            startLongShortRatioScaleRef.current = longShortRatioScale;
           } else {
             isDraggingPriceScaleRef.current = true;
             startPriceScaleYRef.current = t.clientY;
@@ -5280,6 +5585,11 @@ export default function ClusterChart({
             const multiplier = Math.exp(deltaY / 200);
             const nextScale = Math.min(2000.0, Math.max(0.1, startBidAskRatioScaleRef.current * multiplier));
             setBidAskRatioScale(nextScale);
+          } else if (isDraggingLongShortRatioScaleRefTouch.current) {
+            const deltaY = startLongShortRatioScaleYRef.current - t.clientY;
+            const multiplier = Math.exp(deltaY / 200);
+            const nextScale = Math.min(2000.0, Math.max(0.1, startLongShortRatioScaleRef.current * multiplier));
+            setLongShortRatioScale(nextScale);
           }
         }}
         onTouchEnd={() => {
@@ -5288,6 +5598,7 @@ export default function ClusterChart({
           isDraggingCvdScaleRefTouch.current = false;
           isDraggingRsiScaleRefTouch.current = false;
           isDraggingBidAskRatioScaleRefTouch.current = false;
+          isDraggingLongShortRatioScaleRefTouch.current = false;
         }}
         onTouchCancel={() => {
           isDraggingPriceScaleRef.current = false;
@@ -5295,6 +5606,7 @@ export default function ClusterChart({
           isDraggingCvdScaleRefTouch.current = false;
           isDraggingRsiScaleRefTouch.current = false;
           isDraggingBidAskRatioScaleRefTouch.current = false;
+          isDraggingLongShortRatioScaleRefTouch.current = false;
         }}
         className={`flex-none border-l select-none transition-all duration-300 relative flex flex-col justify-between cursor-ns-resize ${
           isLight ? "bg-[#f8fafc] border-slate-200" : "bg-[#06080f] border-white/5"
@@ -5512,7 +5824,7 @@ export default function ClusterChart({
                   {/* Top Tick */}
                   <text
                     x={labelX}
-                    y={deltaTopY + deltaPanelHeight * 0.1 + 4}
+                    y={deltaTopY + deltaPanelHeight * 0.1 + 4 + deltaOffset}
                     fill={isLight ? "#047857" : "#10b981"}
                     fontSize={isMobile ? "8" : "9"}
                     fontFamily="'Inter', -apple-system, sans-serif"
@@ -5523,7 +5835,7 @@ export default function ClusterChart({
                   {/* Mid Tick */}
                   <text
                     x={labelX}
-                    y={deltaTopY + deltaPanelHeight / 2 + 4}
+                    y={deltaTopY + deltaPanelHeight / 2 + 4 + deltaOffset}
                     fill={isLight ? "#475569" : "#94a3b8"}
                     fontSize={isMobile ? "8" : "9"}
                     fontFamily="'Inter', -apple-system, sans-serif"
@@ -5534,7 +5846,7 @@ export default function ClusterChart({
                   {/* Bottom Tick */}
                   <text
                     x={labelX}
-                    y={deltaTopY + deltaPanelHeight * 0.9 + 4}
+                    y={deltaTopY + deltaPanelHeight * 0.9 + 4 + deltaOffset}
                     fill={isLight ? "#be123c" : "#f43f5e"}
                     fontSize={isMobile ? "8" : "9"}
                     fontFamily="'Inter', -apple-system, sans-serif"
@@ -5551,7 +5863,7 @@ export default function ClusterChart({
                   {/* Top Tick */}
                   <text
                     x={labelX}
-                    y={cvdTopY + cvdPanelHeight * 0.1 + 4}
+                    y={cvdTopY + cvdPanelHeight * 0.1 + 4 + cvdOffset}
                     fill={isLight ? "#7c3aed" : "#c084fc"}
                     fontSize={isMobile ? "8" : "9"}
                     fontFamily="'Inter', -apple-system, sans-serif"
@@ -5562,7 +5874,7 @@ export default function ClusterChart({
                   {/* Mid Tick */}
                   <text
                     x={labelX}
-                    y={cvdTopY + cvdPanelHeight / 2 + 4}
+                    y={cvdTopY + cvdPanelHeight / 2 + 4 + cvdOffset}
                     fill={isLight ? "#475569" : "#94a3b8"}
                     fontSize={isMobile ? "8" : "9"}
                     fontFamily="'Inter', -apple-system, sans-serif"
@@ -5573,7 +5885,7 @@ export default function ClusterChart({
                   {/* Bottom Tick */}
                   <text
                     x={labelX}
-                    y={cvdTopY + cvdPanelHeight * 0.9 + 4}
+                    y={cvdTopY + cvdPanelHeight * 0.9 + 4 + cvdOffset}
                     fill={isLight ? "#7c3aed" : "#c084fc"}
                     fontSize={isMobile ? "8" : "9"}
                     fontFamily="'Inter', -apple-system, sans-serif"
@@ -5590,7 +5902,7 @@ export default function ClusterChart({
                   {/* Top = zoomed max */}
                   <text
                     x={labelX}
-                    y={rsiTopY + 10}
+                    y={rsiTopY + 10 + rsiOffset}
                     fill={isLight ? "#475569" : "#94a3b8"}
                     fontSize={isMobile ? "8" : "9"}
                     fontFamily="'Inter', -apple-system, sans-serif"
@@ -5638,7 +5950,7 @@ export default function ClusterChart({
                   {/* Bottom = zoomed min */}
                   <text
                     x={labelX}
-                    y={rsiTopY + rsiPanelHeight - 3}
+                    y={rsiTopY + rsiPanelHeight - 3 + rsiOffset}
                     fill={isLight ? "#475569" : "#94a3b8"}
                     fontSize={isMobile ? "8" : "9"}
                     fontFamily="'Inter', -apple-system, sans-serif"
@@ -5666,7 +5978,7 @@ export default function ClusterChart({
                   {/* Centre = 0.00 */}
                   <text
                     x={labelX}
-                    y={bidAskRatioTopY + bidAskRatioPanelHeight / 2 + 4}
+                    y={bidAskRatioTopY + bidAskRatioPanelHeight / 2 + 4 + bidAskRatioOffset}
                     fill={isLight ? "#475569" : "#94a3b8"}
                     fontSize={isMobile ? "8" : "9"}
                     fontFamily="'Inter', -apple-system, sans-serif"
@@ -5684,6 +5996,45 @@ export default function ClusterChart({
                     fontWeight="bold"
                   >
                     {zoomedRatioMin.toFixed(2)}
+                  </text>
+                </g>
+              )}
+
+              {/* Long/Short Ratio subchart Y-axis labels — right scale, follow zoom */}
+              {activeIndicators.longShortRatio && (
+                <g key="longshortratio-panel-ticks">
+                  {/* Top = zoomed max (line colour) */}
+                  <text
+                    x={labelX}
+                    y={longShortRatioTopY + longShortRatioPanelHeight * 0.1 + 4 + longShortRatioOffset}
+                    fill={longShortRatioLineColor}
+                    fontSize={isMobile ? "8" : "9"}
+                    fontFamily="'Inter', -apple-system, sans-serif"
+                    fontWeight="bold"
+                  >
+                    {longShortRatioDisplayMode === "longPct" ? `${Math.round(zoomedLsrMax)}%` : zoomedLsrMax.toFixed(2)}
+                  </text>
+                  {/* Centre = visible centre value (grey) */}
+                  <text
+                    x={labelX}
+                    y={longShortRatioTopY + longShortRatioPanelHeight / 2 + 4 + longShortRatioOffset}
+                    fill={isLight ? "#475569" : "#94a3b8"}
+                    fontSize={isMobile ? "8" : "9"}
+                    fontFamily="'Inter', -apple-system, sans-serif"
+                    fontWeight="bold"
+                  >
+                    {longShortRatioDisplayMode === "longPct" ? `${Math.round(lsrCenterVal)}%` : lsrCenterVal.toFixed(2)}
+                  </text>
+                  {/* Bottom = zoomed min (line colour) */}
+                  <text
+                    x={labelX}
+                    y={longShortRatioTopY + longShortRatioPanelHeight * 0.9 + 4 + longShortRatioOffset}
+                    fill={longShortRatioLineColor}
+                    fontSize={isMobile ? "8" : "9"}
+                    fontFamily="'Inter', -apple-system, sans-serif"
+                    fontWeight="bold"
+                  >
+                    {longShortRatioDisplayMode === "longPct" ? `${Math.round(zoomedLsrMin)}%` : zoomedLsrMin.toFixed(2)}
                   </text>
                 </g>
               )}
@@ -5735,6 +6086,7 @@ export default function ClusterChart({
           id === "cvd"   ? { label: "(PROCLUSTER) CVD",   dotColor: cvdLineColor as string | null, valueRef: cvdValueSpanRef } :
           id === "rsi"   ? { label: "(PROCLUSTER) RSI",   dotColor: rsiLineColor as string | null, valueRef: rsiValueSpanRef } :
           id === "bidAskRatio" ? { label: "(PROCLUSTER) Bid & Ask Ratio", dotColor: bidAskRatioBullColor as string | null, valueRef: bidAskRatioValueSpanRef } :
+          id === "longShortRatio" ? { label: "(PROCLUSTER) Long/Short Ratio", dotColor: longShortRatioLineColor as string | null, valueRef: longShortRatioValueSpanRef } :
           null;
         if (!meta) return null;
         const isFirst = idx === 0;
@@ -5881,6 +6233,25 @@ export default function ClusterChart({
             transform: "translateY(-7px)"
           }}
           title="Drag to resize Bid & Ask Ratio Panel"
+        >
+          {/* Subtle colored horizontal line that lights up when hovered */}
+          <div className="w-24 h-[3px] rounded-full bg-yellow-500/0 group-hover:bg-yellow-500/85 transition-all duration-200 shadow-md shadow-yellow-500/40" />
+        </div>
+      )}
+
+      {activeIndicators.longShortRatio && (
+        <div
+          onMouseDown={(e) => {
+            e.preventDefault();
+            setResizingPanel("longShortRatio");
+          }}
+          className={`absolute left-0 right-0 z-40 cursor-ns-resize flex items-center justify-center group`}
+          style={{
+            top: `${longShortRatioTopY - panelGap / 2}px`,
+            height: "14px",
+            transform: "translateY(-7px)"
+          }}
+          title="Drag to resize Long/Short Ratio Panel"
         >
           {/* Subtle colored horizontal line that lights up when hovered */}
           <div className="w-24 h-[3px] rounded-full bg-yellow-500/0 group-hover:bg-yellow-500/85 transition-all duration-200 shadow-md shadow-yellow-500/40" />

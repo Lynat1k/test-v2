@@ -3,6 +3,165 @@
 > Claude обновляет этот файл в КОНЦЕ каждой задачи. Новые записи — сверху.
 > Формат записи строго по шаблону. Это память между чатами.
 
+### [2026-06-28] feat: вертикальный пан тела подвальных индикаторов (drag по телу двигает линию/бары панели)
+
+- **Контекст**: drag по ТЕЛУ подвала (delta/cvd/rsi/bidAskRatio/longShortRatio) раньше
+  панорамировал основную цену — баг. Теперь вертикальный drag по телу панели двигает
+  её содержимое в пределах панели (оффсет), цена не трогается. Горизонтальный скролл
+  по времени и зум правой шкалы сохранены. Только фронт. Бэкенд не трогали.
+
+- **Сделано** (`chart2d/ClusterChart.tsx`):
+  - 5 состояний оффсета `deltaOffset/cvdOffset/rsiOffset/bidAskRatioOffset/longShortRatioOffset`
+    (px) + рефы `activePanelDragIdRef` (какая панель тащится) и `panelDragStartOffsetRef`
+    (оффсет на момент mousedown). Хелперы `getPanelOffset/setPanelOffset/resetPanelScale`.
+  - `handleMouseDown`: после проверки таймлайна — детект тела панели через тот же
+    `inPanelZone` (panelTopY[id]+getPanelHeight(id)); запоминает id+стартовый оффсет.
+    Обычный пан (isDragging/scrollLeft) инициализируется как прежде → горизонталь работает.
+  - `handleMouseMove`: вертикаль — если `activePanelDragIdRef` задан → `setPanelOffset(start+deltaY)`
+    с clamp ±getPanelHeight(id); иначе прежний `setPriceCenterOffset`. Горизонталь без изменений.
+  - `handleMouseUpOrLeave`: сброс `activePanelDragIdRef`.
+  - Оффсет применён в Y-хелперах: `getCvdY +cvdOffset`, `rsiYInPanel +rsiOffset`,
+    `ratioYInPanel +bidAskRatioOffset`, `getLsrY +longShortRatioOffset`; delta —
+    `deltaMidY = panelH/2 + deltaOffset` (все Y дельты производны от него).
+  - Правые SVG-тики: хардкод-позиции получили `+offset` (delta x3, cvd x3, longShort x3,
+    rsi top/bottom, bidAskRatio centre); тики через Y-хелпер уже сдвигаются сами.
+  - Touch: 1 палец по телу панели = вертикальный пан панели (детект в `handleTouchStart`,
+    ветка в `handleTouchMove`, сброс в `handleTouchEnd`).
+  - Дабл-клик по телу панели (`handleDoubleClick`) сбрасывает оффсет в 0 и зум в 1.0.
+  - Новые оффсеты добавлены в deps draw-замыкания.
+
+- **Проверено**:
+  - `npx tsc --noEmit` — чисто (EXIT 0). `npx vite build` — чисто (chunk-size warning
+    пре-существующий).
+  - Не сломаны: основной пан цены, горизонтальный скролл, зум правой шкалы у всех
+    панелей, crosshair (правый strip обрабатывает зум отдельно от тела — конфликта нет).
+  - **Живой визуал (тянуть тело каждого подвала, дабл-клик, тач) — за пользователем**
+    (политика: функционал/визуал проверяет юзер сам).
+
+- **TODO**: нет.
+
+### [2026-06-28] feat: индикатор Long/Short Account Ratio (GLOBAL) — Фаза 3 ФИНАЛ (фронт: линия в подвале + настройки)
+
+- **Контекст**: отрисовка линии глобального long/short account ratio в подвальной
+  панели графика + настройки. Данные с бэка (`GET /api/v1/long-short-ratio`,
+  массив `[{t,ratio}]`, futures-only). Образцы: CVD (линия+автомасштаб+зум),
+  Bid & Ask Ratio (фетч с бэка, futures-only, «Только futures»), RSI/bidAskRatio
+  (вертикальная шкала+зум). Финальная фаза 3 из 3. Бэкенд не трогали.
+
+- **Сделано (procluster/frontend)**:
+  - `features/longshort/api.ts` (новый): `fetchLongShortRatio` → `[{t,ratio}]`,
+    бэр-токен опционален, символ нормализуется вызывающей стороной (replace "/").
+  - `chart2d/indicators/longShortRatio.ts` (новый): `IndicatorModule` id
+    `longShortRatio`, «Подвальный», defaultSettings
+    `{ longShortRatioLineColor:"#a855f7", longShortRatioDisplayMode:"ratio" }`.
+  - Регистрация в `chart2d/indicators/index.ts`; типы в `chart2d/types.ts`
+    (`longShortRatioLineColor?`, `longShortRatioDisplayMode?: "ratio"|"longPct"`).
+  - `components/IndicatorsModal.tsx`: блок настроек — селект «Режим» (Ratio/Long %)
+    + color-picker «Цвет линии».
+  - `chart2d/ClusterChart.tsx` (полная интеграция подвала, паттерн bidAskRatio+CVD):
+    панель в `REORDERABLE_PANEL_IDS`, высота+localStorage
+    (`procluster_longshortratio_panel_height`), `panelTopY`/resize-грип/ресайз;
+    fetch-эффект (active && FUTURES, рефетч по symbol/market/timeframe/подгрузке
+    истории, символ `toUpperCase().replace("/","")`); Map по `t===candle.timestamp`;
+    режим: `longPct` → `ratio/(ratio+1)*100`, иначе сырой ratio; ЛИНИЯ (как CVD,
+    непрерывная — свечи без точки пропускаются БЕЗ разрыва пути); автомасштаб по
+    видимым min/max + нейтральная пунктирная (ratio=1 / 50%); состояние Scale + зум
+    перетаскиванием (mouse+touch, exp(deltaY/200), clamp); правая SVG-шкала
+    (top/center/bottom, формат ratio=2 знака / longPct целые %); «Только futures»
+    на спотах; новые состояния добавлены в deps draw-замыкания; цвет из
+    `longShortRatioLineColor`.
+
+- **Проверено**:
+  - `npx tsc --noEmit` — чисто (EXIT 0). `npx vite build` — чисто (warning о размере
+    чанка — пре-существующий, не связан).
+  - Парность с bidAskRatio: все 64 точки интеграции bidAskRatio в ClusterChart
+    зеркально продублированы для longShortRatio; других файлов-вайтлистов нет.
+  - **Живой визуал (линия/шкала/зум/режимы/цвет/спот) — за пользователем** (политика:
+    функционал/визуал проверяет юзер сам; история есть за 2026-06-26 BTCUSDT).
+
+- **Итог**: индикатор Long/Short Account Ratio готов end-to-end (Фазы 1–3):
+  таблица + live-поллер + REST + бэкфилл из metrics + фронт-линия.
+
+### [2026-06-28] feat: индикатор Long/Short Account Ratio (GLOBAL) — Фаза 2 (бэкфилл истории из metrics-дампов)
+
+- **Контекст**: расширили существующий загрузчик истории веткой
+  `dataType="longShortRatio"` (рядом с "clusters" и "bookDepth"). Только futures.
+  Источник — daily metrics-дампы Binance Vision
+  (`/futures/um/daily/metrics/{SYM}/{SYM}-metrics-{YYYY-MM-DD}.zip`), 5-мин сетка,
+  ~288 строк/день. Таблица `long_short_ratio` и `InsertLongShortRatioBatch` — из Фазы 1.
+  Фаза 2 из 3.
+
+- **Сделано (бэкенд)**:
+  - `historyloader.go`: `buildMetricsURL` (futures-only); ветка
+    `downloadWorkerLongShort` (downloading → parsing → inserting, без aggregating);
+    `unzipAndParseMetricsLongShort` + `parseMetricsLongShortCSV` — читает ЗАГОЛОВОК,
+    находит индексы `create_time` и `count_long_short_ratio` ПО ИМЕНИ (порядок
+    колонок может меняться). count_long_short_ratio = GLOBAL account ratio.
+    create_time парсится как UTC. Битый/пустой ratio пропускается со счётчиком.
+    Идемпотентно через ReplacingMergeTree (без pre-delete). `InsertLongShortRatioBatch`
+    добавлен в интерфейс `HistoryClickHouse`.
+  - `handlers.go` (handleStartDownload): `longShortRatio` добавлен в enum dataType;
+    guard market=futures (иначе 400).
+  - Тест-мок `mockClickHouse` дополнен методом (vet зелёный).
+
+- **Сделано (фронт, procluster/frontend)**:
+  - `AdminPanel.tsx` HistoryBlock: пункт «Long/Short Ratio» (value `longShortRatio`)
+    в селекте «Что качать»; при выборе рынок фиксируется на futures (как bookDepth).
+    `dataType` уже прокидывается в `apiStartDownload` — менять api.ts не пришлось.
+
+- **Проверено**:
+  - `go build` + `go vet ./internal/...` — чисто. Фронт `npx tsc --noEmit` + `npx vite build` — чисто.
+  - Реальный путь (download→parse→insert→DB) прогнан временным integration-тестом
+    (build-tag `manual`, удалён после): BTCUSDT за 2026-06-26 (вчерашний дамп 06-27
+    ещё не опубликован Binance, 404) — распарсено **288 строк, 0 пропусков**.
+  - Проверка в БД: `toDate(ts)='2026-06-26'` → **287 строк** (288-я — ts 00:00 06-27,
+    попадает в следующий день), ts 00:05…23:55, **ratio 1.926–2.394** (в норме 0.5–5).
+  - Чистый рестарт procluster.exe (все воркеры, миграции). На финише остановлен.
+
+- **TODO**:
+  - Фаза 3: фронт — линия индикатора Long/Short Account Ratio на графике.
+
+### [2026-06-28] feat: индикатор Long/Short Account Ratio (GLOBAL) — Фаза 1 (бэкенд: таблица + live-поллер + API)
+
+- **Контекст**: новый индикатор глобального long/short account ratio = отношение
+  числа аккаунтов в long к числу в short. Только futures. Источник — публичный
+  futures-data эндпоинт Binance `globalLongShortAccountRatio`, период 5 минут.
+  Binance отдаёт ratio + доли long/short (сумма = 1), поэтому хранится ОДИН ratio:
+  long% выводится точно как `ratio/(ratio+1)*100`. Фаза 1 из 3. Образец — недавний
+  bid/ask ratio (bookdepth).
+
+- **Сделано**:
+  - Миграция ClickHouse `008_long_short_ratio.sql`: таблица `long_short_ratio`
+    (ReplacingMergeTree, PARTITION by месяц, ORDER BY (symbol, market, ts), TTL 1 год).
+    Колонки: symbol, market LowCardinality, ts DateTime64(3), ratio Decimal(18,4).
+  - `model.LongShortRatio` (Symbol, Market, TS, Ratio).
+  - Репозиторий: `InsertLongShortRatioBatch` (батч, идемпотентно через ReplacingMergeTree)
+    и `GetLongShortRatio(symbol, market, from, to)` — параметризованный SELECT, ORDER BY ts ASC.
+    Оба добавлены в интерфейс `repository.MarketRepository`.
+  - Новый пакет `internal/longshort/poller.go`: live-поллер. Endpoint
+    `globalLongShortAccountRatio?symbol&period=5m&limit=30`. Futures-символы берутся из
+    `symbolConfigs` (как snapshotter, НЕ хардкод). Тикер 5 мин + первичный опрос на старте.
+    HTTP-клиент с таймаутом 10с. Ошибки сети/HTTP логируются и не валят цикл. Остановка по ctx.
+    Запущен в `main.go` рядом с воркерами (`go lsrPoller.Run(ctx)`, лог `[longshort] started`).
+  - API `GET /api/v1/long-short-ratio?symbol&market&timeframe&from&to`: группирует 5-мин
+    точки по бакету свечи запрошенного ТФ (AlignToTimeframe), берёт ПОСЛЕДНЕЕ значение в
+    бакете (по max ts) — ratio мгновенный, не аддитивен. Ответ — массив `[{t,ratio}]`.
+    Лимит истории по тарифу через `resolveHistoryDepth` (как handleCandles/bookdepth).
+    Middleware RateLimit+betaGate+Auth как у `/api/v1/candles`.
+
+- **Проверено**:
+  - `go build` + `go vet ./internal/...` — чисто.
+  - Чистый старт, миграция применена (`SHOW CREATE TABLE` совпадает со спекой).
+  - Поллер локально ДОСТУЧАЛСЯ до Binance (direct, без прокси): 30 точек/символ для
+    BTC/ETH/SOL, ratio ~2.0–2.6, без ошибок в логе.
+  - REST `/api/v1/long-short-ratio` (tf=1h) вернул сгруппированные точки, last-in-bucket
+    совпал с `anyLast(ratio)` в БД.
+  - procluster.exe остановлен в конце (юзер запускает сам).
+
+- **TODO**:
+  - Фаза 2: бэкфилл истории из metrics-дампов (как для bookdepth).
+  - Фаза 3: фронт — линия индикатора Long/Short Account Ratio.
+
 ### [2026-06-28] feat: индикатор Bid & Ask Ratio — Фаза 1 (бэкенд: таблица + живая запись + API)
 
 - **Контекст**: новый индикатор соотношения глубины стакана bid/ask в полосах

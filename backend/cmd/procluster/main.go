@@ -21,6 +21,7 @@ import (
 	"github.com/procluster/procluster/internal/depth"
 	"github.com/procluster/procluster/internal/fng"
 	"github.com/procluster/procluster/internal/ingest"
+	"github.com/procluster/procluster/internal/longshort"
 	"github.com/procluster/procluster/internal/model"
 	"github.com/procluster/procluster/internal/repository/clickhouse"
 )
@@ -252,6 +253,10 @@ func main() {
 	liveDOM := depth.NewLiveDOMBroadcaster(hub, orderBooks, symbolConfigs)
 	go liveDOM.Run(ctx)
 	log.Println("[livedom] started")
+
+	lsrPoller := longshort.NewPoller(repo, symbolConfigs)
+	go lsrPoller.Run(ctx)
+	log.Println("[longshort] started")
 
 	go fngFetcher.Run(ctx)
 	log.Println("[fng-fetcher] started")

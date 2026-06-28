@@ -234,6 +234,75 @@ func (r *ClickhouseRepository) InsertBookDepthRatioBatch(ctx context.Context, ro
 	return nil
 }
 
+// InsertLongShortRatioBatch вставляет батч точек глобального long/short account
+// ratio. Идемпотентно через ReplacingMergeTree (ключ symbol+market+ts).
+func (r *ClickhouseRepository) InsertLongShortRatioBatch(ctx context.Context, rows []model.LongShortRatio) error {
+	if len(rows) == 0 {
+		return nil
+	}
+
+	batch, err := r.conn.PrepareBatch(ctx, "INSERT INTO long_short_ratio")
+	if err != nil {
+		return fmt.Errorf("prepare long_short_ratio batch: %w", err)
+	}
+
+	for _, row := range rows {
+		if err := batch.Append(
+			row.Symbol,
+			row.Market,
+			row.TS,
+			decimal.NewFromFloat(row.Ratio),
+		); err != nil {
+			return fmt.Errorf("append long_short_ratio row: %w", err)
+		}
+	}
+
+	if err := batch.Send(); err != nil {
+		return fmt.Errorf("send long_short_ratio batch: %w", err)
+	}
+
+	return nil
+}
+
+// GetLongShortRatio читает точки long/short ratio за период [from, to],
+// отсортированные по времени. Группировку по таймфрейму делает API-слой.
+func (r *ClickhouseRepository) GetLongShortRatio(ctx context.Context, symbol, market string, from, to time.Time) ([]model.LongShortRatio, error) {
+	query := `
+		SELECT
+			symbol,
+			market,
+			ts,
+			ratio
+		FROM long_short_ratio
+		WHERE symbol = ? AND market = ? AND ts >= ? AND ts <= ?
+		ORDER BY ts ASC
+	`
+
+	rows, err := r.conn.Query(ctx, query, symbol, market, from, to)
+	if err != nil {
+		return nil, fmt.Errorf("query long_short_ratio: %w", err)
+	}
+	defer rows.Close()
+
+	var result []model.LongShortRatio
+	for rows.Next() {
+		var row model.LongShortRatio
+		var ratio decimal.Decimal
+		if err := rows.Scan(
+			&row.Symbol,
+			&row.Market,
+			&row.TS,
+			&ratio,
+		); err != nil {
+			return nil, fmt.Errorf("scan long_short_ratio row: %w", err)
+		}
+		row.Ratio, _ = ratio.Float64()
+		result = append(result, row)
+	}
+
+	return result, rows.Err()
+}
+
 // GetBookDepthRatio читает снапшоты глубины за период [from, to], отсортированные
 // по времени. Группировку по таймфрейму и расчёт ratio делает API-слой.
 func (r *ClickhouseRepository) GetBookDepthRatio(ctx context.Context, symbol, market string, from, to time.Time) ([]model.BookDepthRatio, error) {

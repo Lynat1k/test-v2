@@ -143,6 +143,9 @@ export interface IndicatorSettings {
   bidAskRatioBullColor?: string;
   bidAskRatioBearColor?: string;
   bidAskRatioOpacity?: number;
+
+  longShortRatioLineColor?: string;
+  longShortRatioDisplayMode?: "ratio" | "longPct";
 }
 
 export interface Indicator {

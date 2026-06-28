@@ -7,6 +7,7 @@ import { stackedImbalanceIndicator } from "./stackedImbalance";
 import { depthOfMarketIndicator } from "./depthOfMarket";
 import { rsiIndicator } from "./rsi";
 import { bidAskRatioIndicator } from "./bidAskRatio";
+import { longShortRatioIndicator } from "./longShortRatio";
 
 export * from "./types";
 export * from "./volumeOnChart";
@@ -17,6 +18,7 @@ export * from "./stackedImbalance";
 export * from "./depthOfMarket";
 export * from "./rsi";
 export * from "./bidAskRatio";
+export * from "./longShortRatio";
 
 export const MODULAR_INDICATORS: IndicatorModule[] = [
   volumeOnChartIndicator,
@@ -26,5 +28,6 @@ export const MODULAR_INDICATORS: IndicatorModule[] = [
   stackedImbalanceIndicator,
   depthOfMarketIndicator,
   rsiIndicator,
-  bidAskRatioIndicator
+  bidAskRatioIndicator,
+  longShortRatioIndicator
 ];

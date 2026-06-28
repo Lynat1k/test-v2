@@ -1091,11 +1091,12 @@ function HistoryBlock({ isLight }: { isLight: boolean }) {
           options={[
             { value: 'clusters', label: 'Кластера' },
             { value: 'bookDepth', label: 'Глубина стакана' },
+            { value: 'longShortRatio', label: 'Long/Short Ratio' },
           ]}
           onChange={(v) => {
             setDataType(v)
-            // bookDepth dumps exist only for futures — pin the market.
-            if (v === 'bookDepth') setMarket('futures')
+            // bookDepth & metrics dumps exist only for futures — pin the market.
+            if (v === 'bookDepth' || v === 'longShortRatio') setMarket('futures')
           }}
           isLight={isLight}
           className="w-full"
@@ -1105,7 +1106,7 @@ function HistoryBlock({ isLight }: { isLight: boolean }) {
           <StyledSelect
             value={market}
             options={
-              dataType === 'bookDepth'
+              dataType === 'bookDepth' || dataType === 'longShortRatio'
                 ? [{ value: 'futures', label: t('admin.database.futures') }]
                 : [
                     { value: 'futures', label: t('admin.database.futures') },
