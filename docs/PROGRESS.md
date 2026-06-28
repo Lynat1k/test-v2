@@ -3156,3 +3156,6 @@ Spot: панель «Только futures», линия не рисуется.
 
 ### [2026-06-28] fix(aggregation): UTC-выравнивание 4h/1d — bid/ask и long/short на старших ТФ
 Bid&Ask / Long&Short были пусты на 4h/1d. Причина: live-агрегатор кладёт `trade.Time` из `time.UnixMilli` (= `time.Local`), и ветки 4h/1d в `AlignToTimeframe` выравнивали по локальным границам (MSK), а read-путь индикаторов (CH→clickhouse-go = UTC) бакетил по UTC → `t` не совпадал с `candle.timestamp`. Подтверждено данными: candle_open 4h = 21/01/05 UTC (MSK), индикатор = 00/04/08 UTC. Фикс: `t = t.UTC()` в начале `AlignToTimeframe` (`internal/aggregation/rollup.go`) — write-путь теперь UTC, read/backfill — no-op, прод (UTC-сервер) не затронут. go vet ✓, go build ✓. Визуал проверяет юзер локально (свой proxy); старые MSK-свечи 4h/1d на dev желательно очистить/пере-бэкфилльнуть.
+
+### [2026-06-28] fix(chart): подвалы используют полную высоту панели до разделителя
+Убрана мёртвая полоса сверху/снизу в подвальных индикаторах: поля Y-маппинга 10%/8% → 2%. getCvdY и getLsrY (`0.8/0.1` → `0.96/0.02`), ratioYInPanel (`half 0.42` → `0.48`), delta-гистограмма (`maxBarScaledHeight 0.45` → `0.48`). SVG-подписи min/max delta/cvd/longShort синхронизированы (`0.1/0.9` → `0.02/0.98`); rsi/bidAsk/buySellZone тики через хелперы — подтянулись сами. clip/offset/zoom не тронуты. `ClusterChart.tsx`. tsc ✓, vite ✓.

@@ -3157,7 +3157,7 @@ export default function ClusterChart({
   const zoomedCvdMin = useMemo(() => cvdCenterVal - zoomedCvdDeltaRange * 0.5, [cvdCenterVal, zoomedCvdDeltaRange]);
 
   const getCvdY = (val: number, panelH: number) => {
-    return panelH - ((val - zoomedCvdMin) / zoomedCvdDeltaRange) * (panelH * 0.8) - (panelH * 0.1) + cvdOffset;
+    return panelH - ((val - zoomedCvdMin) / zoomedCvdDeltaRange) * (panelH * 0.96) - (panelH * 0.02) + cvdOffset;
   };
 
   // RSI vertical zoom around the centre (50). scale=1 → [0,100] (unzoomed).
@@ -3171,10 +3171,10 @@ export default function ClusterChart({
   // Bid & Ask Ratio vertical zoom, symmetric around 0. scale=1 → [-1,+1].
   const zoomedRatioMax = 1.0 / Math.max(0.01, bidAskRatioScale);
   const zoomedRatioMin = -zoomedRatioMax;
-  // Panel-local Y for a ratio value. usableHalf leaves ~8% margin top & bottom.
+  // Panel-local Y for a ratio value. usableHalf leaves ~2% margin top & bottom.
   const ratioYInPanel = (v: number) => {
     const mid = bidAskRatioPanelHeight / 2;
-    const half = bidAskRatioPanelHeight * 0.42;
+    const half = bidAskRatioPanelHeight * 0.48;
     const cl = Math.max(zoomedRatioMin, Math.min(zoomedRatioMax, v));
     return mid - (cl / zoomedRatioMax) * half + bidAskRatioOffset;
   };
@@ -3261,7 +3261,7 @@ export default function ClusterChart({
   const zoomedLsrMin = useMemo(() => lsrCenterVal - zoomedLsrRange * 0.5, [lsrCenterVal, zoomedLsrRange]);
 
   const getLsrY = (val: number, panelH: number) => {
-    return panelH - ((val - zoomedLsrMin) / zoomedLsrRange) * (panelH * 0.8) - (panelH * 0.1) + longShortRatioOffset;
+    return panelH - ((val - zoomedLsrMin) / zoomedLsrRange) * (panelH * 0.96) - (panelH * 0.02) + longShortRatioOffset;
   };
 
   // --- Buy/Sell Zone (footer panel) — composite 0..100 oscillator.
@@ -4717,7 +4717,7 @@ export default function ClusterChart({
         ctx.translate(0, deltaTopY);
 
         const deltaMidY = deltaPanelHeight / 2 + deltaOffset;
-        const maxBarScaledHeight = deltaPanelHeight * 0.45;
+        const maxBarScaledHeight = deltaPanelHeight * 0.48;
         const deltaShowLabels = deltaSettings.showLabels !== false;
         const deltaSensitivity = typeof deltaSettings.sensitivity === "number" ? deltaSettings.sensitivity : 5;
 
@@ -6179,7 +6179,7 @@ export default function ClusterChart({
                   {/* Top Tick */}
                   <text
                     x={labelX}
-                    y={deltaTopY + deltaPanelHeight * 0.1 + 4 + deltaOffset}
+                    y={deltaTopY + deltaPanelHeight * 0.02 + 4 + deltaOffset}
                     fill={isLight ? "#047857" : "#10b981"}
                     fontSize={isMobile ? "8" : "9"}
                     fontFamily="'Inter', -apple-system, sans-serif"
@@ -6201,7 +6201,7 @@ export default function ClusterChart({
                   {/* Bottom Tick */}
                   <text
                     x={labelX}
-                    y={deltaTopY + deltaPanelHeight * 0.9 + 4 + deltaOffset}
+                    y={deltaTopY + deltaPanelHeight * 0.98 + 4 + deltaOffset}
                     fill={isLight ? "#be123c" : "#f43f5e"}
                     fontSize={isMobile ? "8" : "9"}
                     fontFamily="'Inter', -apple-system, sans-serif"
@@ -6218,7 +6218,7 @@ export default function ClusterChart({
                   {/* Top Tick */}
                   <text
                     x={labelX}
-                    y={cvdTopY + cvdPanelHeight * 0.1 + 4 + cvdOffset}
+                    y={cvdTopY + cvdPanelHeight * 0.02 + 4 + cvdOffset}
                     fill={isLight ? "#7c3aed" : "#c084fc"}
                     fontSize={isMobile ? "8" : "9"}
                     fontFamily="'Inter', -apple-system, sans-serif"
@@ -6240,7 +6240,7 @@ export default function ClusterChart({
                   {/* Bottom Tick */}
                   <text
                     x={labelX}
-                    y={cvdTopY + cvdPanelHeight * 0.9 + 4 + cvdOffset}
+                    y={cvdTopY + cvdPanelHeight * 0.98 + 4 + cvdOffset}
                     fill={isLight ? "#7c3aed" : "#c084fc"}
                     fontSize={isMobile ? "8" : "9"}
                     fontFamily="'Inter', -apple-system, sans-serif"
@@ -6361,7 +6361,7 @@ export default function ClusterChart({
                   {/* Top = zoomed max (line colour) */}
                   <text
                     x={labelX}
-                    y={longShortRatioTopY + longShortRatioPanelHeight * 0.1 + 4 + longShortRatioOffset}
+                    y={longShortRatioTopY + longShortRatioPanelHeight * 0.02 + 4 + longShortRatioOffset}
                     fill={longShortRatioLineColor}
                     fontSize={isMobile ? "8" : "9"}
                     fontFamily="'Inter', -apple-system, sans-serif"
@@ -6383,7 +6383,7 @@ export default function ClusterChart({
                   {/* Bottom = zoomed min (line colour) */}
                   <text
                     x={labelX}
-                    y={longShortRatioTopY + longShortRatioPanelHeight * 0.9 + 4 + longShortRatioOffset}
+                    y={longShortRatioTopY + longShortRatioPanelHeight * 0.98 + 4 + longShortRatioOffset}
                     fill={longShortRatioLineColor}
                     fontSize={isMobile ? "8" : "9"}
                     fontFamily="'Inter', -apple-system, sans-serif"
