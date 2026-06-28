@@ -3268,7 +3268,7 @@ export default function ClusterChart({
   //   lsScore  = 100 − zToScale(lsr, lsZlen)   (inverted, like the Pine original)
   //   rsiScore = RSI(close, rsiLen)
   //   macdScore= zToScale(macdHist(close), macdZlen)
-  //   barScore = 50·(1 + r)  where r = bid/ask ratio band (−1..+1), linear
+  //   barScore = 50·(1 − r)  (перевес бидов тянет вниз, к buy-зоне) where r = bid/ask ratio band (−1..+1), linear
   // value=null when zero components are available → the drawn line breaks there.
   const buySellZonePoints = useMemo(() => {
     const n = candles.length;
@@ -3296,7 +3296,7 @@ export default function ClusterChart({
       let barScore: number | null = null;
       if (bar) {
         const r = Math.max(-1, Math.min(1, bar[bsZoneRKey]));
-        barScore = 50 * (1 + r);
+        barScore = 50 * (1 - r);
       }
 
       let num = 0;
