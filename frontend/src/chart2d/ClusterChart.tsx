@@ -3911,6 +3911,13 @@ export default function ClusterChart({
 
     // 3.1 Draw BACKGROUND-LAYER INTERACTIVE DRAWING OBJECTS (e.g. Range Volume Profile)
     // Always drawn under candles, wicks, and cluster cells per user request
+    // Clip to the main chart vertical region (same rect as the candlestick clip) so
+    // background drawings like Range Volume Profile do not bleed into the bottom
+    // sub-panels when the chart is scrolled down.
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(margin.left, margin.top, scrollWidth - margin.left + 50, chartHeight);
+    ctx.clip();
     drawDrawingObjects(ctx, {
       ctx,
       drawings: areDrawingsVisible ? drawings : [],
@@ -3932,6 +3939,7 @@ export default function ClusterChart({
       tsToX: tsToX_local,
       tsToIndex: tsToIndex_local,
     });
+    ctx.restore();
 
     const startIdx = Math.max(0, Math.floor((visibleScrollLeft - margin.left - candleWidth) / (candleWidth + candleSpacing)));
     const endIdx = Math.min(candles.length - 1, Math.ceil((visibleScrollLeft + viewportWidth - margin.left) / (candleWidth + candleSpacing)));
@@ -5296,6 +5304,13 @@ export default function ClusterChart({
     // -------------------------------------------------------------------------
     // RENDER INTERACTIVE DRAWING OBJECTS (Foreground items: lines, handles, annotations, etc.)
     // -------------------------------------------------------------------------
+    // Clip drawing objects to the main chart vertical region so trend lines, rays,
+    // horizontals, rectangles and handles do not bleed into the bottom sub-panels
+    // when the chart is scrolled down. Same rect as the candlestick clip (above).
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(margin.left, margin.top, scrollWidth - margin.left + 50, chartHeight);
+    ctx.clip();
     drawDrawingObjects(ctx, {
       ctx,
       drawings: areDrawingsVisible ? drawings : [],
@@ -5317,6 +5332,7 @@ export default function ClusterChart({
       tsToX: tsToX_local,
       tsToIndex: tsToIndex_local,
     });
+    ctx.restore();
 
     ctx.restore(); // Undoes translation of -visibleScrollLeft for viewport-wide elements
 
