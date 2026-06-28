@@ -164,6 +164,8 @@ export interface IndicatorSettings {
   bsZoneBalOpacity?: number;
   bsZoneOverUpColor?: string;
   bsZoneOverDownColor?: string;
+  bsZoneOverOpacity?: number;
+  bsZoneShowBadges?: boolean;
 }
 
 export interface Indicator {

@@ -2048,6 +2048,38 @@ export default function IndicatorsModal({ isOpen, onClose, symbol = "", market =
                               </span>
                             </div>
                           </div>
+
+                          {/* Zone fill brightness (both zones) */}
+                          <div className="flex flex-col gap-2 border-t border-dashed border-slate-700/20 pt-3">
+                            <div className="flex justify-between font-bold">
+                              <span className={isLight ? "text-slate-700" : "text-slate-300"}>Яркость зон</span>
+                              <span className={`font-mono font-bold ${isLight ? "text-blue-700" : "text-yellow-500"}`}>
+                                {selectedIndicator.settings.bsZoneOverOpacity ?? 30}%
+                              </span>
+                            </div>
+                            <input
+                              type="range"
+                              min="0"
+                              max="100"
+                              value={selectedIndicator.settings.bsZoneOverOpacity ?? 30}
+                              onChange={(e) => updateSettings({ bsZoneOverOpacity: parseInt(e.target.value, 10) })}
+                              className={`w-full accent-blue-600 rounded-lg h-1 ${isLight ? "bg-slate-250" : "bg-slate-800"}`}
+                            />
+                          </div>
+
+                          {/* LONG/SHORT badges toggle */}
+                          <label className={`flex items-center gap-2.5 p-2 rounded-xl cursor-pointer border-t border-dashed border-slate-700/20 ${isLight ? "hover:bg-slate-150 text-slate-700" : "hover:bg-white/5 text-slate-200"}`}>
+                            <input
+                              type="checkbox"
+                              checked={selectedIndicator.settings.bsZoneShowBadges !== false}
+                              onChange={(e) => updateSettings({ bsZoneShowBadges: e.target.checked })}
+                              className="rounded text-blue-600 focus:ring-blue-500 w-4 h-4"
+                            />
+                            <div className="flex flex-col">
+                              <span className="font-bold text-[11px]">Бейджи LONG/SHORT</span>
+                              <span className={`text-[9.5px] font-medium ${isLight ? "text-slate-500" : "text-slate-400"}`}>Метка в экстремуме захода линии в зону</span>
+                            </div>
+                          </label>
                         </div>
                       )}
 

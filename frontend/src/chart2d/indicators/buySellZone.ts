@@ -23,6 +23,10 @@ export interface BuySellZoneSettings {
   bsZoneBalOpacity?: number;
   bsZoneOverUpColor?: string;
   bsZoneOverDownColor?: string;
+  // Overheat fill brightness (0..100) — shared by both zones.
+  bsZoneOverOpacity?: number;
+  // Show LONG/SHORT badges at each zone-entry extremum.
+  bsZoneShowBadges?: boolean;
 }
 
 /**
@@ -64,6 +68,8 @@ export const buySellZoneIndicator: IndicatorModule & {
     bsZoneBalOpacity: 10,
     bsZoneOverUpColor: "#ef4444",
     bsZoneOverDownColor: "#10b981",
+    bsZoneOverOpacity: 30,
+    bsZoneShowBadges: true,
   },
   isActiveDefault: false,
 };

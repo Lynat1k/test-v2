@@ -268,6 +268,8 @@ export default function ClusterChart({
   const bsZoneBalOpacity = typeof bsZoneSettings.bsZoneBalOpacity === "number" ? bsZoneSettings.bsZoneBalOpacity : 10;
   const bsZoneOverUpColor = bsZoneSettings.bsZoneOverUpColor || "#ef4444";
   const bsZoneOverDownColor = bsZoneSettings.bsZoneOverDownColor || "#10b981";
+  const bsZoneOverOpacity = typeof bsZoneSettings.bsZoneOverOpacity === "number" ? bsZoneSettings.bsZoneOverOpacity : 30;
+  const bsZoneShowBadges = bsZoneSettings.bsZoneShowBadges !== false;
 
   // Delta indicator specific settings
   const deltaSettings = indicatorSettings?.delta || {};
@@ -5146,7 +5148,7 @@ export default function ClusterChart({
         // 3) Overheat fills, dynamic from the line. Clip to the band above balUp
         // and fill the area UNDER the line → only where the line exceeds balUp is
         // painted (red, longs overheated). Mirror below balDown (green).
-        const overOp = 0.16;
+        const overOp = Math.max(0, Math.min(100, bsZoneOverOpacity)) / 100;
         const fillBetween = (clipY0: number, clipY1: number, toEdgeY: number, color: string) => {
           const top = Math.max(0, Math.min(panelH, Math.min(clipY0, clipY1)));
           const bot = Math.max(0, Math.min(panelH, Math.max(clipY0, clipY1)));
@@ -5182,6 +5184,74 @@ export default function ClusterChart({
           ctx.moveTo(seg[0]!.x, seg[0]!.y);
           for (let k = 1; k < seg.length; k++) ctx.lineTo(seg[k]!.x, seg[k]!.y);
           ctx.stroke();
+        }
+
+        // 5) LONG/SHORT badges — one liquid-glass pill per contiguous zone-entry
+        // run, anchored at the run's extremum (max for short, min for long).
+        if (bsZoneShowBadges) {
+          type ZoneRun = { type: "short" | "long"; extVal: number; extCx: number };
+          const runs: ZoneRun[] = [];
+          let curType: "short" | "long" | null = null;
+          let extVal = 0;
+          let extCx = 0;
+          const flushRun = () => {
+            if (curType) runs.push({ type: curType, extVal, extCx });
+            curType = null;
+          };
+          for (let idx = bsStartIdx; idx <= bsEndIdx; idx++) {
+            const p = buySellZonePoints[idx];
+            const v = p ? p.value : null;
+            let t: "short" | "long" | null = null;
+            if (v != null) {
+              if (v > bsZoneBalUp) t = "short";
+              else if (v < bsZoneBalDown) t = "long";
+            }
+            if (t === null) { flushRun(); continue; }
+            if (t !== curType) {
+              flushRun();
+              curType = t; extVal = v!; extCx = p!.cx;
+            } else if (t === "short" ? v! > extVal : v! < extVal) {
+              extVal = v!; extCx = p!.cx;
+            }
+          }
+          flushRun();
+
+          if (runs.length) {
+            const badgeH = 14;
+            const padX = 5;
+            const roundRectPath = (x: number, y: number, w: number, h: number, r: number) => {
+              ctx.beginPath();
+              ctx.moveTo(x + r, y);
+              ctx.arcTo(x + w, y, x + w, y + h, r);
+              ctx.arcTo(x + w, y + h, x, y + h, r);
+              ctx.arcTo(x, y + h, x, y, r);
+              ctx.arcTo(x, y, x + w, y, r);
+              ctx.closePath();
+            };
+            ctx.font = "bold 9px 'Inter', sans-serif";
+            ctx.textAlign = "center";
+            ctx.textBaseline = "middle";
+            for (const run of runs) {
+              const label = run.type === "short" ? "SHORT" : "LONG";
+              const bg = run.type === "short" ? bsZoneOverUpColor : bsZoneOverDownColor;
+              const yLine = getBsZoneY(run.extVal, panelH);
+              const w = ctx.measureText(label).width + padX * 2;
+              // SHORT pill sits above the point (toward top), LONG below.
+              let cy = run.type === "short" ? yLine - badgeH : yLine + badgeH;
+              let cx = Math.max(margin.left + w / 2, Math.min(xRight - w / 2, run.extCx));
+              cy = Math.max(badgeH / 2, Math.min(panelH - badgeH / 2, cy));
+              roundRectPath(cx - w / 2, cy - badgeH / 2, w, badgeH, badgeH / 2);
+              ctx.fillStyle = hexToRgba(bg, 0.92);
+              ctx.fill();
+              ctx.lineWidth = 1;
+              ctx.strokeStyle = "rgba(255, 255, 255, 0.35)";
+              ctx.stroke();
+              ctx.fillStyle = "#ffffff";
+              ctx.fillText(label, cx, cy + 0.5);
+            }
+            ctx.textAlign = "left";
+            ctx.textBaseline = "alphabetic";
+          }
         }
       }
 
@@ -5416,6 +5486,8 @@ export default function ClusterChart({
     bsZoneBalOpacity,
     bsZoneOverUpColor,
     bsZoneOverDownColor,
+    bsZoneOverOpacity,
+    bsZoneShowBadges,
     bsZoneBalUp,
     bsZoneBalDown,
     bsZoneOverUp,

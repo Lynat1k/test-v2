@@ -3144,3 +3144,6 @@ Spot: панель «Только futures», линия не рисуется.
 
 ### [2026-06-28] fix(buySellZone): инверсия направления bid/ask
 `barScore = 50·(1 − r)` вместо `(1 + r)`: перевес бидов тянет линию ВНИЗ (buy/лонг, зелёная), перевес асков — ВВЕРХ (sell/шорт, красная). `frontend/src/chart2d/ClusterChart.tsx`. tsc ✓, vite ✓.
+
+### [2026-06-28] feat(buySellZone): настройка яркости зон + бейджи LONG/SHORT
+Захардкоженный `overOp 0.16` → настройка `bsZoneOverOpacity` (0..100, дефолт 30, один слайдер на обе зоны). Бейджи LONG/SHORT — одна liquid-glass пилюля на непрерывный участок захода линии за канал, в экстремуме (SHORT=макс над линией, LONG=мин под линией), тогл `bsZoneShowBadges` (дефолт on). `ClusterChart.tsx`, `indicators/buySellZone.ts`, `chart2d/types.ts`, `IndicatorsModal.tsx`. tsc ✓, vite ✓.
