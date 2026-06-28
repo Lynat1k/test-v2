@@ -4995,14 +4995,15 @@ export default function ClusterChart({
       const midY = panelH / 2;
       // Zoomable mapping symmetric around 0 (ratioYInPanel). scale=1 → ±1 fit.
       const getRatioY = ratioYInPanel;
+      const baseY = getRatioY(0); // нулевая база с учётом вертикального смещения панели
 
       // Zero reference line (centre)
       ctx.beginPath();
       ctx.strokeStyle = isLight ? "rgba(15, 23, 42, 0.18)" : "rgba(255, 255, 255, 0.14)";
       ctx.lineWidth = 0.8;
       ctx.setLineDash([3, 3]);
-      ctx.moveTo(margin.left, midY);
-      ctx.lineTo(scrollWidth, midY);
+      ctx.moveTo(margin.left, baseY);
+      ctx.lineTo(scrollWidth, baseY);
       ctx.stroke();
       ctx.setLineDash([]);
 
@@ -5022,11 +5023,14 @@ export default function ClusterChart({
           if (!p || p.value === null || p.value === undefined) continue;
           const raw = p.value; // sign from raw value; Y clamps to zoomed bounds inside getRatioY
           const yVal = getRatioY(raw);
-          const x = p.cx - candleWidth / 2;
-          const top = raw >= 0 ? yVal : midY;
-          const h = Math.max(1, Math.abs(midY - yVal));
+          const top = raw >= 0 ? yVal : baseY;
+          const h = Math.max(1, Math.abs(baseY - yVal));
+          const pitch = candleWidth + candleSpacing;
+          const tight = candleWidth < 6; // порог сильного сужения
+          const barX = tight ? (p.cx - candleWidth / 2) : (p.cx - candleWidth / 2 + 1);
+          const barW = tight ? pitch : Math.max(1, candleWidth - 2);
           ctx.fillStyle = raw >= 0 ? bullFill : bearFill;
-          ctx.fillRect(x + 1, top, candleWidth - 2, h);
+          ctx.fillRect(barX, top, barW, h);
         }
       }
 
