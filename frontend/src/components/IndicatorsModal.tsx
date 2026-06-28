@@ -62,6 +62,9 @@ interface IndicatorsModalProps {
 export default function IndicatorsModal({ isOpen, onClose, symbol = "", market = "futures", timeframe = "", indicators, source, focusIndicatorId, onApplyIndicators, onToggleVisibility, onPropagateIndicator, onPreviewIndicators, onCancelPreview, adminDefaultsTf, adminDefaultsAllTf, onRefreshAdminDefaults }: IndicatorsModalProps) {
   const { limits } = useUserLimits()
   const maxIndicators = limits.maxIndicators >= 100 ? Infinity : limits.maxIndicators
+  // Indicator ids hidden for the current tier (server is source of truth via
+  // /user/limits). Such indicators must not appear in the catalog at all.
+  const gatedIds = limits.gatedIndicators ?? []
   const { user } = useAuthContext()
   const isAdmin = (user?.role ?? '').toLowerCase() === 'admin'
 
@@ -164,6 +167,9 @@ export default function IndicatorsModal({ isOpen, onClose, symbol = "", market =
 
   const getAccordionIndicators = (tabName: keyof typeof expandedTabs) => {
     return draft.filter((ind) => {
+      // Tier gate: never surface a gated indicator, even if a stale draft
+      // entry slipped through (server already strips it on GET).
+      if (gatedIds.includes(ind.id)) return false
       if (tabName === "Избранные" && !ind.isFavorite) return false
       if (tabName === "Сообщество" && ind.category !== "Сообщество") return false
       if (searchQuery.trim() !== "") {
@@ -199,7 +205,9 @@ export default function IndicatorsModal({ isOpen, onClose, symbol = "", market =
       // Catalog-only entries land as isActive:false so untouched indicators
       // are not silently activated on the next Apply.
       const storedById = new Map((indicators ?? []).map((i) => [i.id, i]))
-      const seeded: Indicator[] = MODULAR_INDICATORS.map((mod) => {
+      const seeded: Indicator[] = MODULAR_INDICATORS
+        .filter((mod) => !gatedIds.includes(mod.id))
+        .map((mod) => {
         const fromStored = storedById.get(mod.id)
         if (fromStored) {
           return JSON.parse(JSON.stringify(fromStored)) as Indicator

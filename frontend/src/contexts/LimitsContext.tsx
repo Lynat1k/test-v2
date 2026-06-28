@@ -13,6 +13,7 @@ const DEFAULT_LIMITS: UserLimits = {
   workspacesCount: 1,
   anomaliesEnabled: 0,
   historyDaysPerTf: { '1m': 1, '5m': 1, '15m': 1, '30m': 1, '1h': 1, '4h': 1 },
+  gatedIndicators: [],
 }
 
 interface LimitsContextValue {

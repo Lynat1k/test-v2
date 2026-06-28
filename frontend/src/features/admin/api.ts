@@ -86,6 +86,7 @@ export interface TierPolicy {
   workspacesCount: number
   anomaliesEnabled: number
   historyDaysPerTf: Record<string, number>
+  gatedIndicators: string[]
   createdAt: string
   updatedAt: string
 }

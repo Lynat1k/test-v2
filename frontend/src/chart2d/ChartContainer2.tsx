@@ -110,6 +110,7 @@ export function ChartContainer2({
         hideClusterNumbers={hideClusterNumbers}
         onToggleHideClusterNumbers={onToggleHideClusterNumbers}
         indicators={indicators}
+        gatedIndicators={limits.gatedIndicators}
         activeIndicators={activeIndicators}
         onToggleIndicator={onToggleIndicator}
         onToggleVisibility={onToggleVisibility}

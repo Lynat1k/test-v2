@@ -104,6 +104,7 @@ export interface UserLimits {
   workspacesCount: number
   anomaliesEnabled: number
   historyDaysPerTf: Record<string, number>
+  gatedIndicators: string[]
 }
 
 export async function apiGetLimits(): Promise<UserLimits> {

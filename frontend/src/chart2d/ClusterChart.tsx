@@ -114,6 +114,9 @@ interface ClusterChartProps {
   candles: ClusterCandle[];
   activePair: CryptoPair;
   indicators?: Indicator[];
+  // Indicator ids hidden for the current tier. Belt-and-suspenders: even if a
+  // gated indicator leaks into the active set, it must not be rendered.
+  gatedIndicators?: string[];
   activeIndicators?: Record<string, boolean>;
   marketType?: "SPOT" | "FUTURES";
   onToggleMarketType?: () => void;
@@ -148,7 +151,8 @@ interface ClusterChartProps {
 export default function ClusterChart({
   candles,
   activePair,
-  indicators,
+  indicators: indicatorsRaw,
+  gatedIndicators = [],
   activeIndicators = {
     clusterSearch: false,
     delta: false,
@@ -212,6 +216,14 @@ export default function ClusterChart({
     window.addEventListener("resize", handleResize);
     return () => window.removeEventListener("resize", handleResize);
   }, []);
+
+  // Tier gate (belt-and-suspenders): strip gated indicators from the prop once
+  // so every downstream consumer (settings map, overlay legend, footer panels)
+  // sees the filtered set. Identity preserved when nothing is gated.
+  const indicators = useMemo(() => {
+    if (!indicatorsRaw || gatedIndicators.length === 0) return indicatorsRaw
+    return indicatorsRaw.filter(i => !gatedIndicators.includes(i.id))
+  }, [indicatorsRaw, gatedIndicators])
 
   const indicatorSettings = useMemo(() => {
     if (!indicators) return undefined

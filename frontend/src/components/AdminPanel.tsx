@@ -23,6 +23,7 @@ import {
 import { apiGetMetrics, apiGetMetricsHistory, apiGetTickers, apiAddTicker, apiUpdateTicker, apiDeleteTicker, apiGetCompressions, apiUpsertCompressions, apiStartDownload, apiGetJobs, apiClearJobs, apiGetUserStats, apiListUsers, apiCreateUser, apiUpdateUserRole, apiDeleteUser, apiGetPolicies, apiUpdatePolicies, apiListIndicatorDefaults, apiPutIndicatorDefaults, apiDeleteIndicatorDefaults, apiGetBinanceTickerInfo, type ServerMetrics, type MetricsHistoryPoint, type Ticker, type DefaultCompression, type DownloadJob, type UserListItem, type UserStats, type TierPolicy, type AdminIndicatorDefault } from '@/features/admin/api'
 import { useChartControls } from '@/contexts/ChartControlsContext'
 import { useIndicatorsStorage } from '@/features/indicators/IndicatorsStorageContext'
+import { MODULAR_INDICATORS } from '@/chart2d/indicators'
 import { StyledSelect } from './StyledSelect'
 
 type AdminTab = 'server' | 'database' | 'users' | 'settings' | 'stats'
@@ -1771,6 +1772,22 @@ function TierPoliciesBlock({ isLight }: { isLight: boolean }) {
     setSaveMsg(null)
   }
 
+  // Toggle one indicator's availability for a tier. checked (available) = NOT
+  // in gatedIndicators; unchecked = add to gatedIndicators (hidden for tier).
+  const toggleGated = (tier: string, id: string, available: boolean) => {
+    setPolicies(prev => {
+      if (!prev) return prev
+      const tierP = prev[tier]
+      if (!tierP) return prev
+      const cur = tierP.gatedIndicators ?? []
+      const next = available
+        ? cur.filter(g => g !== id)
+        : cur.includes(id) ? cur : [...cur, id]
+      return { ...prev, [tier]: { ...tierP, gatedIndicators: next } }
+    })
+    setSaveMsg(null)
+  }
+
   const handleSave = async () => {
     if (!policies) return
     setSaving(true)
@@ -2076,6 +2093,43 @@ function TierPoliciesBlock({ isLight }: { isLight: boolean }) {
                 <span className={`text-[10px] font-mono ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
                   {current.sessionLimit < 0 ? 'Безлимит' : `${current.sessionLimit} сессий`}
                 </span>
+              </div>
+            </div>
+
+            {/* Card 9: Available indicators (per-tier gate) */}
+            <div className={`p-4 rounded-xl border flex flex-col justify-between gap-3 md:col-span-2 lg:col-span-3 ${subcard}`}>
+              <div>
+                <span className={`text-[10px] font-mono font-black uppercase block tracking-wider ${isLight ? 'text-slate-600' : 'text-slate-300'}`}>
+                  9. {t('admin.policies.gatedIndicators') || 'Доступные индикаторы'}
+                </span>
+                <p className="text-[10.5px] text-slate-400 mt-1 leading-snug">
+                  {t('admin.policies.gatedIndicatorsDesc') || 'Снятая галка — индикатор скрыт для этого тарифа.'}
+                </p>
+              </div>
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-2.5 mt-1">
+                {MODULAR_INDICATORS.map(mod => {
+                  const available = !(current.gatedIndicators ?? []).includes(mod.id)
+                  return (
+                    <label
+                      key={mod.id}
+                      className={`flex items-center gap-2 px-2.5 py-2 rounded-lg border cursor-pointer select-none transition ${
+                        available
+                          ? isLight ? 'bg-white border-slate-200 hover:bg-slate-50 shadow-sm' : 'bg-white/[0.02] border-white/5 hover:bg-white/[0.04]'
+                          : isLight ? 'bg-slate-100 border-slate-200 opacity-70' : 'bg-slate-950/40 border-white/5 opacity-60'
+                      }`}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={available}
+                        onChange={e => toggleGated(current.tier, mod.id, e.target.checked)}
+                        className={`w-4 h-4 rounded shrink-0 focus:ring-blue-500 focus:ring-2 cursor-pointer ${isLight ? 'bg-white border-slate-300 text-blue-600' : 'bg-slate-900 border-white/10 text-blue-500'}`}
+                      />
+                      <span className={`text-[10.5px] font-bold truncate ${available ? (isLight ? 'text-slate-700' : 'text-slate-200') : 'text-slate-400 line-through'}`} title={mod.label.replace('(PROCLUSTER) ', '')}>
+                        {mod.label.replace('(PROCLUSTER) ', '')}
+                      </span>
+                    </label>
+                  )
+                })}
               </div>
             </div>
 

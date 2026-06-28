@@ -47,6 +47,7 @@ export interface ClusterChartAdapterProps {
   hideClusterNumbers?: boolean;
   onToggleHideClusterNumbers?: () => void;
   indicators?: import("@/chart2d/types").Indicator[] | undefined;
+  gatedIndicators?: string[];
   activeIndicators?: Record<string, boolean>;
   onToggleIndicator?: (id: string) => void;
   onToggleVisibility?: (id: string) => void;
@@ -116,6 +117,7 @@ export default function ClusterChartAdapter({
   hideClusterNumbers = false,
   onToggleHideClusterNumbers,
   indicators,
+  gatedIndicators,
   activeIndicators,
   onToggleIndicator,
   onToggleVisibility,
@@ -416,6 +418,7 @@ export default function ClusterChartAdapter({
       activePair={activePair}
       clusterStep={priceStep}
       {...(indicators ? { indicators } : {})}
+      {...(gatedIndicators ? { gatedIndicators } : {})}
       {...(activeIndicators ? { activeIndicators } : {})}
       {...(onToggleIndicator ? { onToggleIndicator } : {})}
       {...(onToggleVisibility ? { onToggleVisibility } : {})}
