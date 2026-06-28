@@ -19,6 +19,7 @@ type TierPolicy struct {
 	WorkspacesCount         int            `json:"workspacesCount"`
 	AnomaliesEnabled        int            `json:"anomaliesEnabled"`
 	HistoryDaysPerTf        map[string]int `json:"historyDaysPerTf"`
+	GatedIndicators         []string       `json:"gatedIndicators"`
 	CreatedAt               string         `json:"createdAt"`
 	UpdatedAt               string         `json:"updatedAt"`
 }
@@ -36,12 +37,13 @@ var defaultTierPolicies = []struct {
 	WorkspacesCount         int
 	AnomaliesEnabled        int
 	HistoryDaysPerTf        string
+	GatedIndicators         string
 }{
-	{"guest", 1, 7, 1, 1, 0, 0, 1, 0, `{"1m":1,"5m":1,"15m":1,"30m":1,"1h":1,"4h":1}`},
-	{"free", 1, 180, 1, 1, 0, 0, 1, 0, `{"1m":1,"5m":1,"15m":1,"30m":1,"1h":1,"4h":1}`},
-	{"pro", 2, -1, 3, 5, 1, 0, 2, 1, `{"1m":3,"5m":7,"15m":14,"30m":30,"1h":60,"4h":180}`},
-	{"vip", 2, -1, 6, 15, 1, 1, 2, 1, `{"1m":7,"5m":14,"15m":30,"30m":60,"1h":120,"4h":360}`},
-	{"admin", -1, -1, 10, -1, 1, 1, 2, 1, `{"1m":14,"5m":30,"15m":60,"30m":120,"1h":240,"4h":720}`},
+	{"guest", 1, 7, 1, 1, 0, 0, 1, 0, `{"1m":1,"5m":1,"15m":1,"30m":1,"1h":1,"4h":1}`, `["buySellZone"]`},
+	{"free", 1, 180, 1, 1, 0, 0, 1, 0, `{"1m":1,"5m":1,"15m":1,"30m":1,"1h":1,"4h":1}`, `["buySellZone"]`},
+	{"pro", 2, -1, 3, 5, 1, 0, 2, 1, `{"1m":3,"5m":7,"15m":14,"30m":30,"1h":60,"4h":180}`, `["buySellZone"]`},
+	{"vip", 2, -1, 6, 15, 1, 1, 2, 1, `{"1m":7,"5m":14,"15m":30,"30m":60,"1h":120,"4h":360}`, `["buySellZone"]`},
+	{"admin", -1, -1, 10, -1, 1, 1, 2, 1, `{"1m":14,"5m":30,"15m":60,"30m":120,"1h":240,"4h":720}`, `[]`},
 }
 
 func SeedTierPolicies(db *sql.DB) error {
@@ -59,11 +61,11 @@ func SeedTierPolicies(db *sql.DB) error {
 		_, err := db.Exec(
 			`INSERT INTO tier_policies (tier, session_limit, history_max_days, compression_max, max_indicators,
 			 custom_indicator_settings, telegram_enabled, workspaces_count, anomalies_enabled, history_days_per_tf,
-			 created_at, updated_at)
-			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			 gated_indicators, created_at, updated_at)
+			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 			p.Tier, p.SessionLimit, p.HistoryMaxDays, p.CompressionMax, p.MaxIndicators,
 			p.CustomIndicatorSettings, p.TelegramEnabled, p.WorkspacesCount, p.AnomaliesEnabled, p.HistoryDaysPerTf,
-			now, now,
+			p.GatedIndicators, now, now,
 		)
 		if err != nil {
 			return fmt.Errorf("seed tier_policy %s: %w", p.Tier, err)
@@ -159,7 +161,7 @@ func GetLimitsForTier(db *sql.DB, tier string) (TierPolicy, error) {
 func GetPolicies(db *sql.DB) (map[string]TierPolicy, error) {
 	rows, err := db.Query(`SELECT tier, session_limit, history_max_days, compression_max, max_indicators,
 		custom_indicator_settings, telegram_enabled, workspaces_count, anomalies_enabled, history_days_per_tf,
-		created_at, updated_at FROM tier_policies`)
+		gated_indicators, created_at, updated_at FROM tier_policies`)
 	if err != nil {
 		return nil, fmt.Errorf("query tier_policies: %w", err)
 	}
@@ -169,15 +171,17 @@ func GetPolicies(db *sql.DB) (map[string]TierPolicy, error) {
 	for rows.Next() {
 		var p TierPolicy
 		var historyDaysPerTf string
+		var gatedIndicators string
 		if err := rows.Scan(&p.Tier, &p.SessionLimit, &p.HistoryMaxDays, &p.CompressionMax, &p.MaxIndicators,
 			&p.CustomIndicatorSettings, &p.TelegramEnabled, &p.WorkspacesCount, &p.AnomaliesEnabled, &historyDaysPerTf,
-			&p.CreatedAt, &p.UpdatedAt); err != nil {
+			&gatedIndicators, &p.CreatedAt, &p.UpdatedAt); err != nil {
 			return nil, fmt.Errorf("scan tier_policy: %w", err)
 		}
 		p.HistoryDaysPerTf = make(map[string]int)
 		if err := json.Unmarshal([]byte(historyDaysPerTf), &p.HistoryDaysPerTf); err != nil {
 			p.HistoryDaysPerTf = map[string]int{"1m": 1, "5m": 1, "15m": 1, "30m": 1, "1h": 1, "4h": 1}
 		}
+		p.GatedIndicators = parseGatedIndicators(gatedIndicators)
 		policies[p.Tier] = p
 	}
 	if err := rows.Err(); err != nil {
@@ -230,6 +234,23 @@ func GetPublicPolicies(db *sql.DB) (map[string]PublicTierPolicy, error) {
 	return public, nil
 }
 
+// parseGatedIndicators decodes the gated_indicators JSON column into a string
+// slice. Empty/NULL/corrupt values degrade to an empty (non-nil) slice so the
+// JSON response always serializes as [] rather than null.
+func parseGatedIndicators(s string) []string {
+	out := []string{}
+	if s == "" {
+		return out
+	}
+	if err := json.Unmarshal([]byte(s), &out); err != nil {
+		return []string{}
+	}
+	if out == nil {
+		return []string{}
+	}
+	return out
+}
+
 func UpsertPolicies(db *sql.DB, policies map[string]TierPolicy) error {
 	now := time.Now().UTC().Format(time.RFC3339)
 	for _, p := range policies {
@@ -237,20 +258,29 @@ func UpsertPolicies(db *sql.DB, policies map[string]TierPolicy) error {
 		if err != nil {
 			return fmt.Errorf("marshal history_days_per_tf for %s: %w", p.Tier, err)
 		}
+		gated := p.GatedIndicators
+		if gated == nil {
+			gated = []string{}
+		}
+		gatedIndicatorsJSON, err := json.Marshal(gated)
+		if err != nil {
+			return fmt.Errorf("marshal gated_indicators for %s: %w", p.Tier, err)
+		}
 		_, err = db.Exec(
 			`INSERT INTO tier_policies (tier, session_limit, history_max_days, compression_max, max_indicators,
 			 custom_indicator_settings, telegram_enabled, workspaces_count, anomalies_enabled, history_days_per_tf,
-			 created_at, updated_at)
-			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			 gated_indicators, created_at, updated_at)
+			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 			 ON CONFLICT(tier) DO UPDATE SET
 			 session_limit=excluded.session_limit, history_max_days=excluded.history_max_days,
 			 compression_max=excluded.compression_max, max_indicators=excluded.max_indicators,
 			 custom_indicator_settings=excluded.custom_indicator_settings, telegram_enabled=excluded.telegram_enabled,
 			 workspaces_count=excluded.workspaces_count, anomalies_enabled=excluded.anomalies_enabled,
-			 history_days_per_tf=excluded.history_days_per_tf, updated_at=excluded.updated_at`,
+			 history_days_per_tf=excluded.history_days_per_tf, gated_indicators=excluded.gated_indicators,
+			 updated_at=excluded.updated_at`,
 			p.Tier, p.SessionLimit, p.HistoryMaxDays, p.CompressionMax, p.MaxIndicators,
 			p.CustomIndicatorSettings, p.TelegramEnabled, p.WorkspacesCount, p.AnomaliesEnabled,
-			string(historyDaysPerTfJSON), now, now,
+			string(historyDaysPerTfJSON), string(gatedIndicatorsJSON), now, now,
 		)
 		if err != nil {
 			return fmt.Errorf("upsert tier_policy %s: %w", p.Tier, err)

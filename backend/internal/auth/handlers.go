@@ -1014,17 +1014,26 @@ func (h *Handler) handleGetLimits(w http.ResponseWriter, r *http.Request) {
 		WorkspacesCount         int            `json:"workspacesCount"`
 		AnomaliesEnabled        int            `json:"anomaliesEnabled"`
 		HistoryDaysPerTf        map[string]int `json:"historyDaysPerTf"`
+		GatedIndicators         []string       `json:"gatedIndicators"`
 	}
 	var historyDaysPerTf string
+	var gatedIndicators string
 
 	err := h.db.QueryRow(`SELECT tier, session_limit, history_max_days, compression_max, max_indicators,
-		custom_indicator_settings, telegram_enabled, workspaces_count, anomalies_enabled, history_days_per_tf
+		custom_indicator_settings, telegram_enabled, workspaces_count, anomalies_enabled, history_days_per_tf,
+		gated_indicators
 		FROM tier_policies WHERE tier = ?`, strings.ToLower(role)).Scan(
 		&p.Tier, &p.SessionLimit, &p.HistoryMaxDays, &p.CompressionMax, &p.MaxIndicators,
-		&p.CustomIndicatorSettings, &p.TelegramEnabled, &p.WorkspacesCount, &p.AnomaliesEnabled, &historyDaysPerTf)
+		&p.CustomIndicatorSettings, &p.TelegramEnabled, &p.WorkspacesCount, &p.AnomaliesEnabled, &historyDaysPerTf,
+		&gatedIndicators)
 
 	if err == sql.ErrNoRows {
-		// Fallback: guest defaults
+		// Fallback: guest defaults. When policies are missing, hide Buy/Sell Zone
+		// for non-admin (safer default = hide); admin sees everything.
+		fallbackGated := []string{"buySellZone"}
+		if strings.ToLower(role) == "admin" {
+			fallbackGated = []string{}
+		}
 		p = struct {
 			Tier                    string         `json:"tier"`
 			SessionLimit            int            `json:"sessionLimit"`
@@ -1036,11 +1045,15 @@ func (h *Handler) handleGetLimits(w http.ResponseWriter, r *http.Request) {
 			WorkspacesCount         int            `json:"workspacesCount"`
 			AnomaliesEnabled        int            `json:"anomaliesEnabled"`
 			HistoryDaysPerTf        map[string]int `json:"historyDaysPerTf"`
+			GatedIndicators         []string       `json:"gatedIndicators"`
 		}{
 			Tier: role, SessionLimit: 1, HistoryMaxDays: 7, CompressionMax: 1,
 			MaxIndicators: 1, WorkspacesCount: 1,
 			HistoryDaysPerTf: map[string]int{"1m": 1, "5m": 1, "15m": 1, "30m": 1, "1h": 1, "4h": 1},
+			GatedIndicators:  fallbackGated,
 		}
+		writeJSON(w, http.StatusOK, authResponse{OK: true, Data: p})
+		return
 	} else if err != nil {
 		log.Printf("[auth] get limits error: %v", err)
 		writeError(w, http.StatusInternalServerError, "DB_ERROR", "failed to get limits")
@@ -1050,6 +1063,16 @@ func (h *Handler) handleGetLimits(w http.ResponseWriter, r *http.Request) {
 	p.HistoryDaysPerTf = make(map[string]int)
 	if err := json.Unmarshal([]byte(historyDaysPerTf), &p.HistoryDaysPerTf); err != nil {
 		p.HistoryDaysPerTf = map[string]int{"1m": 1, "5m": 1, "15m": 1, "30m": 1, "1h": 1, "4h": 1}
+	}
+
+	p.GatedIndicators = []string{}
+	if gatedIndicators != "" {
+		if err := json.Unmarshal([]byte(gatedIndicators), &p.GatedIndicators); err != nil {
+			p.GatedIndicators = []string{}
+		}
+		if p.GatedIndicators == nil {
+			p.GatedIndicators = []string{}
+		}
 	}
 
 	writeJSON(w, http.StatusOK, authResponse{OK: true, Data: p})

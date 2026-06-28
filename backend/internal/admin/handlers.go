@@ -923,6 +923,29 @@ func (h *AdminHandler) handleUpdatePolicies(w http.ResponseWriter, r *http.Reque
 			writeError(w, http.StatusBadRequest, "INVALID_RANGE", fmt.Sprintf("history_max_days must be >= -1 for tier %s", tier))
 			return
 		}
+		// gated_indicators: array of indicator ids hidden for this tier. We do
+		// NOT validate ids against the indicator catalog (the backend does not
+		// know it — the admin UI supplies valid ids via checkboxes). Only basic
+		// sanity: non-empty, bounded length and count.
+		const maxGatedIndicators = 200
+		if len(p.GatedIndicators) > maxGatedIndicators {
+			writeError(w, http.StatusBadRequest, "INVALID_RANGE", fmt.Sprintf("too many gated_indicators for tier %s (max %d)", tier, maxGatedIndicators))
+			return
+		}
+		for _, id := range p.GatedIndicators {
+			if strings.TrimSpace(id) == "" {
+				writeError(w, http.StatusBadRequest, "INVALID_PARAMS", fmt.Sprintf("gated_indicators ids must be non-empty for tier %s", tier))
+				return
+			}
+			if len(id) > 64 {
+				writeError(w, http.StatusBadRequest, "INVALID_PARAMS", fmt.Sprintf("gated_indicators id too long for tier %s (max 64)", tier))
+				return
+			}
+		}
+		if p.GatedIndicators == nil {
+			p.GatedIndicators = []string{}
+			req.Policies[tier] = p
+		}
 	}
 
 	if err := UpsertPolicies(h.db, req.Policies); err != nil {

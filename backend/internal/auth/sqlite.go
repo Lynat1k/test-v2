@@ -231,6 +231,7 @@ func Migrate(db *sql.DB) error {
 		{"workspaces_count", "INTEGER NOT NULL DEFAULT 1"},
 		{"anomalies_enabled", "INTEGER NOT NULL DEFAULT 0"},
 		{"history_days_per_tf", "TEXT NOT NULL DEFAULT '{\"1m\":1,\"5m\":1,\"15m\":1,\"30m\":1,\"1h\":1,\"4h\":1}'"},
+		{"gated_indicators", "TEXT NOT NULL DEFAULT '[]'"},
 	}
 	tierExisting := make(map[string]bool)
 	tierRows, err := db.Query("PRAGMA table_info(tier_policies)")
@@ -251,12 +252,29 @@ func Migrate(db *sql.DB) error {
 	}
 	tierRows.Close()
 
+	// Capture before the ALTER loop: true when gated_indicators does not yet
+	// exist and is about to be created. Used to run the one-time backfill below
+	// only on first creation (not on every start).
+	gatedIndicatorsJustCreated := !tierExisting["gated_indicators"]
+
 	for _, col := range tierCols {
 		if !tierExisting[col.name] {
 			stmt := fmt.Sprintf("ALTER TABLE tier_policies ADD COLUMN %s %s", col.name, col.def)
 			if _, err := db.Exec(stmt); err != nil {
 				return fmt.Errorf("migration alter tier_policies %s: %w", col.name, err)
 			}
+		}
+	}
+
+	// One-time backfill: when gated_indicators is first added, hide Buy/Sell
+	// Zone for every non-admin tier (admin keeps '[]' = everything visible).
+	// Runs only on column creation — on a fresh DB the table is empty here and
+	// SeedTierPolicies sets the defaults instead.
+	if gatedIndicatorsJustCreated {
+		if _, err := db.Exec(
+			`UPDATE tier_policies SET gated_indicators='["buySellZone"]' WHERE tier IN ('guest','free','pro','vip')`,
+		); err != nil {
+			return fmt.Errorf("migration backfill gated_indicators: %w", err)
 		}
 	}
 

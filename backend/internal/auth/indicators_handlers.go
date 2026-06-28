@@ -87,6 +87,58 @@ func (h *Handler) getMaxIndicatorsForRole(role string) int {
 	return maxN
 }
 
+// getGatedIndicatorsForRole reads tier_policies.gated_indicators for the role
+// and returns the set of indicator ids hidden from that tier. Returns nil on
+// any error / unknown role / empty column — callers treat nil as "nothing
+// gated" so a read failure never hides indicators that should be visible.
+func (h *Handler) getGatedIndicatorsForRole(role string) []string {
+	if role == "" {
+		role = "guest"
+	}
+	var raw string
+	err := h.db.QueryRow(
+		`SELECT gated_indicators FROM tier_policies WHERE tier = ?`,
+		strings.ToLower(role),
+	).Scan(&raw)
+	if err == sql.ErrNoRows {
+		return nil
+	}
+	if err != nil {
+		log.Printf("[auth] gated indicators: query for %s: %v", role, err)
+		return nil
+	}
+	if raw == "" {
+		return nil
+	}
+	var ids []string
+	if err := json.Unmarshal([]byte(raw), &ids); err != nil {
+		log.Printf("[auth] gated indicators: corrupt json for %s: %v", role, err)
+		return nil
+	}
+	return ids
+}
+
+// filterGatedIndicators returns a new slice with every item whose "id" is in
+// the gated set removed. When gated is empty it returns arr unchanged. Items
+// without a string id are kept (id validation happens elsewhere).
+func filterGatedIndicators(arr []map[string]interface{}, gated []string) []map[string]interface{} {
+	if len(gated) == 0 || len(arr) == 0 {
+		return arr
+	}
+	gatedSet := make(map[string]bool, len(gated))
+	for _, id := range gated {
+		gatedSet[id] = true
+	}
+	out := make([]map[string]interface{}, 0, len(arr))
+	for _, it := range arr {
+		if id, ok := it["id"].(string); ok && gatedSet[id] {
+			continue
+		}
+		out = append(out, it)
+	}
+	return out
+}
+
 // NormalizeIndicatorKey enforces the canonical case (symbol upper, market/tf
 // lower) and validates against the allow-list. timeframe='*' is accepted as
 // the all-tf marker. Returns the normalized triple and an error string
@@ -147,6 +199,11 @@ func (h *Handler) handleGetUserIndicators(w http.ResponseWriter, r *http.Request
 		log.Printf("[auth] resolve indicators: corrupt json for %s/%s/%s: %v", symbol, market, timeframe, err)
 		arr = nil
 	}
+	// Per-tier gate: cut indicators hidden for this role from the resolved view
+	// so a downgrade makes the gated indicator disappear (e.g. Buy/Sell Zone for
+	// non-admin tiers). Done before the overflow count so gated items never
+	// occupy a tier slot.
+	arr = filterGatedIndicators(arr, h.getGatedIndicatorsForRole(role))
 	if overflow := countActiveOverflow(arr, h.getMaxIndicatorsForRole(role)); overflow > 0 {
 		log.Printf("[auth] tier overflow on read: user=%s role=%s key=%s/%s/%s overflow=%d",
 			userID, role, symbol, market, timeframe, overflow)
@@ -280,6 +337,17 @@ func (h *Handler) handlePutUserIndicators(w http.ResponseWriter, r *http.Request
 			writeError(w, http.StatusBadRequest, "INVALID_PARAMS", "indicator must have a non-empty string id")
 			return
 		}
+		// Per-tier gate: a gated indicator (e.g. Buy/Sell Zone for non-admin)
+		// must not be persisted via propagate either. Silently no-op — the UI
+		// hides it, this is defense-in-depth against hand-crafted requests.
+		propRole, _ := r.Context().Value(RoleKey).(string)
+		for _, g := range h.getGatedIndicatorsForRole(propRole) {
+			if g == id {
+				writeJSON(w, http.StatusOK, authResponse{OK: true})
+				log.Printf("[auth] propagate gated indicator skipped: user=%s role=%s id=%s", userID, propRole, id)
+				return
+			}
+		}
 		if err := PropagateUserIndicator(r.Context(), h.db, userID, symbol, market, body.Indicator); err != nil {
 			log.Printf("[auth] propagate user_indicators: %v", err)
 			writeError(w, http.StatusInternalServerError, "DB_ERROR", "failed to propagate indicator")
@@ -316,6 +384,14 @@ func (h *Handler) handlePutUserIndicators(w http.ResponseWriter, r *http.Request
 			}
 		}
 
+		role, _ := r.Context().Value(RoleKey).(string)
+
+		// Per-tier gate: silently drop indicators hidden for this role from the
+		// incoming set so a gated indicator (e.g. Buy/Sell Zone for non-admin)
+		// can never be persisted active even via a hand-crafted request. No 403 —
+		// the UI already hides these; this is defense-in-depth.
+		arr = filterGatedIndicators(arr, h.getGatedIndicatorsForRole(role))
+
 		// Per-tier active cap (variant B): reject only when the request would
 		// strictly INCREASE the active count past the tier max. This preserves
 		// the "limit on add" rule (a raw API client trying to push more actives
@@ -323,7 +399,6 @@ func (h *Handler) handlePutUserIndicators(w http.ResponseWriter, r *http.Request
 		// user save settings on the same set of indicators they already had —
 		// the overflow stays in the stored row and the UI renders the tail as
 		// "blocked by tier". propagate path is unaffected (single-indicator op).
-		role, _ := r.Context().Value(RoleKey).(string)
 		tierMax := h.getMaxIndicatorsForRole(role)
 		if tierMax >= 0 {
 			storedJSON, _, gErr := GetUserIndicator(r.Context(), h.db, userID, symbol, market, timeframe)
