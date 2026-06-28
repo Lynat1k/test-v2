@@ -119,6 +119,7 @@ interface ClusterChartProps {
   gatedIndicators?: string[];
   activeIndicators?: Record<string, boolean>;
   marketType?: "SPOT" | "FUTURES";
+  liveStatus?: "connecting" | "active" | "rejected" | "evicted" | "disconnected";
   onToggleMarketType?: () => void;
   theme?: "dark" | "light";
   candleType?: "auto" | "japanese" | "footprint" | "clusters" | "bars";
@@ -165,6 +166,7 @@ export default function ClusterChart({
     buySellZone: false
   },
   marketType = "SPOT",
+  liveStatus,
   onToggleMarketType,
   theme = "dark",
   candleType = "auto",
@@ -5607,6 +5609,7 @@ export default function ClusterChart({
       <ChartToolsHeader
         activePair={activePair}
         marketType={marketType}
+        liveStatus={liveStatus}
         onToggleMarketType={onToggleMarketType}
         indicators={indicators}
         workspaceLayout={workspaceLayout}

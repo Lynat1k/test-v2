@@ -9,6 +9,7 @@ interface ChartToolsHeaderProps {
   activePair: CryptoPair;
   marketType: "SPOT" | "FUTURES";
   onToggleMarketType?: () => void;
+  liveStatus?: "connecting" | "active" | "rejected" | "evicted" | "disconnected";
   indicators?: Indicator[];
   workspaceLayout?: "1" | "2h" | "2v";
   onWorkspaceLayoutChange?: (layout: "1" | "2h" | "2v") => void;
@@ -54,6 +55,7 @@ function ChartToolsHeaderImpl({
   activePair,
   marketType,
   onToggleMarketType,
+  liveStatus,
   indicators,
   workspaceLayout,
   onWorkspaceLayoutChange,
@@ -114,6 +116,23 @@ function ChartToolsHeaderImpl({
           </button>
         </h3>
 
+        {(liveStatus === "connecting" || liveStatus === "rejected" || liveStatus === "evicted") && (
+          <span
+            className={`text-[9px] sm:text-[10px] font-bold px-1.5 sm:px-2.5 py-0.5 rounded border shrink-0 select-none ${
+              liveStatus === "connecting"
+                ? "bg-blue-500/20 text-blue-400 border-blue-500/30"
+                : liveStatus === "rejected"
+                  ? "bg-red-500/20 text-red-400 border-red-500/30"
+                  : "bg-orange-500/20 text-orange-400 border-orange-500/30"
+            }`}
+          >
+            {liveStatus === "connecting"
+              ? language === "RU" ? "Подключение…" : language === "KZ" ? "Қосылу…" : "Connecting…"
+              : liveStatus === "rejected"
+                ? language === "RU" ? "Лимит сессий" : language === "KZ" ? "Сессия лимиті" : "Session limit"
+                : language === "RU" ? "Открыто в др. окне" : language === "KZ" ? "Басқа терезеде" : "Open elsewhere"}
+          </span>
+        )}
       </div>
 
       {/* Toolbar Controls */}
