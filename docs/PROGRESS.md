@@ -3150,3 +3150,6 @@ Spot: панель «Только futures», линия не рисуется.
 
 ### [2026-06-28] feat(buySellZone): тень текста бейджей LONG/SHORT
 Под текстом пилюль LONG/SHORT — drop shadow (rgba(0,0,0,0.55), blur 2, offsetY 1) ТОЛЬКО на тексте; фон/highlight-штрих без тени, тень сбрасывается сразу после fillText (не течёт на остальной рендер). Тогл bsZoneShowBadges проверен — гейтит отрисовку. `ClusterChart.tsx`. tsc ✓, vite ✓.
+
+### [2026-06-28] fix(buySellZone): бейджи по порогам перегрева (80/20), не по коридору
+Группировка бейджей: `v > bsZoneOverUp`/`v < bsZoneOverDown` вместо balUp/balDown. SHORT только выше 80, LONG ниже 20; в коридоре и слабой зоне 20–35/65–80 бейджа нет. Заливка зон (balUp/balDown) не тронута. `ClusterChart.tsx`. tsc ✓, vite ✓.

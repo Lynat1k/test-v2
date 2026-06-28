@@ -5203,8 +5203,8 @@ export default function ClusterChart({
             const v = p ? p.value : null;
             let t: "short" | "long" | null = null;
             if (v != null) {
-              if (v > bsZoneBalUp) t = "short";
-              else if (v < bsZoneBalDown) t = "long";
+              if (v > bsZoneOverUp) t = "short";
+              else if (v < bsZoneOverDown) t = "long";
             }
             if (t === null) { flushRun(); continue; }
             if (t !== curType) {
