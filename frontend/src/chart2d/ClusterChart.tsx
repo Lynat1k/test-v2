@@ -5246,8 +5246,18 @@ export default function ClusterChart({
               ctx.lineWidth = 1;
               ctx.strokeStyle = "rgba(255, 255, 255, 0.35)";
               ctx.stroke();
+              // Drop shadow ONLY on the text (fill/stroke above stay shadow-free).
+              ctx.shadowColor = "rgba(0, 0, 0, 0.55)";
+              ctx.shadowBlur = 2;
+              ctx.shadowOffsetX = 0;
+              ctx.shadowOffsetY = 1;
               ctx.fillStyle = "#ffffff";
               ctx.fillText(label, cx, cy + 0.5);
+              // Reset shadow so it does not bleed into the rest of the render.
+              ctx.shadowColor = "transparent";
+              ctx.shadowBlur = 0;
+              ctx.shadowOffsetX = 0;
+              ctx.shadowOffsetY = 0;
             }
             ctx.textAlign = "left";
             ctx.textBaseline = "alphabetic";

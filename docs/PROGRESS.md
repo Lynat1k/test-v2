@@ -3147,3 +3147,6 @@ Spot: панель «Только futures», линия не рисуется.
 
 ### [2026-06-28] feat(buySellZone): настройка яркости зон + бейджи LONG/SHORT
 Захардкоженный `overOp 0.16` → настройка `bsZoneOverOpacity` (0..100, дефолт 30, один слайдер на обе зоны). Бейджи LONG/SHORT — одна liquid-glass пилюля на непрерывный участок захода линии за канал, в экстремуме (SHORT=макс над линией, LONG=мин под линией), тогл `bsZoneShowBadges` (дефолт on). `ClusterChart.tsx`, `indicators/buySellZone.ts`, `chart2d/types.ts`, `IndicatorsModal.tsx`. tsc ✓, vite ✓.
+
+### [2026-06-28] feat(buySellZone): тень текста бейджей LONG/SHORT
+Под текстом пилюль LONG/SHORT — drop shadow (rgba(0,0,0,0.55), blur 2, offsetY 1) ТОЛЬКО на тексте; фон/highlight-штрих без тени, тень сбрасывается сразу после fillText (не течёт на остальной рендер). Тогл bsZoneShowBadges проверен — гейтит отрисовку. `ClusterChart.tsx`. tsc ✓, vite ✓.
