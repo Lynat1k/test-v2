@@ -146,6 +146,24 @@ export interface IndicatorSettings {
 
   longShortRatioLineColor?: string;
   longShortRatioDisplayMode?: "ratio" | "longPct";
+
+  bsZoneWLS?: number;
+  bsZoneWRSI?: number;
+  bsZoneWMACD?: number;
+  bsZoneWBAR?: number;
+  bsZoneBand?: "1" | "3" | "5";
+  bsZoneRsiLen?: number;
+  bsZoneMacdZlen?: number;
+  bsZoneLsZlen?: number;
+  bsZoneBalUp?: number;
+  bsZoneBalDown?: number;
+  bsZoneOverUp?: number;
+  bsZoneOverDown?: number;
+  bsZoneLineColor?: string;
+  bsZoneBalColor?: string;
+  bsZoneBalOpacity?: number;
+  bsZoneOverUpColor?: string;
+  bsZoneOverDownColor?: string;
 }
 
 export interface Indicator {

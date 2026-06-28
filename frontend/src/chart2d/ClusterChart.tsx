@@ -12,6 +12,7 @@ import { Portal } from "@/components/Portal";
 import logoWatermark from "@/assets/images/procluster_logo_1779485281399.png";
 import { storage } from "./lib/storage";
 import { volumeOnChartIndicator, deltaIndicator, cvdIndicator, clusterSearchIndicator, rsiIndicator } from "./indicators";
+import { macdHist, zToScale } from "./indicators/math";
 import { drawDrawingObjects } from "./utils/drawingRenderer";
 import { DrawingToolbar } from "./DrawingToolbar";
 import { ChartToolsHeader } from "./ChartToolsHeader";
@@ -76,7 +77,7 @@ const parseHexColor = (hex: string): string => {
 
 // Footer ("Подвальный") panels that can be reordered with the arrows on their plate.
 // Overlays/global indicators are NOT included here.
-const REORDERABLE_PANEL_IDS = ["delta", "cvd", "rsi", "bidAskRatio", "longShortRatio"] as const;
+const REORDERABLE_PANEL_IDS = ["delta", "cvd", "rsi", "bidAskRatio", "longShortRatio", "buySellZone"] as const;
 
 // --- Price-scale tick helpers (TradingView-style "nice" round levels) ---
 // niceStep: pick a round step (1/2/5 * 10^n) so labels land ~targetPx apart.
@@ -156,7 +157,8 @@ export default function ClusterChart({
     stackedImbalance: false,
     depthOfMarket: false,
     bidAskRatio: false,
-    longShortRatio: false
+    longShortRatio: false,
+    buySellZone: false
   },
   marketType = "SPOT",
   onToggleMarketType,
@@ -244,6 +246,28 @@ export default function ClusterChart({
   const longShortRatioSettings = indicatorSettings?.longShortRatio || {};
   const longShortRatioLineColor = longShortRatioSettings.longShortRatioLineColor || "#a855f7";
   const longShortRatioDisplayMode: "ratio" | "longPct" = longShortRatioSettings.longShortRatioDisplayMode === "longPct" ? "longPct" : "ratio";
+
+  // Buy/Sell Zone — composite 0..100 footer oscillator. Combines RSI/MACD (from
+  // candles) with long/short ratio and bid/ask depth (from the backend). futures-only.
+  const bsZoneSettings = indicatorSettings?.buySellZone || {};
+  const bsZoneWLS = typeof bsZoneSettings.bsZoneWLS === "number" ? bsZoneSettings.bsZoneWLS : 0.35;
+  const bsZoneWRSI = typeof bsZoneSettings.bsZoneWRSI === "number" ? bsZoneSettings.bsZoneWRSI : 0.25;
+  const bsZoneWMACD = typeof bsZoneSettings.bsZoneWMACD === "number" ? bsZoneSettings.bsZoneWMACD : 0.2;
+  const bsZoneWBAR = typeof bsZoneSettings.bsZoneWBAR === "number" ? bsZoneSettings.bsZoneWBAR : 0.2;
+  const bsZoneBand: "1" | "3" | "5" = bsZoneSettings.bsZoneBand === "1" ? "1" : bsZoneSettings.bsZoneBand === "3" ? "3" : "5";
+  const bsZoneRKey: "r1" | "r3" | "r5" = bsZoneBand === "1" ? "r1" : bsZoneBand === "3" ? "r3" : "r5";
+  const bsZoneRsiLen = typeof bsZoneSettings.bsZoneRsiLen === "number" ? bsZoneSettings.bsZoneRsiLen : 14;
+  const bsZoneMacdZlen = typeof bsZoneSettings.bsZoneMacdZlen === "number" ? bsZoneSettings.bsZoneMacdZlen : 50;
+  const bsZoneLsZlen = typeof bsZoneSettings.bsZoneLsZlen === "number" ? bsZoneSettings.bsZoneLsZlen : 150;
+  const bsZoneBalUp = typeof bsZoneSettings.bsZoneBalUp === "number" ? bsZoneSettings.bsZoneBalUp : 65;
+  const bsZoneBalDown = typeof bsZoneSettings.bsZoneBalDown === "number" ? bsZoneSettings.bsZoneBalDown : 35;
+  const bsZoneOverUp = typeof bsZoneSettings.bsZoneOverUp === "number" ? bsZoneSettings.bsZoneOverUp : 80;
+  const bsZoneOverDown = typeof bsZoneSettings.bsZoneOverDown === "number" ? bsZoneSettings.bsZoneOverDown : 20;
+  const bsZoneLineColor = bsZoneSettings.bsZoneLineColor || "#22d3ee";
+  const bsZoneBalColor = bsZoneSettings.bsZoneBalColor || "#64748b";
+  const bsZoneBalOpacity = typeof bsZoneSettings.bsZoneBalOpacity === "number" ? bsZoneSettings.bsZoneBalOpacity : 10;
+  const bsZoneOverUpColor = bsZoneSettings.bsZoneOverUpColor || "#ef4444";
+  const bsZoneOverDownColor = bsZoneSettings.bsZoneOverDownColor || "#10b981";
 
   // Delta indicator specific settings
   const deltaSettings = indicatorSettings?.delta || {};
@@ -622,6 +646,10 @@ export default function ClusterChart({
     const saved = storage.get("procluster_longshortratio_panel_height");
     return saved ? parseInt(saved, 10) : 120;
   });
+  const [buySellZonePanelHeight, setBuySellZonePanelHeight] = useState<number>(() => {
+    const saved = storage.get("procluster_buysellzone_panel_height");
+    return saved ? parseInt(saved, 10) : 120;
+  });
 
   useEffect(() => {
     storage.set("procluster_delta_panel_height", deltaPanelHeight.toString());
@@ -642,6 +670,10 @@ export default function ClusterChart({
   useEffect(() => {
     storage.set("procluster_longshortratio_panel_height", longShortRatioPanelHeight.toString());
   }, [longShortRatioPanelHeight]);
+
+  useEffect(() => {
+    storage.set("procluster_buysellzone_panel_height", buySellZonePanelHeight.toString());
+  }, [buySellZonePanelHeight]);
 
   // Vertical stacking order of footer panels (top -> bottom). Persisted in LS.
   // Default is EMPTY: order is then built by activation order (append-on-enable effect below).
@@ -677,11 +709,11 @@ export default function ClusterChart({
     });
   }, [activeIndicators]);
 
-  const [resizingPanel, setResizingPanel] = useState<"delta" | "cvd" | "rsi" | "bidAskRatio" | "longShortRatio" | null>(null);
+  const [resizingPanel, setResizingPanel] = useState<"delta" | "cvd" | "rsi" | "bidAskRatio" | "longShortRatio" | "buySellZone" | null>(null);
 
   const panelGap = 24;
   const getPanelHeight = (id: string): number =>
-    id === "delta" ? deltaPanelHeight : id === "cvd" ? cvdPanelHeight : id === "rsi" ? rsiPanelHeight : id === "bidAskRatio" ? bidAskRatioPanelHeight : id === "longShortRatio" ? longShortRatioPanelHeight : 0;
+    id === "delta" ? deltaPanelHeight : id === "cvd" ? cvdPanelHeight : id === "rsi" ? rsiPanelHeight : id === "bidAskRatio" ? bidAskRatioPanelHeight : id === "longShortRatio" ? longShortRatioPanelHeight : id === "buySellZone" ? buySellZonePanelHeight : 0;
 
   // Active footer panels in render order (top -> bottom).
   const activePanels = panelOrder.filter(id => activeIndicators[id]);
@@ -709,6 +741,7 @@ export default function ClusterChart({
   const rsiTopY = panelTopY["rsi"] ?? 0;
   const bidAskRatioTopY = panelTopY["bidAskRatio"] ?? 0;
   const longShortRatioTopY = panelTopY["longShortRatio"] ?? 0;
+  const buySellZoneTopY = panelTopY["buySellZone"] ?? 0;
 
   const totalSvgHeight = margin.top + chartHeight + panelsHeightTotal + margin.bottom;
 
@@ -762,6 +795,7 @@ export default function ClusterChart({
   const rsiValueSpanRef = useRef<HTMLSpanElement>(null);
   const bidAskRatioValueSpanRef = useRef<HTMLSpanElement>(null);
   const longShortRatioValueSpanRef = useRef<HTMLSpanElement>(null);
+  const buySellZoneValueSpanRef = useRef<HTMLSpanElement>(null);
   const clusterTooltipRef = useRef<HTMLDivElement>(null);
   const clusterTooltipTitleWrapRef = useRef<HTMLSpanElement>(null);
   const clusterTooltipTitleTextRef = useRef<HTMLSpanElement>(null);
@@ -1052,6 +1086,11 @@ export default function ClusterChart({
   const startLongShortRatioScaleYRef = useRef<number>(0);
   const startLongShortRatioScaleRef = useRef<number>(1.0);
 
+  const [buySellZoneScale, setBuySellZoneScale] = useState<number>(1.0);
+  const [isDraggingBuySellZoneScale, setIsDraggingBuySellZoneScale] = useState(false);
+  const startBuySellZoneScaleYRef = useRef<number>(0);
+  const startBuySellZoneScaleRef = useRef<number>(1.0);
+
   // Per-panel vertical body-pan offsets (px). A drag that starts on a footer panel
   // body moves that panel's line/bars vertically within the panel instead of
   // panning the main price chart. Horizontal (time) scroll is unaffected.
@@ -1060,18 +1099,20 @@ export default function ClusterChart({
   const [rsiOffset, setRsiOffset] = useState(0);
   const [bidAskRatioOffset, setBidAskRatioOffset] = useState(0);
   const [longShortRatioOffset, setLongShortRatioOffset] = useState(0);
+  const [buySellZoneOffset, setBuySellZoneOffset] = useState(0);
   // Which panel (if any) is being body-dragged, and its offset at mousedown.
   const activePanelDragIdRef = useRef<string | null>(null);
   const panelDragStartOffsetRef = useRef<number>(0);
 
   const getPanelOffset = (id: string): number =>
-    id === "delta" ? deltaOffset : id === "cvd" ? cvdOffset : id === "rsi" ? rsiOffset : id === "bidAskRatio" ? bidAskRatioOffset : id === "longShortRatio" ? longShortRatioOffset : 0;
+    id === "delta" ? deltaOffset : id === "cvd" ? cvdOffset : id === "rsi" ? rsiOffset : id === "bidAskRatio" ? bidAskRatioOffset : id === "longShortRatio" ? longShortRatioOffset : id === "buySellZone" ? buySellZoneOffset : 0;
   const setPanelOffset = (id: string, v: number) => {
     if (id === "delta") setDeltaOffset(v);
     else if (id === "cvd") setCvdOffset(v);
     else if (id === "rsi") setRsiOffset(v);
     else if (id === "bidAskRatio") setBidAskRatioOffset(v);
     else if (id === "longShortRatio") setLongShortRatioOffset(v);
+    else if (id === "buySellZone") setBuySellZoneOffset(v);
   };
   const resetPanelScale = (id: string) => {
     if (id === "delta") setDeltaScale(1.0);
@@ -1079,6 +1120,7 @@ export default function ClusterChart({
     else if (id === "rsi") setRsiScale(1.0);
     else if (id === "bidAskRatio") setBidAskRatioScale(1.0);
     else if (id === "longShortRatio") setLongShortRatioScale(1.0);
+    else if (id === "buySellZone") setBuySellZoneScale(1.0);
   };
 
   // States and refs for interactive horizontal timescale zoom/scale dragging
@@ -1101,6 +1143,7 @@ export default function ClusterChart({
   const isDraggingRsiScaleRefTouch = useRef<boolean>(false);
   const isDraggingBidAskRatioScaleRefTouch = useRef<boolean>(false);
   const isDraggingLongShortRatioScaleRefTouch = useRef<boolean>(false);
+  const isDraggingBuySellZoneScaleRefTouch = useRef<boolean>(false);
   const touchStartRef = useRef<{
     x: number;
     y: number;
@@ -3034,9 +3077,12 @@ export default function ClusterChart({
   const candleMaxTs = candles.length > 0 ? candles[candles.length - 1]!.timestamp : 0;
   const bidAskRatioActive = !!activeIndicators.bidAskRatio;
   const isFuturesMarket = marketType === "FUTURES";
+  // Buy/Sell Zone also consumes bid/ask depth AND long/short ratio, so it must
+  // trigger both fetches even when those panels are not individually active.
+  const buySellZoneActive = !!activeIndicators.buySellZone;
 
   useEffect(() => {
-    if (!bidAskRatioActive || !isFuturesMarket) {
+    if ((!bidAskRatioActive && !buySellZoneActive) || !isFuturesMarket) {
       setBidAskRatioData([]);
       return;
     }
@@ -3049,7 +3095,7 @@ export default function ClusterChart({
       .then((pts) => { if (!cancelled) setBidAskRatioData(pts); })
       .catch(() => { if (!cancelled) setBidAskRatioData([]); });
     return () => { cancelled = true; };
-  }, [bidAskRatioActive, isFuturesMarket, activePair.symbol, timeframe, candleMinTs, candleMaxTs, accessToken]);
+  }, [bidAskRatioActive, buySellZoneActive, isFuturesMarket, activePair.symbol, timeframe, candleMinTs, candleMaxTs, accessToken]);
 
   const bidAskRatioMap = useMemo(() => {
     const m = new Map<number, BookDepthRatioPoint>();
@@ -3138,7 +3184,7 @@ export default function ClusterChart({
   const longShortRatioActive = !!activeIndicators.longShortRatio;
 
   useEffect(() => {
-    if (!longShortRatioActive || !isFuturesMarket) {
+    if ((!longShortRatioActive && !buySellZoneActive) || !isFuturesMarket) {
       setLongShortRatioData([]);
       return;
     }
@@ -3150,7 +3196,7 @@ export default function ClusterChart({
       .then((pts) => { if (!cancelled) setLongShortRatioData(pts); })
       .catch(() => { if (!cancelled) setLongShortRatioData([]); });
     return () => { cancelled = true; };
-  }, [longShortRatioActive, isFuturesMarket, activePair.symbol, timeframe, candleMinTs, candleMaxTs, accessToken]);
+  }, [longShortRatioActive, buySellZoneActive, isFuturesMarket, activePair.symbol, timeframe, candleMinTs, candleMaxTs, accessToken]);
 
   const longShortRatioMap = useMemo(() => {
     const m = new Map<number, number>();
@@ -3215,6 +3261,63 @@ export default function ClusterChart({
   const getLsrY = (val: number, panelH: number) => {
     return panelH - ((val - zoomedLsrMin) / zoomedLsrRange) * (panelH * 0.8) - (panelH * 0.1) + longShortRatioOffset;
   };
+
+  // --- Buy/Sell Zone (footer panel) — composite 0..100 oscillator.
+  // Per candle: each available component is normalised to 0..100 and a weighted
+  // mean is taken over ONLY the available ones (weight denominator renormalises).
+  //   lsScore  = 100 − zToScale(lsr, lsZlen)   (inverted, like the Pine original)
+  //   rsiScore = RSI(close, rsiLen)
+  //   macdScore= zToScale(macdHist(close), macdZlen)
+  //   barScore = 50·(1 + r)  where r = bid/ask ratio band (−1..+1), linear
+  // value=null when zero components are available → the drawn line breaks there.
+  const buySellZonePoints = useMemo(() => {
+    const n = candles.length;
+    if (!buySellZoneActive || !isFuturesMarket || n === 0) {
+      return candles.map((_, i) => ({ cx: margin.left + i * (candleWidth + candleSpacing) + candleWidth / 2, value: null as number | null }));
+    }
+    const closes = candles.map((c) => c.close);
+    const rsiSeries = rsiIndicator.calculateRSI(closes, bsZoneRsiLen);
+    const macdSeries = macdHist(closes);
+    // Sparse long/short series aligned to candle index (null where no point).
+    const lsrArr: (number | null)[] = candles.map((c) => {
+      const r = longShortRatioMap.get(c.timestamp);
+      return typeof r === "number" ? r : null;
+    });
+
+    return candles.map((c, i) => {
+      const cx = margin.left + i * (candleWidth + candleSpacing) + candleWidth / 2;
+
+      const lsZ = zToScale(lsrArr, bsZoneLsZlen, i);
+      const lsScore: number | null = lsZ == null ? null : 100 - lsZ;
+      const rsiScore: number | null = rsiSeries[i] ?? null;
+      const macdScore: number | null = zToScale(macdSeries, bsZoneMacdZlen, i);
+
+      const bar = bidAskRatioMap.get(c.timestamp);
+      let barScore: number | null = null;
+      if (bar) {
+        const r = Math.max(-1, Math.min(1, bar[bsZoneRKey]));
+        barScore = 50 * (1 + r);
+      }
+
+      let num = 0;
+      let den = 0;
+      if (lsScore != null && Number.isFinite(lsScore)) { num += bsZoneWLS * lsScore; den += bsZoneWLS; }
+      if (rsiScore != null && Number.isFinite(rsiScore)) { num += bsZoneWRSI * rsiScore; den += bsZoneWRSI; }
+      if (macdScore != null && Number.isFinite(macdScore)) { num += bsZoneWMACD * macdScore; den += bsZoneWMACD; }
+      if (barScore != null && Number.isFinite(barScore)) { num += bsZoneWBAR * barScore; den += bsZoneWBAR; }
+
+      const value: number | null = den > 0 ? Math.max(0, Math.min(100, num / den)) : null;
+      return { cx, value };
+    });
+  }, [candles, buySellZoneActive, isFuturesMarket, longShortRatioMap, bidAskRatioMap, bsZoneRKey, bsZoneRsiLen, bsZoneMacdZlen, bsZoneLsZlen, bsZoneWLS, bsZoneWRSI, bsZoneWMACD, bsZoneWBAR, candleWidth, candleSpacing, margin.left]);
+
+  // Buy/Sell Zone vertical zoom around the centre (50). scale=1 → fixed [0,100],
+  // value 0 at the bottom of the panel, 100 at the top. Mirrors rsiYInPanel.
+  const zoomedBsHalf = 50 / Math.max(0.01, buySellZoneScale);
+  const zoomedBsMax = 50 + zoomedBsHalf;
+  const zoomedBsMin = 50 - zoomedBsHalf;
+  const getBsZoneY = (val: number, panelH: number) =>
+    panelH - ((val - zoomedBsMin) / (zoomedBsMax - zoomedBsMin)) * panelH + buySellZoneOffset;
 
   // R: visibleMaxCellVol / visibleMaxSingleVol useMemos deleted — both consumed
   // only inside drawRef closure (cell normalization for detailed/cluster mode).
@@ -3369,6 +3472,10 @@ export default function ClusterChart({
         const lsrBottomY = longShortRatioTopY + longShortRatioPanelHeight;
         const newHeight = Math.max(50, Math.min(350, lsrBottomY - relativeY));
         setLongShortRatioPanelHeight(newHeight);
+      } else if (resizingPanel === "buySellZone") {
+        const bsBottomY = buySellZoneTopY + buySellZonePanelHeight;
+        const newHeight = Math.max(50, Math.min(350, bsBottomY - relativeY));
+        setBuySellZonePanelHeight(newHeight);
       }
     };
 
@@ -3382,7 +3489,7 @@ export default function ClusterChart({
       window.removeEventListener("mousemove", handleWindowMouseMove);
       window.removeEventListener("mouseup", handleWindowMouseUp);
     };
-  }, [resizingPanel, deltaTopY, deltaPanelHeight, cvdTopY, cvdPanelHeight, rsiTopY, rsiPanelHeight, bidAskRatioTopY, bidAskRatioPanelHeight, longShortRatioTopY, longShortRatioPanelHeight]);
+  }, [resizingPanel, deltaTopY, deltaPanelHeight, cvdTopY, cvdPanelHeight, rsiTopY, rsiPanelHeight, bidAskRatioTopY, bidAskRatioPanelHeight, longShortRatioTopY, longShortRatioPanelHeight, buySellZoneTopY, buySellZonePanelHeight]);
 
   // Window-level mouse drag-zoom tracker for vertical price scale dragging
   useEffect(() => {
@@ -3528,6 +3635,30 @@ export default function ClusterChart({
       window.removeEventListener("mouseup", handleWindowMouseUp);
     };
   }, [isDraggingLongShortRatioScale]);
+
+  // Window-level mouse drag-zoom tracker for vertical Buy/Sell Zone scale dragging
+  useEffect(() => {
+    if (!isDraggingBuySellZoneScale) return;
+
+    const handleWindowMouseMove = (e: MouseEvent) => {
+      const deltaY = startBuySellZoneScaleYRef.current - e.clientY;
+      const multiplier = Math.exp(deltaY / 200);
+      const nextScale = startBuySellZoneScaleRef.current * multiplier;
+      const clampedScale = Math.min(200.0, Math.max(0.01, nextScale));
+      setBuySellZoneScale(clampedScale);
+    };
+
+    const handleWindowMouseUp = () => {
+      setIsDraggingBuySellZoneScale(false);
+    };
+
+    window.addEventListener("mousemove", handleWindowMouseMove);
+    window.addEventListener("mouseup", handleWindowMouseUp);
+    return () => {
+      window.removeEventListener("mousemove", handleWindowMouseMove);
+      window.removeEventListener("mouseup", handleWindowMouseUp);
+    };
+  }, [isDraggingBuySellZoneScale]);
 
   // Window-level mouse drag-zoom tracker for horizontal timeline scale dragging
   useEffect(() => {
@@ -4945,6 +5076,119 @@ export default function ClusterChart({
     }
 
     // -------------------------------------------------------------------------
+    // Buy/Sell Zone subchart (footer panel) — composite 0..100 LINE with a grey
+    // balance corridor and dynamic overheat fills (red above balUp, green below
+    // balDown). Fixed 0..100 scale (zoomable around 50). futures-only.
+    // -------------------------------------------------------------------------
+    if (activeIndicators.buySellZone) {
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(margin.left, buySellZoneTopY, scrollWidth - margin.left + 50, buySellZonePanelHeight);
+      ctx.clip();
+      ctx.translate(0, buySellZoneTopY);
+
+      const panelH = buySellZonePanelHeight;
+
+      if (!isFuturesMarket) {
+        ctx.fillStyle = isLight ? "rgba(100, 116, 139, 0.9)" : "rgba(148, 163, 184, 0.9)";
+        ctx.font = "bold 12px 'Inter', sans-serif";
+        ctx.textAlign = "center";
+        ctx.fillText("Только futures", margin.left + (scrollWidth - margin.left) / 2, panelH / 2 - 2);
+        ctx.textAlign = "left";
+      } else {
+        const xRight = scrollWidth;
+        const yBalUp = getBsZoneY(bsZoneBalUp, panelH);
+        const yBalDown = getBsZoneY(bsZoneBalDown, panelH);
+        const yOverUp = getBsZoneY(bsZoneOverUp, panelH);
+        const yOverDown = getBsZoneY(bsZoneOverDown, panelH);
+
+        // 1) Balance corridor fill (between balUp and balDown).
+        const balOp = Math.max(0, Math.min(100, bsZoneBalOpacity)) / 100;
+        ctx.fillStyle = hexToRgba(bsZoneBalColor, balOp);
+        ctx.fillRect(margin.left, yBalUp, xRight - margin.left, yBalDown - yBalUp);
+
+        // 2) Reference levels: balUp/balDown dashed, overUp/overDown thin dashed.
+        ctx.lineWidth = 0.8;
+        ctx.setLineDash([4, 4]);
+        ctx.strokeStyle = isLight ? "rgba(15, 23, 42, 0.28)" : "rgba(255, 255, 255, 0.22)";
+        ctx.beginPath();
+        ctx.moveTo(margin.left, yBalUp);
+        ctx.lineTo(xRight, yBalUp);
+        ctx.moveTo(margin.left, yBalDown);
+        ctx.lineTo(xRight, yBalDown);
+        ctx.stroke();
+        ctx.setLineDash([2, 4]);
+        ctx.strokeStyle = isLight ? "rgba(15, 23, 42, 0.14)" : "rgba(255, 255, 255, 0.10)";
+        ctx.beginPath();
+        ctx.moveTo(margin.left, yOverUp);
+        ctx.lineTo(xRight, yOverUp);
+        ctx.moveTo(margin.left, yOverDown);
+        ctx.lineTo(xRight, yOverDown);
+        ctx.stroke();
+        ctx.setLineDash([]);
+
+        // Build contiguous non-null line segments over the visible range. A null
+        // composite (no available components) breaks the line into a new segment.
+        const bsStartIdx = Math.max(0, startIdx - 1);
+        const bsEndIdx = Math.min(buySellZonePoints.length - 1, endIdx + 1);
+        const segments: { x: number; y: number }[][] = [];
+        let segCur: { x: number; y: number }[] = [];
+        for (let idx = bsStartIdx; idx <= bsEndIdx; idx++) {
+          const p = buySellZonePoints[idx];
+          if (!p || p.value === null) {
+            if (segCur.length) { segments.push(segCur); segCur = []; }
+            continue;
+          }
+          segCur.push({ x: p.cx, y: getBsZoneY(p.value, panelH) });
+        }
+        if (segCur.length) segments.push(segCur);
+
+        // 3) Overheat fills, dynamic from the line. Clip to the band above balUp
+        // and fill the area UNDER the line → only where the line exceeds balUp is
+        // painted (red, longs overheated). Mirror below balDown (green).
+        const overOp = 0.16;
+        const fillBetween = (clipY0: number, clipY1: number, toEdgeY: number, color: string) => {
+          const top = Math.max(0, Math.min(panelH, Math.min(clipY0, clipY1)));
+          const bot = Math.max(0, Math.min(panelH, Math.max(clipY0, clipY1)));
+          if (bot - top <= 0 || segments.length === 0) return;
+          ctx.save();
+          ctx.beginPath();
+          ctx.rect(margin.left, top, xRight - margin.left, bot - top);
+          ctx.clip();
+          ctx.fillStyle = hexToRgba(color, overOp);
+          for (const seg of segments) {
+            ctx.beginPath();
+            ctx.moveTo(seg[0]!.x, seg[0]!.y);
+            for (let k = 1; k < seg.length; k++) ctx.lineTo(seg[k]!.x, seg[k]!.y);
+            ctx.lineTo(seg[seg.length - 1]!.x, toEdgeY);
+            ctx.lineTo(seg[0]!.x, toEdgeY);
+            ctx.closePath();
+            ctx.fill();
+          }
+          ctx.restore();
+        };
+        // Above balUp: clip [0..yBalUp], close polygon to the panel bottom.
+        fillBetween(0, yBalUp, panelH, bsZoneOverUpColor);
+        // Below balDown: clip [yBalDown..panelH], close polygon to the panel top.
+        fillBetween(yBalDown, panelH, 0, bsZoneOverDownColor);
+
+        // 4) Composite line (rounded caps; null already split into segments).
+        ctx.strokeStyle = bsZoneLineColor;
+        ctx.lineWidth = 1.8;
+        ctx.lineCap = "round";
+        ctx.lineJoin = "round";
+        for (const seg of segments) {
+          ctx.beginPath();
+          ctx.moveTo(seg[0]!.x, seg[0]!.y);
+          for (let k = 1; k < seg.length; k++) ctx.lineTo(seg[k]!.x, seg[k]!.y);
+          ctx.stroke();
+        }
+      }
+
+      ctx.restore();
+    }
+
+    // -------------------------------------------------------------------------
     // RENDER INTERACTIVE DRAWING OBJECTS (Foreground items: lines, handles, annotations, etc.)
     // -------------------------------------------------------------------------
     drawDrawingObjects(ctx, {
@@ -5162,6 +5406,20 @@ export default function ClusterChart({
     zoomedLsrMax,
     zoomedLsrRange,
     lsrCenterVal,
+    buySellZonePoints,
+    buySellZoneScale,
+    buySellZoneOffset,
+    zoomedBsMin,
+    zoomedBsMax,
+    bsZoneLineColor,
+    bsZoneBalColor,
+    bsZoneBalOpacity,
+    bsZoneOverUpColor,
+    bsZoneOverDownColor,
+    bsZoneBalUp,
+    bsZoneBalDown,
+    bsZoneOverUp,
+    bsZoneOverDown,
     marketType,
     profileBuckets,
     maxProfileVol,
@@ -5514,6 +5772,10 @@ export default function ClusterChart({
             setIsDraggingLongShortRatioScale(true);
             startLongShortRatioScaleYRef.current = e.clientY;
             startLongShortRatioScaleRef.current = longShortRatioScale;
+          } else if (inPanelZone("buySellZone")) {
+            setIsDraggingBuySellZoneScale(true);
+            startBuySellZoneScaleYRef.current = e.clientY;
+            startBuySellZoneScaleRef.current = buySellZoneScale;
           } else {
             setIsDraggingPriceScale(true);
             startPriceScaleYRef.current = e.clientY;
@@ -5549,6 +5811,10 @@ export default function ClusterChart({
             isDraggingLongShortRatioScaleRefTouch.current = true;
             startLongShortRatioScaleYRef.current = t.clientY;
             startLongShortRatioScaleRef.current = longShortRatioScale;
+          } else if (inPanelZoneTouch("buySellZone")) {
+            isDraggingBuySellZoneScaleRefTouch.current = true;
+            startBuySellZoneScaleYRef.current = t.clientY;
+            startBuySellZoneScaleRef.current = buySellZoneScale;
           } else {
             isDraggingPriceScaleRef.current = true;
             startPriceScaleYRef.current = t.clientY;
@@ -5590,6 +5856,11 @@ export default function ClusterChart({
             const multiplier = Math.exp(deltaY / 200);
             const nextScale = Math.min(2000.0, Math.max(0.1, startLongShortRatioScaleRef.current * multiplier));
             setLongShortRatioScale(nextScale);
+          } else if (isDraggingBuySellZoneScaleRefTouch.current) {
+            const deltaY = startBuySellZoneScaleYRef.current - t.clientY;
+            const multiplier = Math.exp(deltaY / 200);
+            const nextScale = Math.min(2000.0, Math.max(0.1, startBuySellZoneScaleRef.current * multiplier));
+            setBuySellZoneScale(nextScale);
           }
         }}
         onTouchEnd={() => {
@@ -5599,6 +5870,7 @@ export default function ClusterChart({
           isDraggingRsiScaleRefTouch.current = false;
           isDraggingBidAskRatioScaleRefTouch.current = false;
           isDraggingLongShortRatioScaleRefTouch.current = false;
+          isDraggingBuySellZoneScaleRefTouch.current = false;
         }}
         onTouchCancel={() => {
           isDraggingPriceScaleRef.current = false;
@@ -5607,6 +5879,7 @@ export default function ClusterChart({
           isDraggingRsiScaleRefTouch.current = false;
           isDraggingBidAskRatioScaleRefTouch.current = false;
           isDraggingLongShortRatioScaleRefTouch.current = false;
+          isDraggingBuySellZoneScaleRefTouch.current = false;
         }}
         className={`flex-none border-l select-none transition-all duration-300 relative flex flex-col justify-between cursor-ns-resize ${
           isLight ? "bg-[#f8fafc] border-slate-200" : "bg-[#06080f] border-white/5"
@@ -6039,6 +6312,73 @@ export default function ClusterChart({
                 </g>
               )}
 
+              {/* Buy/Sell Zone subchart Y-axis labels — fixed 0..100, follow zoom (centre 50) */}
+              {activeIndicators.buySellZone && (
+                <g key="buysellzone-panel-ticks">
+                  {/* Top = zoomed max */}
+                  <text
+                    x={labelX}
+                    y={buySellZoneTopY + 10 + buySellZoneOffset}
+                    fill={isLight ? "#475569" : "#94a3b8"}
+                    fontSize={isMobile ? "8" : "9"}
+                    fontFamily="'Inter', -apple-system, sans-serif"
+                    fontWeight="bold"
+                  >
+                    {Math.round(zoomedBsMax)}
+                  </text>
+                  {/* 80 — overheat up (line colour) */}
+                  {zoomedBsMin <= 80 && zoomedBsMax >= 80 && (
+                    <text
+                      x={labelX}
+                      y={buySellZoneTopY + getBsZoneY(80, buySellZonePanelHeight) + 4}
+                      fill={isLight ? "#be123c" : "#f43f5e"}
+                      fontSize={isMobile ? "8" : "9"}
+                      fontFamily="'Inter', -apple-system, sans-serif"
+                      fontWeight="bold"
+                    >
+                      80
+                    </text>
+                  )}
+                  {/* 50 centre */}
+                  {zoomedBsMin <= 50 && zoomedBsMax >= 50 && (
+                    <text
+                      x={labelX}
+                      y={buySellZoneTopY + getBsZoneY(50, buySellZonePanelHeight) + 4}
+                      fill={isLight ? "#475569" : "#94a3b8"}
+                      fontSize={isMobile ? "8" : "9"}
+                      fontFamily="'Inter', -apple-system, sans-serif"
+                      fontWeight="bold"
+                    >
+                      50
+                    </text>
+                  )}
+                  {/* 20 — overheat down (green) */}
+                  {zoomedBsMin <= 20 && zoomedBsMax >= 20 && (
+                    <text
+                      x={labelX}
+                      y={buySellZoneTopY + getBsZoneY(20, buySellZonePanelHeight) + 4}
+                      fill={isLight ? "#047857" : "#10b981"}
+                      fontSize={isMobile ? "8" : "9"}
+                      fontFamily="'Inter', -apple-system, sans-serif"
+                      fontWeight="bold"
+                    >
+                      20
+                    </text>
+                  )}
+                  {/* Bottom = zoomed min */}
+                  <text
+                    x={labelX}
+                    y={buySellZoneTopY + buySellZonePanelHeight - 3 + buySellZoneOffset}
+                    fill={isLight ? "#475569" : "#94a3b8"}
+                    fontSize={isMobile ? "8" : "9"}
+                    fontFamily="'Inter', -apple-system, sans-serif"
+                    fontWeight="bold"
+                  >
+                    {Math.round(zoomedBsMin)}
+                  </text>
+                </g>
+              )}
+
               {/* S1: Hover Crosshair price label — always mounted, shown/hidden imperatively.
                   Position and price text are written from handleSvgMouseMove via refs, so the
                   surrounding SVG/component does not re-render on every mouse move. */}
@@ -6087,6 +6427,7 @@ export default function ClusterChart({
           id === "rsi"   ? { label: "(PROCLUSTER) RSI",   dotColor: rsiLineColor as string | null, valueRef: rsiValueSpanRef } :
           id === "bidAskRatio" ? { label: "(PROCLUSTER) Bid & Ask Ratio", dotColor: bidAskRatioBullColor as string | null, valueRef: bidAskRatioValueSpanRef } :
           id === "longShortRatio" ? { label: "(PROCLUSTER) Long/Short Ratio", dotColor: longShortRatioLineColor as string | null, valueRef: longShortRatioValueSpanRef } :
+          id === "buySellZone" ? { label: "(PROCLUSTER) Buy/Sell Zone", dotColor: bsZoneLineColor as string | null, valueRef: buySellZoneValueSpanRef } :
           null;
         if (!meta) return null;
         const isFirst = idx === 0;
@@ -6252,6 +6593,25 @@ export default function ClusterChart({
             transform: "translateY(-7px)"
           }}
           title="Drag to resize Long/Short Ratio Panel"
+        >
+          {/* Subtle colored horizontal line that lights up when hovered */}
+          <div className="w-24 h-[3px] rounded-full bg-yellow-500/0 group-hover:bg-yellow-500/85 transition-all duration-200 shadow-md shadow-yellow-500/40" />
+        </div>
+      )}
+
+      {activeIndicators.buySellZone && (
+        <div
+          onMouseDown={(e) => {
+            e.preventDefault();
+            setResizingPanel("buySellZone");
+          }}
+          className={`absolute left-0 right-0 z-40 cursor-ns-resize flex items-center justify-center group`}
+          style={{
+            top: `${buySellZoneTopY - panelGap / 2}px`,
+            height: "14px",
+            transform: "translateY(-7px)"
+          }}
+          title="Drag to resize Buy/Sell Zone Panel"
         >
           {/* Subtle colored horizontal line that lights up when hovered */}
           <div className="w-24 h-[3px] rounded-full bg-yellow-500/0 group-hover:bg-yellow-500/85 transition-all duration-200 shadow-md shadow-yellow-500/40" />

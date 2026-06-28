@@ -1803,6 +1803,254 @@ export default function IndicatorsModal({ isOpen, onClose, symbol = "", market =
                         </div>
                       )}
 
+                      {selectedIndicator.id === "buySellZone" && (
+                        <div className={`flex flex-col gap-4 font-sans text-xs p-4.5 rounded-2xl border transition-all duration-300 ${isLight ? "bg-slate-100/40 border-slate-200/85" : "bg-slate-950/20 border-white/5"}`}>
+                          <span className="text-[10px] text-slate-500 uppercase tracking-widest font-black font-mono">
+                            ПАРАМЕТРЫ BUY/SELL ZONE
+                          </span>
+
+                          {/* Component weights */}
+                          <span className="text-[10px] text-slate-500 uppercase tracking-widest font-bold font-mono">Веса компонентов</span>
+                          <div className="grid grid-cols-2 gap-4">
+                            <label className="flex flex-col gap-1.5 font-sans text-xs">
+                              <span className={`font-bold ${isLight ? "text-slate-700" : "text-slate-300"}`}>Long/Short</span>
+                              <input
+                                type="number"
+                                step="0.05"
+                                min="0"
+                                max="1"
+                                value={selectedIndicator.settings.bsZoneWLS ?? 0.35}
+                                onChange={(e) => { const v = parseFloat(e.target.value); updateSettings({ bsZoneWLS: Number.isFinite(v) ? v : 0 }); }}
+                                className={`rounded-xl px-3 py-2 text-xs outline-none transition-all duration-300 border ${isLight ? "bg-white border-slate-200 text-slate-800 focus:ring-1 focus:ring-blue-400" : "bg-[#0b0f19] border border-white/10 text-slate-200 focus:ring-1 focus:ring-yellow-500/40 hover:border-white/20"}`}
+                              />
+                            </label>
+                            <label className="flex flex-col gap-1.5 font-sans text-xs">
+                              <span className={`font-bold ${isLight ? "text-slate-700" : "text-slate-300"}`}>RSI</span>
+                              <input
+                                type="number"
+                                step="0.05"
+                                min="0"
+                                max="1"
+                                value={selectedIndicator.settings.bsZoneWRSI ?? 0.25}
+                                onChange={(e) => { const v = parseFloat(e.target.value); updateSettings({ bsZoneWRSI: Number.isFinite(v) ? v : 0 }); }}
+                                className={`rounded-xl px-3 py-2 text-xs outline-none transition-all duration-300 border ${isLight ? "bg-white border-slate-200 text-slate-800 focus:ring-1 focus:ring-blue-400" : "bg-[#0b0f19] border border-white/10 text-slate-200 focus:ring-1 focus:ring-yellow-500/40 hover:border-white/20"}`}
+                              />
+                            </label>
+                            <label className="flex flex-col gap-1.5 font-sans text-xs">
+                              <span className={`font-bold ${isLight ? "text-slate-700" : "text-slate-300"}`}>MACD</span>
+                              <input
+                                type="number"
+                                step="0.05"
+                                min="0"
+                                max="1"
+                                value={selectedIndicator.settings.bsZoneWMACD ?? 0.2}
+                                onChange={(e) => { const v = parseFloat(e.target.value); updateSettings({ bsZoneWMACD: Number.isFinite(v) ? v : 0 }); }}
+                                className={`rounded-xl px-3 py-2 text-xs outline-none transition-all duration-300 border ${isLight ? "bg-white border-slate-200 text-slate-800 focus:ring-1 focus:ring-blue-400" : "bg-[#0b0f19] border border-white/10 text-slate-200 focus:ring-1 focus:ring-yellow-500/40 hover:border-white/20"}`}
+                              />
+                            </label>
+                            <label className="flex flex-col gap-1.5 font-sans text-xs">
+                              <span className={`font-bold ${isLight ? "text-slate-700" : "text-slate-300"}`}>Bid/Ask</span>
+                              <input
+                                type="number"
+                                step="0.05"
+                                min="0"
+                                max="1"
+                                value={selectedIndicator.settings.bsZoneWBAR ?? 0.2}
+                                onChange={(e) => { const v = parseFloat(e.target.value); updateSettings({ bsZoneWBAR: Number.isFinite(v) ? v : 0 }); }}
+                                className={`rounded-xl px-3 py-2 text-xs outline-none transition-all duration-300 border ${isLight ? "bg-white border-slate-200 text-slate-800 focus:ring-1 focus:ring-blue-400" : "bg-[#0b0f19] border border-white/10 text-slate-200 focus:ring-1 focus:ring-yellow-500/40 hover:border-white/20"}`}
+                              />
+                            </label>
+                          </div>
+
+                          {/* Bid/Ask depth band */}
+                          <div className="flex flex-col gap-1.5 border-t border-dashed border-slate-700/20 pt-3">
+                            <span className={`font-bold ${isLight ? "text-slate-700" : "text-slate-300"}`}>Диапазон стакана (bid/ask)</span>
+                            <select
+                              value={selectedIndicator.settings.bsZoneBand ?? "5"}
+                              onChange={(e) => updateSettings({ bsZoneBand: e.target.value as "1" | "3" | "5" })}
+                              className={`rounded-xl px-3 py-2 text-xs outline-none transition-all duration-300 border ${isLight ? "bg-white border-slate-200 text-slate-800 focus:ring-1 focus:ring-blue-400" : "bg-[#0b0f19] border border-white/10 text-slate-200 focus:ring-1 focus:ring-yellow-500/40 hover:border-white/20"}`}
+                            >
+                              <option value="1">±1%</option>
+                              <option value="3">±3%</option>
+                              <option value="5">±5%</option>
+                            </select>
+                          </div>
+
+                          {/* Lookbacks */}
+                          <div className="grid grid-cols-3 gap-4 border-t border-dashed border-slate-700/20 pt-3">
+                            <label className="flex flex-col gap-1.5 font-sans text-xs">
+                              <span className={`font-bold ${isLight ? "text-slate-700" : "text-slate-300"}`}>RSI период</span>
+                              <input
+                                type="number"
+                                step="1"
+                                min="2"
+                                max="100"
+                                value={selectedIndicator.settings.bsZoneRsiLen ?? 14}
+                                onChange={(e) => { const v = parseInt(e.target.value, 10); updateSettings({ bsZoneRsiLen: Number.isFinite(v) ? Math.max(2, Math.min(100, v)) : 14 }); }}
+                                className={`rounded-xl px-3 py-2 text-xs outline-none transition-all duration-300 border ${isLight ? "bg-white border-slate-200 text-slate-800 focus:ring-1 focus:ring-blue-400" : "bg-[#0b0f19] border border-white/10 text-slate-200 focus:ring-1 focus:ring-yellow-500/40 hover:border-white/20"}`}
+                              />
+                            </label>
+                            <label className="flex flex-col gap-1.5 font-sans text-xs">
+                              <span className={`font-bold ${isLight ? "text-slate-700" : "text-slate-300"}`}>MACD z-len</span>
+                              <input
+                                type="number"
+                                step="1"
+                                min="5"
+                                max="500"
+                                value={selectedIndicator.settings.bsZoneMacdZlen ?? 50}
+                                onChange={(e) => { const v = parseInt(e.target.value, 10); updateSettings({ bsZoneMacdZlen: Number.isFinite(v) ? Math.max(5, Math.min(500, v)) : 50 }); }}
+                                className={`rounded-xl px-3 py-2 text-xs outline-none transition-all duration-300 border ${isLight ? "bg-white border-slate-200 text-slate-800 focus:ring-1 focus:ring-blue-400" : "bg-[#0b0f19] border border-white/10 text-slate-200 focus:ring-1 focus:ring-yellow-500/40 hover:border-white/20"}`}
+                              />
+                            </label>
+                            <label className="flex flex-col gap-1.5 font-sans text-xs">
+                              <span className={`font-bold ${isLight ? "text-slate-700" : "text-slate-300"}`}>LS z-len</span>
+                              <input
+                                type="number"
+                                step="1"
+                                min="5"
+                                max="1000"
+                                value={selectedIndicator.settings.bsZoneLsZlen ?? 150}
+                                onChange={(e) => { const v = parseInt(e.target.value, 10); updateSettings({ bsZoneLsZlen: Number.isFinite(v) ? Math.max(5, Math.min(1000, v)) : 150 }); }}
+                                className={`rounded-xl px-3 py-2 text-xs outline-none transition-all duration-300 border ${isLight ? "bg-white border-slate-200 text-slate-800 focus:ring-1 focus:ring-blue-400" : "bg-[#0b0f19] border border-white/10 text-slate-200 focus:ring-1 focus:ring-yellow-500/40 hover:border-white/20"}`}
+                              />
+                            </label>
+                          </div>
+
+                          {/* Corridor + overheat thresholds */}
+                          <div className="grid grid-cols-2 gap-4 border-t border-dashed border-slate-700/20 pt-3">
+                            <label className="flex flex-col gap-1.5 font-sans text-xs">
+                              <span className={`font-bold ${isLight ? "text-slate-700" : "text-slate-300"}`}>Коридор верх</span>
+                              <input
+                                type="number"
+                                step="1"
+                                min="0"
+                                max="100"
+                                value={selectedIndicator.settings.bsZoneBalUp ?? 65}
+                                onChange={(e) => { const v = parseInt(e.target.value, 10); updateSettings({ bsZoneBalUp: Number.isFinite(v) ? Math.max(0, Math.min(100, v)) : 65 }); }}
+                                className={`rounded-xl px-3 py-2 text-xs outline-none transition-all duration-300 border ${isLight ? "bg-white border-slate-200 text-slate-800 focus:ring-1 focus:ring-blue-400" : "bg-[#0b0f19] border border-white/10 text-slate-200 focus:ring-1 focus:ring-yellow-500/40 hover:border-white/20"}`}
+                              />
+                            </label>
+                            <label className="flex flex-col gap-1.5 font-sans text-xs">
+                              <span className={`font-bold ${isLight ? "text-slate-700" : "text-slate-300"}`}>Коридор низ</span>
+                              <input
+                                type="number"
+                                step="1"
+                                min="0"
+                                max="100"
+                                value={selectedIndicator.settings.bsZoneBalDown ?? 35}
+                                onChange={(e) => { const v = parseInt(e.target.value, 10); updateSettings({ bsZoneBalDown: Number.isFinite(v) ? Math.max(0, Math.min(100, v)) : 35 }); }}
+                                className={`rounded-xl px-3 py-2 text-xs outline-none transition-all duration-300 border ${isLight ? "bg-white border-slate-200 text-slate-800 focus:ring-1 focus:ring-blue-400" : "bg-[#0b0f19] border border-white/10 text-slate-200 focus:ring-1 focus:ring-yellow-500/40 hover:border-white/20"}`}
+                              />
+                            </label>
+                            <label className="flex flex-col gap-1.5 font-sans text-xs">
+                              <span className={`font-bold ${isLight ? "text-slate-700" : "text-slate-300"}`}>Перегрев верх</span>
+                              <input
+                                type="number"
+                                step="1"
+                                min="0"
+                                max="100"
+                                value={selectedIndicator.settings.bsZoneOverUp ?? 80}
+                                onChange={(e) => { const v = parseInt(e.target.value, 10); updateSettings({ bsZoneOverUp: Number.isFinite(v) ? Math.max(0, Math.min(100, v)) : 80 }); }}
+                                className={`rounded-xl px-3 py-2 text-xs outline-none transition-all duration-300 border ${isLight ? "bg-white border-slate-200 text-slate-800 focus:ring-1 focus:ring-blue-400" : "bg-[#0b0f19] border border-white/10 text-slate-200 focus:ring-1 focus:ring-yellow-500/40 hover:border-white/20"}`}
+                              />
+                            </label>
+                            <label className="flex flex-col gap-1.5 font-sans text-xs">
+                              <span className={`font-bold ${isLight ? "text-slate-700" : "text-slate-300"}`}>Перегрев низ</span>
+                              <input
+                                type="number"
+                                step="1"
+                                min="0"
+                                max="100"
+                                value={selectedIndicator.settings.bsZoneOverDown ?? 20}
+                                onChange={(e) => { const v = parseInt(e.target.value, 10); updateSettings({ bsZoneOverDown: Number.isFinite(v) ? Math.max(0, Math.min(100, v)) : 20 }); }}
+                                className={`rounded-xl px-3 py-2 text-xs outline-none transition-all duration-300 border ${isLight ? "bg-white border-slate-200 text-slate-800 focus:ring-1 focus:ring-blue-400" : "bg-[#0b0f19] border border-white/10 text-slate-200 focus:ring-1 focus:ring-yellow-500/40 hover:border-white/20"}`}
+                              />
+                            </label>
+                          </div>
+
+                          {/* Line colour */}
+                          <div className="flex items-center justify-between border-t border-dashed border-slate-700/20 pt-3">
+                            <span className={`font-bold ${isLight ? "text-slate-700" : "text-slate-300"}`}>Цвет линии</span>
+                            <div className="flex items-center gap-2">
+                              <input
+                                type="color"
+                                value={selectedIndicator.settings.bsZoneLineColor ?? "#22d3ee"}
+                                onChange={(e) => updateSettings({ bsZoneLineColor: e.target.value })}
+                                className="w-7 h-7 rounded cursor-pointer border-0 p-0 overflow-hidden bg-transparent shrink-0"
+                              />
+                              <span className="text-[10px] font-mono text-slate-400 truncate w-14">
+                                {selectedIndicator.settings.bsZoneLineColor ?? "#22d3ee"}
+                              </span>
+                            </div>
+                          </div>
+
+                          {/* Corridor colour */}
+                          <div className="flex items-center justify-between border-t border-dashed border-slate-700/20 pt-3">
+                            <span className={`font-bold ${isLight ? "text-slate-700" : "text-slate-300"}`}>Цвет коридора</span>
+                            <div className="flex items-center gap-2">
+                              <input
+                                type="color"
+                                value={selectedIndicator.settings.bsZoneBalColor ?? "#64748b"}
+                                onChange={(e) => updateSettings({ bsZoneBalColor: e.target.value })}
+                                className="w-7 h-7 rounded cursor-pointer border-0 p-0 overflow-hidden bg-transparent shrink-0"
+                              />
+                              <span className="text-[10px] font-mono text-slate-400 truncate w-14">
+                                {selectedIndicator.settings.bsZoneBalColor ?? "#64748b"}
+                              </span>
+                            </div>
+                          </div>
+
+                          {/* Corridor opacity */}
+                          <div className="flex flex-col gap-2 border-t border-dashed border-slate-700/20 pt-3">
+                            <div className="flex justify-between font-bold">
+                              <span className={isLight ? "text-slate-700" : "text-slate-300"}>Прозрачность коридора</span>
+                              <span className={`font-mono font-bold ${isLight ? "text-blue-700" : "text-yellow-500"}`}>
+                                {selectedIndicator.settings.bsZoneBalOpacity ?? 10}%
+                              </span>
+                            </div>
+                            <input
+                              type="range"
+                              min="0"
+                              max="100"
+                              value={selectedIndicator.settings.bsZoneBalOpacity ?? 10}
+                              onChange={(e) => updateSettings({ bsZoneBalOpacity: parseInt(e.target.value, 10) })}
+                              className={`w-full accent-blue-600 rounded-lg h-1 ${isLight ? "bg-slate-250" : "bg-slate-800"}`}
+                            />
+                          </div>
+
+                          {/* Overheat colours */}
+                          <div className="flex items-center justify-between border-t border-dashed border-slate-700/20 pt-3">
+                            <span className={`font-bold ${isLight ? "text-slate-700" : "text-slate-300"}`}>Перегрев верх (цвет)</span>
+                            <div className="flex items-center gap-2">
+                              <input
+                                type="color"
+                                value={selectedIndicator.settings.bsZoneOverUpColor ?? "#ef4444"}
+                                onChange={(e) => updateSettings({ bsZoneOverUpColor: e.target.value })}
+                                className="w-7 h-7 rounded cursor-pointer border-0 p-0 overflow-hidden bg-transparent shrink-0"
+                              />
+                              <span className="text-[10px] font-mono text-slate-400 truncate w-14">
+                                {selectedIndicator.settings.bsZoneOverUpColor ?? "#ef4444"}
+                              </span>
+                            </div>
+                          </div>
+
+                          <div className="flex items-center justify-between border-t border-dashed border-slate-700/20 pt-3">
+                            <span className={`font-bold ${isLight ? "text-slate-700" : "text-slate-300"}`}>Перегрев низ (цвет)</span>
+                            <div className="flex items-center gap-2">
+                              <input
+                                type="color"
+                                value={selectedIndicator.settings.bsZoneOverDownColor ?? "#10b981"}
+                                onChange={(e) => updateSettings({ bsZoneOverDownColor: e.target.value })}
+                                className="w-7 h-7 rounded cursor-pointer border-0 p-0 overflow-hidden bg-transparent shrink-0"
+                              />
+                              <span className="text-[10px] font-mono text-slate-400 truncate w-14">
+                                {selectedIndicator.settings.bsZoneOverDownColor ?? "#10b981"}
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+
                       {selectedIndicator.id === "rsi" && (
                         <div className={`flex flex-col gap-4 font-sans text-xs p-4.5 rounded-2xl border transition-all duration-300 ${isLight ? "bg-slate-100/40 border-slate-200/85" : "bg-slate-950/20 border-white/5"}`}>
                           <span className="text-[10px] text-slate-500 uppercase tracking-widest font-black font-mono">
