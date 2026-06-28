@@ -103,7 +103,7 @@ func (sm *SessionManager) RegisterSession(ctx context.Context, userId, tier stri
 	now := time.Now().UnixMilli()
 	key := sm.sessionKey(userId)
 
-	raw, err := registerScript.Run(ctx, sm.rdb, []string{key}, sessionId, now, limit, int64(sessionTTL.Seconds())).Slice()
+	raw, err := registerScript.Run(ctx, sm.rdb, []string{key}, sessionId, now, limit, sessionTTL.Milliseconds()).Slice()
 	if err != nil {
 		return RegisterResult{}, fmt.Errorf("register session: %w", err)
 	}
