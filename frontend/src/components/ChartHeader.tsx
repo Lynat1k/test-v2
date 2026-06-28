@@ -11,7 +11,7 @@ import { useCandlePalette } from '@/contexts/CandlePaletteContext'
 import { useTheme } from '@/contexts/ThemeContext'
 import type { CandleMode, VolumeMode } from '@/chart-engine'
 import { motion, AnimatePresence } from 'motion/react'
-import { ChevronDown, SlidersHorizontal, Zap, Lock, Check, Star } from 'lucide-react'
+import { ChevronDown, SlidersHorizontal, Lock, Check, Star } from 'lucide-react'
 import { AutoIcon } from '@/components/icons/AutoIcon'
 import { JapaneseIcon } from '@/components/icons/JapaneseIcon'
 import { BarsIcon } from '@/components/icons/BarsIcon'
@@ -37,12 +37,11 @@ const VOLUME_MODES: { mode: VolumeMode; labelKey: string }[] = [
 ]
 
 interface ChartHeaderProps {
-  fps?: number
   showAnomalies?: boolean
   onToggleAnomalies?: () => void
 }
 
-export function ChartHeader({ fps = 0, showAnomalies = true, onToggleAnomalies }: ChartHeaderProps) {
+export function ChartHeader({ showAnomalies = true, onToggleAnomalies }: ChartHeaderProps) {
   const { t } = useTranslation()
   const { theme } = useTheme()
   const isLight = theme === 'light'
@@ -326,12 +325,6 @@ export function ChartHeader({ fps = 0, showAnomalies = true, onToggleAnomalies }
           <SlidersHorizontal className="w-3.5 h-3.5 text-amber-400" />
           <span className="hidden md:inline">{t('chart.indicators')}</span>
         </button>
-      </div>
-
-      {/* FPS counter */}
-      <div className={`ml-auto flex items-center gap-1.5 px-2 py-1 text-[10px] font-mono ${isLight ? 'text-slate-400' : 'text-slate-500'}`}>
-        <Zap className="w-3 h-3 text-emerald-500/60" />
-        <span>{fps}</span>
       </div>
 
       {/* PORTALS: dropdowns rendered in document.body to escape canvas stacking context */}

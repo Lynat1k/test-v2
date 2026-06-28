@@ -3187,3 +3187,11 @@ Bid&Ask / Long&Short были пусты на 4h/1d. Причина: live-агр
 - **Админка** (`components/AdminPanel.tsx`, TierPoliciesBlock): импорт `MODULAR_INDICATORS`; карточка «9. Доступные индикаторы» (full-width, чекбоксы по эталону остальных полей тарифа) — галка=доступен, снята=скрыт (id в gatedIndicators). Хелпер `toggleGated`; сохранение через существующий `apiUpdatePolicies` (Save All). Подпись: «Снятая галка — индикатор скрыт для этого тарифа.»
 
 **Verification:** `npx tsc --noEmit` ✓ (exit 0); `npx vite build` ✓ (exit 0, 522ms; chunk-size warning — пред­существующий, не ошибка). Логику (Buy/Sell Zone скрыт у free/pro, виден у admin; снятие/постановка галки в админке) юзер проверяет в браузере после рестарта бэка.
+
+### [2026-06-29] chore(header): убран легаси FPS-счётчик из шапки приложения
+Иконка-молния + «0» справа в ChartHeader (всегда показывала 0) удалена. Чисто фронт, хирургически.
+- **`components/ChartHeader.tsx`**: удалён блок `{/* FPS counter */}` (div с `<Zap/>` + `<span>{fps}</span>`); импорт `Zap` из lucide-react убран (grep подтвердил — использовался только тут); проп `fps?: number` снят из `ChartHeaderProps` и из деструктуризации параметров.
+- **`App.tsx`**: убрана передача `fps={fps}` в `<ChartHeader>`. Стейт `const [fps, setFps]` → `const [, setFps]` (getter осиротел по tsc TS6133; `setFps` жив — идёт легаси-движку через `onFpsChange={handleFpsChange}`).
+- **НЕ трогали** (по запрету): админский FPS-бейдж внутри графика `chart2d/ClusterChart.tsx` (fpsDisplay) — остаётся; легаси-движок Renderer.ts/ChartPanel.tsx/ChartContainer.tsx и его FPS-обвязку — не вычищали, только осиротевший getter в App.tsx.
+
+**Verification:** `npx tsc --noEmit` ✓ (exit 0; первый прогон поймал TS6133 на `fps`, после правки чисто); `npx vite build` ✓ (exit 0, 698ms; chunk-size warning — пред­существующий). Визуально (молния с «0» под профилем исчезла, остальная шапка цела) юзер проверяет в браузере: `cd frontend; npm run dev`.

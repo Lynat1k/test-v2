@@ -46,7 +46,7 @@ function AppShell() {
   const useCanvas2d = import.meta.env['VITE_USE_CANVAS2D'] === 'true'
   const { user: authUser, loading: authLoading, betaMode, betaLoaded } = useAuthContext()
   const [currentView, setCurrentView] = useState<View>('terminal')
-  const [fps, setFps] = useState(0)
+  const [, setFps] = useState(0)
   const [focusIndicatorId, setFocusIndicatorId] = useState<string | null>(null)
   const handleFpsChange = useCallback((f: number) => setFps(f), [])
   const handleResolvedModeChange = useCallback((_m: Exclude<CandleMode, 'auto'>) => {}, [])
@@ -606,7 +606,7 @@ function AppShell() {
           <div className="flex-1 flex flex-col h-full gap-1 sm:gap-2">
             {/* Chart header controls */}
             <div className="hidden lg:block">
-              <ChartHeader fps={fps} showAnomalies={showAnomalies} onToggleAnomalies={() => setShowAnomalies(!showAnomalies)} />
+              <ChartHeader showAnomalies={showAnomalies} onToggleAnomalies={() => setShowAnomalies(!showAnomalies)} />
             </div>
 
             {/* Chart area */}
