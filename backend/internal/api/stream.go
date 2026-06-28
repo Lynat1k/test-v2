@@ -23,6 +23,10 @@ func (h *Hub) ListenToAggregator(ctx context.Context, updates <-chan aggregator.
 			if !ok {
 				return
 			}
+			channelKey := buildChannelKey(update.Symbol, update.Market, update.Timeframe)
+			if !h.HasSubscribers(channelKey) {
+				continue
+			}
 			msg := CandleUpdateMsg{
 				Type:   "candle_update",
 				Symbol: update.Symbol,
@@ -33,7 +37,6 @@ func (h *Hub) ListenToAggregator(ctx context.Context, updates <-chan aggregator.
 				log.Printf("[hub] marshal candle update: %v", err)
 				continue
 			}
-			channelKey := buildChannelKey(update.Symbol, update.Market, update.Timeframe)
 			h.Broadcast(channelKey, data)
 		}
 	}

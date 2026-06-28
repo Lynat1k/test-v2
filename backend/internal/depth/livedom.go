@@ -11,6 +11,7 @@ import (
 
 type HubBroadcaster interface {
 	Broadcast(channelKey string, data []byte)
+	HasSubscribers(channelKey string) bool
 }
 
 type LiveDOMMessage struct {
@@ -79,6 +80,11 @@ func (b *LiveDOMBroadcaster) broadcastAll() {
 			continue
 		}
 
+		channelKey := "dom:" + cfg.Symbol + ":" + cfg.Market
+		if !b.hub.HasSubscribers(channelKey) {
+			continue
+		}
+
 		centerPrice := ob.GetLastPrice()
 		if centerPrice <= 0 {
 			continue
@@ -103,7 +109,6 @@ func (b *LiveDOMBroadcaster) broadcastAll() {
 			continue
 		}
 
-		channelKey := "dom:" + cfg.Symbol + ":" + cfg.Market
 		b.hub.Broadcast(channelKey, data)
 	}
 }

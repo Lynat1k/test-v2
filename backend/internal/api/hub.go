@@ -62,7 +62,7 @@ func NewHub() *Hub {
 		channels:   make(map[string]map[*Client]struct{}),
 		register:   make(chan *Client, 64),
 		unregister: make(chan *Client, 64),
-		broadcast:  make(chan *ChannelMessage, 256),
+		broadcast:  make(chan *ChannelMessage, 1024),
 		done:       make(chan struct{}),
 	}
 }
@@ -146,6 +146,12 @@ func (h *Hub) Unsubscribe(client *Client, channelKey string) {
 			delete(h.channels, channelKey)
 		}
 	}
+}
+
+func (h *Hub) HasSubscribers(channelKey string) bool {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	return len(h.channels[channelKey]) > 0
 }
 
 func (h *Hub) Broadcast(channelKey string, data []byte) {
