@@ -656,7 +656,7 @@ function AppShell() {
                     <div className="absolute inset-0 flex">
                       <div
                         style={{ width: `${splitRatio * 100}%` }}
-                        className={`relative h-full overflow-hidden border-2 transition-all duration-150 ${
+                        className={`relative h-full overflow-hidden rounded-2xl border-2 transition-all duration-150 ${
                           activeSlot === 0
                             ? 'border-yellow-500/50 shadow-md shadow-yellow-500/5 bg-slate-900/10'
                             : 'border-transparent'
@@ -707,7 +707,7 @@ function AppShell() {
                       <Splitter direction="horizontal" onDrag={handleSplitterDrag} />
                       <div
                         style={{ width: `${(1 - splitRatio) * 100}%` }}
-                        className={`relative h-full overflow-hidden border-2 transition-all duration-150 ${
+                        className={`relative h-full overflow-hidden rounded-2xl border-2 transition-all duration-150 ${
                           activeSlot === 1
                             ? 'border-yellow-500/50 shadow-md shadow-yellow-500/5 bg-slate-900/10'
                             : 'border-transparent'
@@ -762,7 +762,7 @@ function AppShell() {
                     <div className="absolute inset-0 flex flex-col">
                       <div
                         style={{ height: `${splitRatio * 100}%` }}
-                        className={`relative w-full overflow-hidden border-2 transition-all duration-150 ${
+                        className={`relative w-full overflow-hidden rounded-2xl border-2 transition-all duration-150 ${
                           activeSlot === 0
                             ? 'border-yellow-500/50 shadow-md shadow-yellow-500/5 bg-slate-900/10'
                             : 'border-transparent'
@@ -813,7 +813,7 @@ function AppShell() {
                       <Splitter direction="vertical" onDrag={handleSplitterDrag} />
                       <div
                         style={{ height: `${(1 - splitRatio) * 100}%` }}
-                        className={`relative w-full overflow-hidden border-2 transition-all duration-150 ${
+                        className={`relative w-full overflow-hidden rounded-2xl border-2 transition-all duration-150 ${
                           activeSlot === 1
                             ? 'border-yellow-500/50 shadow-md shadow-yellow-500/5 bg-slate-900/10'
                             : 'border-transparent'
