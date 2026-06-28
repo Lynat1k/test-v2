@@ -713,7 +713,10 @@ export default function ClusterChart({
 
   const [resizingPanel, setResizingPanel] = useState<"delta" | "cvd" | "rsi" | "bidAskRatio" | "longShortRatio" | "buySellZone" | null>(null);
 
-  const panelGap = 24;
+  // 0 → footer panels stack with no empty strip; the divider sits exactly on the
+  // shared border, content of both neighbours is flush to it (thin "breathing" is
+  // the 2% value-inset inside each Y-helper). Layout formulas below use this var.
+  const panelGap = 0;
   const getPanelHeight = (id: string): number =>
     id === "delta" ? deltaPanelHeight : id === "cvd" ? cvdPanelHeight : id === "rsi" ? rsiPanelHeight : id === "bidAskRatio" ? bidAskRatioPanelHeight : id === "longShortRatio" ? longShortRatioPanelHeight : id === "buySellZone" ? buySellZonePanelHeight : 0;
 
@@ -6601,8 +6604,8 @@ export default function ClusterChart({
           className={`absolute left-0 right-0 z-40 cursor-ns-resize flex items-center justify-center group`}
           style={{
             top: `${deltaTopY}px`,
-            height: "14px",
-            transform: "translateY(-7px)"
+            height: "8px",
+            transform: "translateY(-4px)"
           }}
           title="Drag to resize Delta Panel"
         >
@@ -6620,8 +6623,8 @@ export default function ClusterChart({
           className={`absolute left-0 right-0 z-40 cursor-ns-resize flex items-center justify-center group`}
           style={{
             top: `${cvdTopY}px`,
-            height: "14px",
-            transform: "translateY(-7px)"
+            height: "8px",
+            transform: "translateY(-4px)"
           }}
           title="Drag to resize CVD Panel"
         >
@@ -6639,8 +6642,8 @@ export default function ClusterChart({
           className={`absolute left-0 right-0 z-40 cursor-ns-resize flex items-center justify-center group`}
           style={{
             top: `${rsiTopY}px`,
-            height: "14px",
-            transform: "translateY(-7px)"
+            height: "8px",
+            transform: "translateY(-4px)"
           }}
           title="Drag to resize RSI Panel"
         >
@@ -6658,8 +6661,8 @@ export default function ClusterChart({
           className={`absolute left-0 right-0 z-40 cursor-ns-resize flex items-center justify-center group`}
           style={{
             top: `${bidAskRatioTopY}px`,
-            height: "14px",
-            transform: "translateY(-7px)"
+            height: "8px",
+            transform: "translateY(-4px)"
           }}
           title="Drag to resize Bid & Ask Ratio Panel"
         >
@@ -6677,8 +6680,8 @@ export default function ClusterChart({
           className={`absolute left-0 right-0 z-40 cursor-ns-resize flex items-center justify-center group`}
           style={{
             top: `${longShortRatioTopY}px`,
-            height: "14px",
-            transform: "translateY(-7px)"
+            height: "8px",
+            transform: "translateY(-4px)"
           }}
           title="Drag to resize Long/Short Ratio Panel"
         >
@@ -6696,8 +6699,8 @@ export default function ClusterChart({
           className={`absolute left-0 right-0 z-40 cursor-ns-resize flex items-center justify-center group`}
           style={{
             top: `${buySellZoneTopY}px`,
-            height: "14px",
-            transform: "translateY(-7px)"
+            height: "8px",
+            transform: "translateY(-4px)"
           }}
           title="Drag to resize Buy/Sell Zone Panel"
         >
