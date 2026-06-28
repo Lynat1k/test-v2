@@ -1019,6 +1019,16 @@ export default function ClusterChart({
   const startCvdScaleYRef = useRef<number>(0);
   const startCvdScaleRef = useRef<number>(1.0);
 
+  const [rsiScale, setRsiScale] = useState<number>(1.0);
+  const [isDraggingRsiScale, setIsDraggingRsiScale] = useState(false);
+  const startRsiScaleYRef = useRef<number>(0);
+  const startRsiScaleRef = useRef<number>(1.0);
+
+  const [bidAskRatioScale, setBidAskRatioScale] = useState<number>(1.0);
+  const [isDraggingBidAskRatioScale, setIsDraggingBidAskRatioScale] = useState(false);
+  const startBidAskRatioScaleYRef = useRef<number>(0);
+  const startBidAskRatioScaleRef = useRef<number>(1.0);
+
   // States and refs for interactive horizontal timescale zoom/scale dragging
   const [isDraggingTimeScale, setIsDraggingTimeScale] = useState(false);
   const startTimeScaleXRef = useRef<number>(0);
@@ -1036,6 +1046,8 @@ export default function ClusterChart({
   const isDraggingPriceScaleRef = useRef<boolean>(false);
   const isDraggingDeltaScaleRefTouch = useRef<boolean>(false);
   const isDraggingCvdScaleRefTouch = useRef<boolean>(false);
+  const isDraggingRsiScaleRefTouch = useRef<boolean>(false);
+  const isDraggingBidAskRatioScaleRefTouch = useRef<boolean>(false);
   const touchStartRef = useRef<{
     x: number;
     y: number;
@@ -2993,6 +3005,25 @@ export default function ClusterChart({
     return panelH - ((val - zoomedCvdMin) / zoomedCvdDeltaRange) * (panelH * 0.8) - (panelH * 0.1);
   };
 
+  // RSI vertical zoom around the centre (50). scale=1 → [0,100] (unzoomed).
+  const zoomedRsiHalf = 50 / Math.max(0.01, rsiScale);
+  const zoomedRsiMax = 50 + zoomedRsiHalf;
+  const zoomedRsiMin = 50 - zoomedRsiHalf;
+  // Panel-local Y for an RSI value (0 at top). Shared by canvas draw and SVG ticks.
+  const rsiYInPanel = (v: number) =>
+    rsiPanelHeight - ((v - zoomedRsiMin) / (zoomedRsiMax - zoomedRsiMin)) * rsiPanelHeight;
+
+  // Bid & Ask Ratio vertical zoom, symmetric around 0. scale=1 → [-1,+1].
+  const zoomedRatioMax = 1.0 / Math.max(0.01, bidAskRatioScale);
+  const zoomedRatioMin = -zoomedRatioMax;
+  // Panel-local Y for a ratio value. usableHalf leaves ~8% margin top & bottom.
+  const ratioYInPanel = (v: number) => {
+    const mid = bidAskRatioPanelHeight / 2;
+    const half = bidAskRatioPanelHeight * 0.42;
+    const cl = Math.max(zoomedRatioMin, Math.min(zoomedRatioMax, v));
+    return mid - (cl / zoomedRatioMax) * half;
+  };
+
   // R: visibleMaxCellVol / visibleMaxSingleVol useMemos deleted — both consumed
   // only inside drawRef closure (cell normalization for detailed/cluster mode).
   // They are now computed inline in drawRef.current with the same single-pass
@@ -3229,6 +3260,54 @@ export default function ClusterChart({
       window.removeEventListener("mouseup", handleWindowMouseUp);
     };
   }, [isDraggingCvdScale]);
+
+  // Window-level mouse drag-zoom tracker for vertical RSI scale dragging
+  useEffect(() => {
+    if (!isDraggingRsiScale) return;
+
+    const handleWindowMouseMove = (e: MouseEvent) => {
+      const deltaY = startRsiScaleYRef.current - e.clientY;
+      const multiplier = Math.exp(deltaY / 200);
+      const nextScale = startRsiScaleRef.current * multiplier;
+      const clampedScale = Math.min(200.0, Math.max(0.01, nextScale));
+      setRsiScale(clampedScale);
+    };
+
+    const handleWindowMouseUp = () => {
+      setIsDraggingRsiScale(false);
+    };
+
+    window.addEventListener("mousemove", handleWindowMouseMove);
+    window.addEventListener("mouseup", handleWindowMouseUp);
+    return () => {
+      window.removeEventListener("mousemove", handleWindowMouseMove);
+      window.removeEventListener("mouseup", handleWindowMouseUp);
+    };
+  }, [isDraggingRsiScale]);
+
+  // Window-level mouse drag-zoom tracker for vertical Bid & Ask Ratio scale dragging
+  useEffect(() => {
+    if (!isDraggingBidAskRatioScale) return;
+
+    const handleWindowMouseMove = (e: MouseEvent) => {
+      const deltaY = startBidAskRatioScaleYRef.current - e.clientY;
+      const multiplier = Math.exp(deltaY / 200);
+      const nextScale = startBidAskRatioScaleRef.current * multiplier;
+      const clampedScale = Math.min(200.0, Math.max(0.01, nextScale));
+      setBidAskRatioScale(clampedScale);
+    };
+
+    const handleWindowMouseUp = () => {
+      setIsDraggingBidAskRatioScale(false);
+    };
+
+    window.addEventListener("mousemove", handleWindowMouseMove);
+    window.addEventListener("mouseup", handleWindowMouseUp);
+    return () => {
+      window.removeEventListener("mousemove", handleWindowMouseMove);
+      window.removeEventListener("mouseup", handleWindowMouseUp);
+    };
+  }, [isDraggingBidAskRatioScale]);
 
   // Window-level mouse drag-zoom tracker for horizontal timeline scale dragging
   useEffect(() => {
@@ -4459,8 +4538,9 @@ export default function ClusterChart({
       ctx.clip();
       ctx.translate(0, rsiTopY);
 
-      // Fixed mapping: 0 at the bottom, 100 at the top of the panel
-      const getRsiY = (v: number) => rsiPanelHeight - (v / 100) * rsiPanelHeight;
+      // Zoomable mapping around centre 50 (rsiYInPanel). At scale=1 this is the
+      // original [0,100] fit; reference levels & line follow the zoom.
+      const getRsiY = rsiYInPanel;
       const y70 = getRsiY(70);
       const y30 = getRsiY(30);
       const y50 = getRsiY(50);
@@ -4539,8 +4619,8 @@ export default function ClusterChart({
 
       const panelH = bidAskRatioPanelHeight;
       const midY = panelH / 2;
-      const usableHalf = panelH * 0.42; // leave ~8% margin top & bottom
-      const getRatioY = (v: number) => midY - Math.max(-1, Math.min(1, v)) * usableHalf;
+      // Zoomable mapping symmetric around 0 (ratioYInPanel). scale=1 → ±1 fit.
+      const getRatioY = ratioYInPanel;
 
       // Zero reference line (centre)
       ctx.beginPath();
@@ -4566,23 +4646,17 @@ export default function ClusterChart({
         for (let idx = barStartIdx; idx <= barEndIdx; idx++) {
           const p = bidAskRatioPoints[idx];
           if (!p || p.value === null || p.value === undefined) continue;
-          const v = Math.max(-1, Math.min(1, p.value));
-          const yVal = getRatioY(v);
+          const raw = p.value; // sign from raw value; Y clamps to zoomed bounds inside getRatioY
+          const yVal = getRatioY(raw);
           const x = p.cx - candleWidth / 2;
-          const top = v >= 0 ? yVal : midY;
+          const top = raw >= 0 ? yVal : midY;
           const h = Math.max(1, Math.abs(midY - yVal));
-          ctx.fillStyle = v >= 0 ? bullFill : bearFill;
+          ctx.fillStyle = raw >= 0 ? bullFill : bearFill;
           ctx.fillRect(x + 1, top, candleWidth - 2, h);
         }
       }
 
-      // Fixed axis labels (+1 / 0 / -1) on the left edge
-      ctx.fillStyle = isLight ? "rgba(15, 23, 42, 0.5)" : "rgba(148, 163, 184, 0.7)";
-      ctx.font = "9px 'Inter', sans-serif";
-      ctx.textAlign = "left";
-      ctx.fillText("+1", margin.left + 2, getRatioY(1) + 8);
-      ctx.fillText("0", margin.left + 2, midY - 2);
-      ctx.fillText("-1", margin.left + 2, getRatioY(-1) - 2);
+      // (Axis value labels moved to the right SVG price scale — see bidAskRatio ticks.)
 
       ctx.restore();
     }
@@ -4785,6 +4859,8 @@ export default function ClusterChart({
     cvdCenterVal,
     deltaScale,
     cvdScale,
+    rsiScale,
+    bidAskRatioScale,
     bidAskRatioPoints,
     bidAskRatioBullColor,
     bidAskRatioBearColor,
@@ -5129,6 +5205,14 @@ export default function ClusterChart({
             setIsDraggingCvdScale(true);
             startCvdScaleYRef.current = e.clientY;
             startCvdScaleRef.current = cvdScale;
+          } else if (inPanelZone("rsi")) {
+            setIsDraggingRsiScale(true);
+            startRsiScaleYRef.current = e.clientY;
+            startRsiScaleRef.current = rsiScale;
+          } else if (inPanelZone("bidAskRatio")) {
+            setIsDraggingBidAskRatioScale(true);
+            startBidAskRatioScaleYRef.current = e.clientY;
+            startBidAskRatioScaleRef.current = bidAskRatioScale;
           } else {
             setIsDraggingPriceScale(true);
             startPriceScaleYRef.current = e.clientY;
@@ -5152,6 +5236,14 @@ export default function ClusterChart({
             isDraggingCvdScaleRefTouch.current = true;
             startCvdScaleYRef.current = t.clientY;
             startCvdScaleRef.current = cvdScale;
+          } else if (inPanelZoneTouch("rsi")) {
+            isDraggingRsiScaleRefTouch.current = true;
+            startRsiScaleYRef.current = t.clientY;
+            startRsiScaleRef.current = rsiScale;
+          } else if (inPanelZoneTouch("bidAskRatio")) {
+            isDraggingBidAskRatioScaleRefTouch.current = true;
+            startBidAskRatioScaleYRef.current = t.clientY;
+            startBidAskRatioScaleRef.current = bidAskRatioScale;
           } else {
             isDraggingPriceScaleRef.current = true;
             startPriceScaleYRef.current = t.clientY;
@@ -5178,17 +5270,31 @@ export default function ClusterChart({
             const multiplier = Math.exp(deltaY / 200);
             const nextScale = Math.min(2000.0, Math.max(0.1, startCvdScaleRef.current * multiplier));
             setCvdScale(nextScale);
+          } else if (isDraggingRsiScaleRefTouch.current) {
+            const deltaY = startRsiScaleYRef.current - t.clientY;
+            const multiplier = Math.exp(deltaY / 200);
+            const nextScale = Math.min(2000.0, Math.max(0.1, startRsiScaleRef.current * multiplier));
+            setRsiScale(nextScale);
+          } else if (isDraggingBidAskRatioScaleRefTouch.current) {
+            const deltaY = startBidAskRatioScaleYRef.current - t.clientY;
+            const multiplier = Math.exp(deltaY / 200);
+            const nextScale = Math.min(2000.0, Math.max(0.1, startBidAskRatioScaleRef.current * multiplier));
+            setBidAskRatioScale(nextScale);
           }
         }}
         onTouchEnd={() => {
           isDraggingPriceScaleRef.current = false;
           isDraggingDeltaScaleRefTouch.current = false;
           isDraggingCvdScaleRefTouch.current = false;
+          isDraggingRsiScaleRefTouch.current = false;
+          isDraggingBidAskRatioScaleRefTouch.current = false;
         }}
         onTouchCancel={() => {
           isDraggingPriceScaleRef.current = false;
           isDraggingDeltaScaleRefTouch.current = false;
           isDraggingCvdScaleRefTouch.current = false;
+          isDraggingRsiScaleRefTouch.current = false;
+          isDraggingBidAskRatioScaleRefTouch.current = false;
         }}
         className={`flex-none border-l select-none transition-all duration-300 relative flex flex-col justify-between cursor-ns-resize ${
           isLight ? "bg-[#f8fafc] border-slate-200" : "bg-[#06080f] border-white/5"
@@ -5478,9 +5584,10 @@ export default function ClusterChart({
                 </g>
               )}
 
-              {/* RSI subchart Y-axis labels (fixed 0–100 scale) */}
+              {/* RSI subchart Y-axis labels — follow the vertical zoom (centre 50) */}
               {activeIndicators.rsi && (
                 <g key="rsi-panel-ticks">
+                  {/* Top = zoomed max */}
                   <text
                     x={labelX}
                     y={rsiTopY + 10}
@@ -5489,21 +5596,25 @@ export default function ClusterChart({
                     fontFamily="'Inter', -apple-system, sans-serif"
                     fontWeight="bold"
                   >
-                    100
+                    {Math.round(zoomedRsiMax)}
                   </text>
+                  {/* 70 — only when inside the visible zoom window */}
+                  {zoomedRsiMin <= 70 && zoomedRsiMax >= 70 && (
+                    <text
+                      x={labelX}
+                      y={rsiTopY + rsiYInPanel(70) + 4}
+                      fill={isLight ? "#be123c" : "#f43f5e"}
+                      fontSize={isMobile ? "8" : "9"}
+                      fontFamily="'Inter', -apple-system, sans-serif"
+                      fontWeight="bold"
+                    >
+                      70
+                    </text>
+                  )}
+                  {/* 50 centre */}
                   <text
                     x={labelX}
-                    y={rsiTopY + rsiPanelHeight * 0.3 + 4}
-                    fill={isLight ? "#be123c" : "#f43f5e"}
-                    fontSize={isMobile ? "8" : "9"}
-                    fontFamily="'Inter', -apple-system, sans-serif"
-                    fontWeight="bold"
-                  >
-                    70
-                  </text>
-                  <text
-                    x={labelX}
-                    y={rsiTopY + rsiPanelHeight * 0.5 + 4}
+                    y={rsiTopY + rsiYInPanel(50) + 4}
                     fill={isLight ? "#475569" : "#94a3b8"}
                     fontSize={isMobile ? "8" : "9"}
                     fontFamily="'Inter', -apple-system, sans-serif"
@@ -5511,16 +5622,20 @@ export default function ClusterChart({
                   >
                     50
                   </text>
-                  <text
-                    x={labelX}
-                    y={rsiTopY + rsiPanelHeight * 0.7 + 4}
-                    fill={isLight ? "#047857" : "#10b981"}
-                    fontSize={isMobile ? "8" : "9"}
-                    fontFamily="'Inter', -apple-system, sans-serif"
-                    fontWeight="bold"
-                  >
-                    30
-                  </text>
+                  {/* 30 — only when inside the visible zoom window */}
+                  {zoomedRsiMin <= 30 && zoomedRsiMax >= 30 && (
+                    <text
+                      x={labelX}
+                      y={rsiTopY + rsiYInPanel(30) + 4}
+                      fill={isLight ? "#047857" : "#10b981"}
+                      fontSize={isMobile ? "8" : "9"}
+                      fontFamily="'Inter', -apple-system, sans-serif"
+                      fontWeight="bold"
+                    >
+                      30
+                    </text>
+                  )}
+                  {/* Bottom = zoomed min */}
                   <text
                     x={labelX}
                     y={rsiTopY + rsiPanelHeight - 3}
@@ -5529,7 +5644,46 @@ export default function ClusterChart({
                     fontFamily="'Inter', -apple-system, sans-serif"
                     fontWeight="bold"
                   >
-                    0
+                    {Math.round(zoomedRsiMin)}
+                  </text>
+                </g>
+              )}
+
+              {/* Bid & Ask Ratio subchart Y-axis labels — right scale, follow zoom */}
+              {activeIndicators.bidAskRatio && (
+                <g key="bidaskratio-panel-ticks">
+                  {/* Top = +zoomed max (bull colour) */}
+                  <text
+                    x={labelX}
+                    y={bidAskRatioTopY + ratioYInPanel(zoomedRatioMax) + 9}
+                    fill={bidAskRatioBullColor}
+                    fontSize={isMobile ? "8" : "9"}
+                    fontFamily="'Inter', -apple-system, sans-serif"
+                    fontWeight="bold"
+                  >
+                    +{zoomedRatioMax.toFixed(2)}
+                  </text>
+                  {/* Centre = 0.00 */}
+                  <text
+                    x={labelX}
+                    y={bidAskRatioTopY + bidAskRatioPanelHeight / 2 + 4}
+                    fill={isLight ? "#475569" : "#94a3b8"}
+                    fontSize={isMobile ? "8" : "9"}
+                    fontFamily="'Inter', -apple-system, sans-serif"
+                    fontWeight="bold"
+                  >
+                    0.00
+                  </text>
+                  {/* Bottom = zoomed min (bear colour) */}
+                  <text
+                    x={labelX}
+                    y={bidAskRatioTopY + ratioYInPanel(zoomedRatioMin) - 2}
+                    fill={bidAskRatioBearColor}
+                    fontSize={isMobile ? "8" : "9"}
+                    fontFamily="'Inter', -apple-system, sans-serif"
+                    fontWeight="bold"
+                  >
+                    {zoomedRatioMin.toFixed(2)}
                   </text>
                 </g>
               )}

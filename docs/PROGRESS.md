@@ -66,6 +66,37 @@
     НЕ в design-src).
   - Деплой на VPS (ручной: `bash /root/test-v2/deploy.sh`).
 
+### [2026-06-28] feat(chart): вертикальная шкала + зум для подвалов RSI и Bid & Ask Ratio
+
+- **Контекст**: у RSI и Bid & Ask Ratio не было правой шкалы значений и зума перетаскиванием
+  (как у Delta/CVD). Повторён тот же паттерн. Только фронт, `ClusterChart.tsx`.
+
+- **Сделано** (всё по образцу delta/cvd: `exp(deltaY/200)`, clamp mouse [0.01,200] / touch [0.1,2000]):
+  - Состояние `rsiScale`/`bidAskRatioScale` (useState 1.0) + start-рефы + флаги drag (mouse+touch).
+  - Зумленые границы (component-scope) + общие хелперы Y для канваса И SVG:
+    RSI вокруг 50 — `zoomedRsiMin/Max = 50 ∓ 50/scale`, `rsiYInPanel`;
+    Ratio симметрично 0 — `zoomedRatioMax = 1/scale`, `zoomedRatioMin = -max`, `ratioYInPanel` (клампит).
+  - `inPanelZone`-цепочка (mouse onMouseDown + touch onTouchStart/Move/End/Cancel): ветки
+    `rsi` и `bidAskRatio`.
+  - Два `useEffect` движения (копии cvd) на `isDraggingRsiScale` / `isDraggingBidAskRatioScale`.
+  - Канвас: RSI getRsiY → `rsiYInPanel` (линии 30/50/70 и зона движутся при зуме);
+    Ratio getRatioY → `ratioYInPanel`, знак бара по сырому значению. Убраны канвас-подписи слева (+1/0/−1).
+  - Правая SVG-шкала: RSI — top=`round(zoomedRsiMax)`, 70/50/30 на своих Y (70/30 только если в окне),
+    bottom=`round(zoomedRsiMin)`. Ratio (новый блок) — top=`+max` (bullColor), 0.00 (серый),
+    bottom=`min` (bearColor), формат 2 знака. Нулевая линия по центру осталась.
+  - `rsiScale`/`bidAskRatioScale` добавлены в deps draw-замыкания.
+  - Сброса масштаба у delta/cvd нет (нет dblclick) → у rsi/ratio тоже не добавлял (паритет).
+
+- **Файлы**: `frontend/src/chart2d/ClusterChart.tsx` (state ~1018, зум-границы/хелперы после getCvdY,
+  movement-effects после cvd-effect, draw RSI/Ratio ~4470/4540, inPanelZone+touch ~5140–5210,
+  SVG-тики RSI/Ratio ~5490+).
+
+- **Verification**: `npx tsc --noEmit` ✓, `npx vite build` ✓ (CSS @import warning — пре-existing).
+  Визуал (правая шкала у RSI/Ratio, тянуть шкалу панели = зум, delta/cvd/ценовая не сломаны,
+  spot → «Только futures») — за пользователем (policy: Playwright на визуал не дёргаю).
+
+- **TODO**: — (паритет с delta/cvd достигнут).
+
 ### [2026-06-28] feat: Bid & Ask Ratio — Фаза 3 (фронт: подвал-индикатор + настройки)
 
 - **Контекст**: финал индикатора. Подвальный индикатор по данным с бэкенда
