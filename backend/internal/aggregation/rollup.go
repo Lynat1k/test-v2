@@ -18,6 +18,12 @@ type intervalTracker struct {
 }
 
 func AlignToTimeframe(t time.Time, tf string) time.Time {
+	// Binance market time is UTC. Alignment must not depend on the process TZ:
+	// live aggregator feeds trade.Time from time.UnixMilli (time.Local), so on a
+	// non-UTC host the 4h/1d branches below (time.Date with t.Location()) would
+	// bucket on local boundaries and diverge from the UTC-bucketed indicator
+	// read paths. Force UTC so all call sites align identically.
+	t = t.UTC()
 	switch tf {
 	case "5m":
 		minute := t.Minute() / 5 * 5
