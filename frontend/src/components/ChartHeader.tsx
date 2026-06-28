@@ -130,7 +130,7 @@ export function ChartHeader({ fps = 0, showAnomalies = true, onToggleAnomalies }
   }, [setControlsPalette, setActivePalette, activeSlot])
 
   return (
-    <div className={`relative flex items-start gap-1 px-2 py-2.5 border-b shadow-md shrink-0 overflow-x-auto flex-wrap lg:flex-nowrap transition-all duration-300 ${
+    <div className={`relative flex items-start gap-1 px-2 py-1.5 border-b shadow-md shrink-0 overflow-x-auto flex-wrap lg:flex-nowrap transition-all duration-300 ${
       isLight
         ? 'bg-slate-200/90 border-slate-300 shadow-sm'
         : 'bg-slate-950/40 border-slate-900/60 backdrop-blur-md'
@@ -141,7 +141,7 @@ export function ChartHeader({ fps = 0, showAnomalies = true, onToggleAnomalies }
         <div className="relative" ref={tickerRef}>
         <button
           onClick={() => tickerDropdownOpen ? setTickerDropdownOpen(false) : openTickerDropdown()}
-          className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg liquid-glass-button text-xs font-bold cursor-pointer select-none whitespace-nowrap ${
+          className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg liquid-glass-button text-xs font-bold cursor-pointer select-none whitespace-nowrap h-[30px] ${
             isLight ? 'text-slate-900' : ''
           }`}
         >
@@ -156,7 +156,7 @@ export function ChartHeader({ fps = 0, showAnomalies = true, onToggleAnomalies }
       {/* 2. Market type SPOT / FUTURES */}
       <div className="shrink-0">
         <span className={`text-[10px] uppercase font-mono tracking-widest font-bold block mb-0.5 ${isLight ? 'text-slate-500' : 'text-slate-400/80'}`}>Market Type</span>
-        <div className={`flex items-center p-0.5 rounded-lg border ${isLight ? 'bg-slate-200 border-slate-300' : 'bg-slate-950/60 border-white/5'}`}>
+        <div className={`flex items-center p-0.5 rounded-lg border h-[30px] ${isLight ? 'bg-slate-200 border-slate-300' : 'bg-slate-950/60 border-white/5'}`}>
           {(['futures', 'spot'] as MarketType[]).map((m) => (
             <button
               key={m}
@@ -212,7 +212,7 @@ export function ChartHeader({ fps = 0, showAnomalies = true, onToggleAnomalies }
               key={mode}
               onClick={() => setCandleMode(mode)}
               title={t(labelKey)}
-              className={`flex items-center justify-center px-2 py-0.5 rounded-md text-xs font-bold cursor-pointer transition-all h-[24px] ${
+              className={`flex items-center justify-center px-2 py-0.5 rounded-md text-xs font-bold cursor-pointer transition-all h-[30px] ${
                 candleMode === mode
                   ? 'bg-yellow-500/10 border border-yellow-500/25 text-yellow-500 font-extrabold shadow-inner'
                   : isLight
@@ -251,7 +251,8 @@ export function ChartHeader({ fps = 0, showAnomalies = true, onToggleAnomalies }
       <div className={`w-px h-5 mx-0.5 ${isLight ? 'bg-slate-300' : 'bg-white/10'}`} />
 
       {/* 5. Palette dropdown */}
-      <div className="shrink-0 pt-[17px]">
+      <div className="shrink-0">
+        <span aria-hidden className="text-[10px] uppercase font-mono tracking-widest font-bold block mb-0.5 invisible">.</span>
         <div className="relative" ref={paletteRef}>
           <button
             onClick={() => paletteDropdownOpen ? setPaletteDropdownOpen(false) : openPaletteDropdown()}
@@ -269,7 +270,7 @@ export function ChartHeader({ fps = 0, showAnomalies = true, onToggleAnomalies }
           <div className={`w-px h-5 mx-0.5 ${isLight ? 'bg-slate-300' : 'bg-white/10'}`} />
           <div className="shrink-0">
             <span className={`text-[10px] uppercase font-mono tracking-widest font-bold block mb-0.5 ${isLight ? 'text-slate-500' : 'text-slate-400/80'}`}>{t('chart.volumeData')}</span>
-            <div className={`flex items-center p-0.5 rounded-lg border ${isLight ? 'bg-slate-200 border-slate-300' : 'bg-slate-950/60 border-white/5'}`}>
+            <div className={`flex items-center p-0.5 rounded-lg border h-[30px] ${isLight ? 'bg-slate-200 border-slate-300' : 'bg-slate-950/60 border-white/5'}`}>
               {VOLUME_MODES.map(({ mode, labelKey }) => (
                 <button
                   key={mode}
@@ -300,7 +301,7 @@ export function ChartHeader({ fps = 0, showAnomalies = true, onToggleAnomalies }
         <div className="relative" ref={compressionRef}>
         <button
           onClick={() => compressionDropdownOpen ? setCompressionDropdownOpen(false) : openCompressionDropdown()}
-          className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg liquid-glass-button text-xs font-bold cursor-pointer select-none whitespace-nowrap ${
+          className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg liquid-glass-button text-xs font-bold cursor-pointer select-none whitespace-nowrap h-[30px] ${
             chartCompressionLocked && compression > 1 ? 'opacity-60' : ''
           }`}
         >
@@ -319,7 +320,7 @@ export function ChartHeader({ fps = 0, showAnomalies = true, onToggleAnomalies }
         <span className={`text-[10px] uppercase font-mono tracking-widest font-bold block mb-0.5 ${isLight ? 'text-slate-500' : 'text-slate-400/80'}`}>Controls</span>
         <button
           onClick={() => setShowIndicatorsModal(!showIndicatorsModal)}
-          className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg liquid-glass-button text-xs font-bold cursor-pointer select-none"
+          className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg liquid-glass-button text-xs font-bold cursor-pointer select-none h-[30px]"
           title={t('chart.indicators')}
         >
           <SlidersHorizontal className="w-3.5 h-3.5 text-amber-400" />

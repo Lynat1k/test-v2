@@ -601,7 +601,7 @@ function AppShell() {
       </AnimatePresence>
 
       {/* Main content */}
-      <div className="flex-1 overflow-hidden flex flex-col pt-0 pl-1 sm:pl-2 pr-0 pb-1 sm:pb-2 gap-1.5 sm:gap-2">
+      <div className="flex-1 overflow-hidden flex flex-col pt-0 pl-0 pr-0 pb-1 sm:pb-2 gap-1.5 sm:gap-2">
         {currentView === 'terminal' && (
           <div className="flex-1 flex flex-col h-full gap-1 sm:gap-2">
             {/* Chart header controls */}
