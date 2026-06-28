@@ -3159,3 +3159,6 @@ Bid&Ask / Long&Short были пусты на 4h/1d. Причина: live-агр
 
 ### [2026-06-28] fix(chart): подвалы используют полную высоту панели до разделителя
 Убрана мёртвая полоса сверху/снизу в подвальных индикаторах: поля Y-маппинга 10%/8% → 2%. getCvdY и getLsrY (`0.8/0.1` → `0.96/0.02`), ratioYInPanel (`half 0.42` → `0.48`), delta-гистограмма (`maxBarScaledHeight 0.45` → `0.48`). SVG-подписи min/max delta/cvd/longShort синхронизированы (`0.1/0.9` → `0.02/0.98`); rsi/bidAsk/buySellZone тики через хелперы — подтянулись сами. clip/offset/zoom не тронуты. `ClusterChart.tsx`. tsc ✓, vite ✓.
+
+### [2026-06-28] fix(chart): убрать мёртвую полосу под разделителем подвалов (контент флэш к разделителю)
+Зазор panelGap перенесён НАД разделитель: первая панель теперь flush к границе графика (panelTopY[0]=margin.top+chartHeight, без ведущего gap'а), остальные — gap только между панелями. panelsHeightTotal = ΣH + gap·(n−1) (был ΣH + gap·n) — согласован с раскладкой. Межпанельные разделители (canvas + SVG) сдвинуты с `panelTopY−gap/2` на `panelTopY`; ресайз-ручки 6 подвалов — туда же. Первый разделитель, clip, offset/zoom, value-инсет 2% не тронуты. `ClusterChart.tsx`. tsc ✓, vite ✓.

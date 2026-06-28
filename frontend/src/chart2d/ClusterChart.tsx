@@ -720,8 +720,12 @@ export default function ClusterChart({
   // Active footer panels in render order (top -> bottom).
   const activePanels = panelOrder.filter(id => activeIndicators[id]);
 
-  // Total vertical space consumed by all active footer panels (each panel + its top gap).
-  const panelsHeightTotal = activePanels.reduce((sum, id) => sum + getPanelHeight(id) + panelGap, 0);
+  // Total vertical space consumed by all active footer panels. The gap sits ABOVE
+  // each divider (between panels), so only (n-1) gaps — content of every panel is
+  // flush to its top divider, no dead strip below it.
+  const panelsHeightTotal =
+    activePanels.reduce((sum, id) => sum + getPanelHeight(id), 0) +
+    panelGap * Math.max(0, activePanels.length - 1);
 
   // Calculate base chart height to fill container exactly, ensuring footer panels are pinned at the bottom
   const chartHeight = Math.max(150, containerHeight - margin.top - margin.bottom - panelsHeightTotal);
@@ -730,11 +734,13 @@ export default function ClusterChart({
   const panelTopY: Record<string, number> = {};
   {
     let y = margin.top + chartHeight;
-    for (const id of activePanels) {
-      y += panelGap;
+    activePanels.forEach((id, i) => {
+      // First panel is flush to the chart/panel boundary (no leading gap). The gap
+      // goes above each subsequent panel's divider, not below the divider.
+      if (i > 0) y += panelGap;
       panelTopY[id] = y;
       y += getPanelHeight(id);
-    }
+    });
   }
 
   // Backwards-compatible aliases used by guarded single-panel render code (canvas panels, ticks, resize).
@@ -3838,7 +3844,7 @@ export default function ClusterChart({
       ctx.lineTo(scrollWidth, sepY);
       ctx.stroke();
       for (let i = 1; i < activePanels.length; i++) {
-        const dy = Math.round(panelTopY[activePanels[i]] - panelGap / 2) + 0.5;
+        const dy = Math.round(panelTopY[activePanels[i]]) + 0.5;
         ctx.beginPath();
         ctx.moveTo(0, dy);
         ctx.lineTo(scrollWidth, dy);
@@ -6165,9 +6171,9 @@ export default function ClusterChart({
                 <line
                   key={`divider-${id}`}
                   x1={0}
-                  y1={panelTopY[id] - panelGap / 2}
+                  y1={panelTopY[id]}
                   x2={scaleWidth}
-                  y2={panelTopY[id] - panelGap / 2}
+                  y2={panelTopY[id]}
                   stroke={isLight ? "rgba(148, 163, 184, 0.35)" : "rgba(255, 255, 255, 0.16)"}
                   strokeWidth="1"
                 />
@@ -6594,7 +6600,7 @@ export default function ClusterChart({
           }}
           className={`absolute left-0 right-0 z-40 cursor-ns-resize flex items-center justify-center group`}
           style={{
-            top: `${deltaTopY - panelGap / 2}px`,
+            top: `${deltaTopY}px`,
             height: "14px",
             transform: "translateY(-7px)"
           }}
@@ -6613,7 +6619,7 @@ export default function ClusterChart({
           }}
           className={`absolute left-0 right-0 z-40 cursor-ns-resize flex items-center justify-center group`}
           style={{
-            top: `${cvdTopY - panelGap / 2}px`,
+            top: `${cvdTopY}px`,
             height: "14px",
             transform: "translateY(-7px)"
           }}
@@ -6632,7 +6638,7 @@ export default function ClusterChart({
           }}
           className={`absolute left-0 right-0 z-40 cursor-ns-resize flex items-center justify-center group`}
           style={{
-            top: `${rsiTopY - panelGap / 2}px`,
+            top: `${rsiTopY}px`,
             height: "14px",
             transform: "translateY(-7px)"
           }}
@@ -6651,7 +6657,7 @@ export default function ClusterChart({
           }}
           className={`absolute left-0 right-0 z-40 cursor-ns-resize flex items-center justify-center group`}
           style={{
-            top: `${bidAskRatioTopY - panelGap / 2}px`,
+            top: `${bidAskRatioTopY}px`,
             height: "14px",
             transform: "translateY(-7px)"
           }}
@@ -6670,7 +6676,7 @@ export default function ClusterChart({
           }}
           className={`absolute left-0 right-0 z-40 cursor-ns-resize flex items-center justify-center group`}
           style={{
-            top: `${longShortRatioTopY - panelGap / 2}px`,
+            top: `${longShortRatioTopY}px`,
             height: "14px",
             transform: "translateY(-7px)"
           }}
@@ -6689,7 +6695,7 @@ export default function ClusterChart({
           }}
           className={`absolute left-0 right-0 z-40 cursor-ns-resize flex items-center justify-center group`}
           style={{
-            top: `${buySellZoneTopY - panelGap / 2}px`,
+            top: `${buySellZoneTopY}px`,
             height: "14px",
             transform: "translateY(-7px)"
           }}
