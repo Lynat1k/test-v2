@@ -287,7 +287,9 @@ export default function ClusterChart({
 
   // Delta indicator specific settings
   const deltaSettings = indicatorSettings?.delta || {};
-  const deltaPlotType = deltaSettings.deltaPlotType || "candles";
+  const deltaMinimized = deltaSettings.deltaMinimized === true;
+  const deltaColorUp = deltaSettings.deltaColorUp || "#008f24";
+  const deltaColorDown = deltaSettings.deltaColorDown || "#e63737";
 
   // Stacked Imbalance indicator specific settings
   const siSettings = indicatorSettings?.stackedImbalance || {};
@@ -3049,23 +3051,6 @@ export default function ClusterChart({
     return maxCandleDelta / Math.max(0.01, deltaScale);
   }, [maxCandleDelta, deltaScale]);
 
-  // Compute maximum wick value across all candles for candlestick delta panel scaling
-  const maxWickValue = useMemo(() => {
-    let max = 1;
-    for (let i = 0; i < candlesToScale.length; i++) {
-      const candle = candlesToScale[i];
-      const ask = (candle.volume + candle.delta) / 2;
-      const bid = (candle.volume - candle.delta) / 2;
-      const val = Math.max(ask, bid);
-      if (val > max) max = val;
-    }
-    return max;
-  }, [candlesToScale]);
-
-  const zoomedMaxWickValue = useMemo(() => {
-    return maxWickValue / Math.max(0.01, deltaScale);
-  }, [maxWickValue, deltaScale]);
-
   // Find overall maximum cell delta to properly scale imbalance highlights (memoized)
   const maxCellDelta = useMemo(() => {
     let max = 1;
@@ -4839,65 +4824,44 @@ export default function ClusterChart({
         ctx.translate(0, deltaTopY);
 
         const deltaMidY = deltaPanelHeight / 2 + deltaOffset;
-        const maxBarScaledHeight = deltaPanelHeight * 0.48;
+        const deltaBaseY = deltaPanelHeight + deltaOffset; // bottom baseline (minimized mode)
+        const maxBarScaledHeight = deltaPanelHeight * 0.48; // half-panel (bidirectional)
+        const minBarScaledHeight = deltaPanelHeight * 0.9;  // near-full panel (minimized)
         const deltaShowLabels = deltaSettings.showLabels !== false;
         const deltaSensitivity = typeof deltaSettings.sensitivity === "number" ? deltaSettings.sensitivity : 5;
 
-        // Axis
+        // Axis / baseline (center when bidirectional, bottom when minimized)
+        const deltaLineY = deltaMinimized ? deltaBaseY : deltaMidY;
         ctx.beginPath();
         ctx.strokeStyle = isLight ? "rgba(15, 23, 42, 0.15)" : "rgba(255, 255, 255, 0.12)";
         ctx.lineWidth = 0.8;
-        ctx.moveTo(x, deltaMidY);
-        ctx.lineTo(x + candleWidth, deltaMidY);
+        ctx.moveTo(x, deltaLineY);
+        ctx.lineTo(x + candleWidth, deltaLineY);
         ctx.stroke();
 
-        const barHeight = Math.max(2, (Math.abs(candle.delta) / zoomedMaxCandleDelta) * maxBarScaledHeight);
         const dStyles = deltaIndicator.getDeltaStyle(candle.delta, isLight);
+        const c = candle.delta >= 0 ? deltaColorUp : deltaColorDown;
+
+        // Bar width follows zoom like price candles (no fixed candleWidth-8 → no overlap when squeezed)
+        const xL = Math.round(x);
+        const xR = Math.round(x + candleWidth);
+        const gap = candleWidth > 6 ? 1 : 0;
+        const barX = xL + gap;
+        const barW = Math.max(1, (xR - xL) - gap * 2);
+
+        const barHeight = Math.max(
+          2,
+          (Math.abs(candle.delta) / zoomedMaxCandleDelta) * (deltaMinimized ? minBarScaledHeight : maxBarScaledHeight)
+        );
+        // Top edge of bar: minimized → grow up from bottom; bidirectional → up if ≥0, down if <0
+        const barTopY = deltaMinimized
+          ? deltaBaseY - barHeight
+          : (candle.delta >= 0 ? deltaMidY - barHeight : deltaMidY);
 
         if (Math.abs(candle.delta) >= deltaSensitivity) {
-          if (deltaPlotType === "candles") {
-            const scaleFactor = maxBarScaledHeight / Math.max(0.001, zoomedMaxWickValue);
-            const ask = (candle.volume + candle.delta) / 2;
-            const bid = (candle.volume - candle.delta) / 2;
-
-            const yOpen = deltaMidY;
-            const yClose = deltaMidY - candle.delta * scaleFactor;
-            const yHigh = deltaMidY - ask * scaleFactor;
-            const yLow = deltaMidY + bid * scaleFactor;
-
-            const isBullish = candle.delta >= 0;
-
-            // Draw wicks
-            ctx.beginPath();
-            ctx.strokeStyle = isBullish 
-              ? (isLight ? "rgba(5, 150, 105, 0.55)" : "rgba(16, 185, 129, 0.65)")
-              : (isLight ? "rgba(220, 38, 38, 0.55)" : "rgba(244, 63, 94, 0.65)");
-            ctx.lineWidth = 1.0;
-            ctx.moveTo(x + candleWidth / 2, yLow);
-            ctx.lineTo(x + candleWidth / 2, yHigh);
-            ctx.stroke();
-
-            // Draw body
-            ctx.fillStyle = dStyles.fillStyle;
-            ctx.strokeStyle = isBullish 
-              ? "rgba(16, 185, 129, 0.85)" 
-              : "rgba(244, 63, 94, 0.85)";
-            ctx.lineWidth = 1.2;
-
-            const rectY = Math.min(yOpen, yClose);
-            const rectH = Math.max(2, Math.abs(yClose - yOpen));
-            ctx.fillRect(x + 4, rectY, candleWidth - 8, rectH);
-            ctx.strokeRect(x + 4, rectY, candleWidth - 8, rectH);
-          } else {
-            const barY = candle.delta >= 0 ? deltaMidY - barHeight : deltaMidY;
-
-            // Draw Delta volume bar
-            ctx.fillStyle = dStyles.fillStyle;
-            ctx.strokeStyle = candle.delta >= 0 ? "rgba(16, 185, 129, 0.85)" : "rgba(244, 63, 94, 0.85)";
-            ctx.lineWidth = 1.2;
-            ctx.fillRect(x + 4, barY, candleWidth - 8, barHeight);
-            ctx.strokeRect(x + 4, barY, candleWidth - 8, barHeight);
-          }
+          // Solid single-color bar (no semi-transparent body / contrast border)
+          ctx.fillStyle = c;
+          ctx.fillRect(barX, barTopY, barW, barHeight);
         }
 
         // Delta quantity text label
@@ -4905,7 +4869,9 @@ export default function ClusterChart({
           ctx.font = "bold 8.5px 'Inter', sans-serif";
           ctx.textAlign = "center";
           ctx.fillStyle = dStyles.textStyle;
-          const lblY = candle.delta >= 0 ? deltaMidY - barHeight - 4 : deltaMidY + barHeight + 11;
+          const lblY = deltaMinimized
+            ? barTopY - 4
+            : (candle.delta >= 0 ? deltaMidY - barHeight - 4 : deltaMidY + barHeight + 11);
           const deltaText = (candle.delta >= 0 ? "+" : "") + candle.delta.toFixed(0) + "K";
           ctx.fillText(deltaText, x + candleWidth / 2, lblY);
         }
@@ -6331,18 +6297,18 @@ export default function ClusterChart({
                     fontFamily="'Inter', -apple-system, sans-serif"
                     fontWeight="bold"
                   >
-                    0.0K
+                    {deltaMinimized ? `+${(zoomedMaxCandleDelta / 2).toFixed(1)}K` : "0.0K"}
                   </text>
                   {/* Bottom Tick */}
                   <text
                     x={labelX}
                     y={deltaTopY + deltaPanelHeight * 0.98 + 4 + deltaOffset}
-                    fill={isLight ? "#be123c" : "#f43f5e"}
+                    fill={deltaMinimized ? (isLight ? "#475569" : "#94a3b8") : (isLight ? "#be123c" : "#f43f5e")}
                     fontSize={isMobile ? "8" : "9"}
                     fontFamily="'Inter', -apple-system, sans-serif"
                     fontWeight="bold"
                   >
-                    -{zoomedMaxCandleDelta.toFixed(1)}K
+                    {deltaMinimized ? "0.0K" : `-${zoomedMaxCandleDelta.toFixed(1)}K`}
                   </text>
                 </g>
               )}

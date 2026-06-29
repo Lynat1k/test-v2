@@ -1580,27 +1580,47 @@ export default function IndicatorsModal({ isOpen, onClose, symbol = "", market =
                             />
                           </div>
 
-                          <div className="flex flex-col gap-1.5 border-t border-dashed border-slate-700/20 pt-3">
-                            <span className={`font-bold ${isLight ? "text-slate-700" : "text-slate-300"}`}>{t('indicators.set.plotType')}</span>
-                            <div className="flex gap-1 bg-slate-900/50 p-1 rounded-xl border border-white/5">
-                              <button
-                                type="button"
-                                onClick={() => updateSettings({ deltaPlotType: "candles" })}
-                                className={`flex-1 py-1.5 text-[10px] font-bold rounded-lg transition-all duration-200 ${(selectedIndicator.settings.deltaPlotType || "candles") === "candles" ? isLight ? "bg-white text-slate-800 shadow-sm" : "bg-slate-850 text-white shadow" : "text-slate-400 hover:text-slate-300"}`}
-                              >
-                                {t('indicators.set.candles')}
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => updateSettings({ deltaPlotType: "bars" })}
-                                className={`flex-1 py-1.5 text-[10px] font-bold rounded-lg transition-all duration-200 ${selectedIndicator.settings.deltaPlotType === "bars" ? isLight ? "bg-white text-slate-800 shadow-sm" : "bg-slate-850 text-white shadow" : "text-slate-400 hover:text-slate-300"}`}
-                              >
-                                {t('indicators.set.bars')}
-                              </button>
+                          <div className="flex items-center justify-between border-t border-dashed border-slate-700/20 pt-3">
+                            <span className={`font-bold ${isLight ? "text-slate-700" : "text-slate-300"}`}>{t('indicators.set.deltaColorUp')}</span>
+                            <div className="flex items-center gap-2">
+                              <input
+                                type="color"
+                                value={selectedIndicator.settings.deltaColorUp ?? "#008f24"}
+                                onChange={(e) => updateSettings({ deltaColorUp: e.target.value })}
+                                className="w-7 h-7 rounded cursor-pointer border-0 p-0 overflow-hidden bg-transparent shrink-0"
+                              />
+                              <span className="text-[10px] font-mono text-slate-400 truncate w-14">
+                                {selectedIndicator.settings.deltaColorUp ?? "#008f24"}
+                              </span>
+                            </div>
+                          </div>
+
+                          <div className="flex items-center justify-between border-t border-dashed border-slate-700/20 pt-3">
+                            <span className={`font-bold ${isLight ? "text-slate-700" : "text-slate-300"}`}>{t('indicators.set.deltaColorDown')}</span>
+                            <div className="flex items-center gap-2">
+                              <input
+                                type="color"
+                                value={selectedIndicator.settings.deltaColorDown ?? "#e63737"}
+                                onChange={(e) => updateSettings({ deltaColorDown: e.target.value })}
+                                className="w-7 h-7 rounded cursor-pointer border-0 p-0 overflow-hidden bg-transparent shrink-0"
+                              />
+                              <span className="text-[10px] font-mono text-slate-400 truncate w-14">
+                                {selectedIndicator.settings.deltaColorDown ?? "#e63737"}
+                              </span>
                             </div>
                           </div>
 
                           <label className={`flex items-center gap-2.5 p-1 rounded cursor-pointer mt-1 ${isLight ? "hover:bg-slate-100" : "hover:bg-white/5"}`}>
+                            <input
+                              type="checkbox"
+                              checked={selectedIndicator.settings.deltaMinimized === true}
+                              onChange={(e) => updateSettings({ deltaMinimized: e.target.checked })}
+                              className={`rounded w-4 h-4 ${isLight ? "border-slate-350 bg-white text-blue-600" : "border-white/10 bg-slate-900 text-blue-500"}`}
+                            />
+                            <span className={`font-bold ${isLight ? "text-slate-700" : "text-slate-200"}`}>{t('indicators.set.deltaMinimized')}</span>
+                          </label>
+
+                          <label className={`flex items-center gap-2.5 p-1 rounded cursor-pointer ${isLight ? "hover:bg-slate-100" : "hover:bg-white/5"}`}>
                             <input
                               type="checkbox"
                               checked={selectedIndicator.settings.showLabels !== false}

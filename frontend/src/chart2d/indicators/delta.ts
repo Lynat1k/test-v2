@@ -3,7 +3,9 @@ import type { IndicatorModule } from "./types";
 export interface DeltaSettings {
   showLabels: boolean;
   sensitivity: number;
-  deltaPlotType?: "candles" | "bars";
+  deltaMinimized?: boolean;
+  deltaColorUp?: string;
+  deltaColorDown?: string;
 }
 
 export const deltaIndicator: IndicatorModule & {
@@ -25,7 +27,9 @@ export const deltaIndicator: IndicatorModule & {
   defaultSettings: {
     showLabels: true,
     sensitivity: 5,
-    deltaPlotType: "candles"
+    deltaMinimized: false,
+    deltaColorUp: "#008f24",
+    deltaColorDown: "#e63737"
   },
   isActiveDefault: false,
 

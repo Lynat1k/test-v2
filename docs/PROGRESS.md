@@ -3,6 +3,70 @@
 > Claude обновляет этот файл в КОНЦЕ каждой задачи. Новые записи — сверху.
 > Формат записи строго по шаблону. Это память между чатами.
 
+### [2026-06-29] indicators(delta): убран свечной режим, режим «минимизировать», фикс сжатия, цвета
+
+- **Контекст**: Дельта-индикатор (подвальная панель) имел режим «свечи» — он масштабировал тело/тени по
+  ОБЪЁМУ (синтетика `ask=(vol+delta)/2`), а не по дельте → крошечные тела, бессмысленные тени, расходилось
+  со столбиками. Истинные дельта-свечи Tiger требуют бегущей дельты по времени (в данных нет: сырые сделки
+  не хранятся, cells по цене). Решение: режим свечей убрать, оставить столбики (корректная дельта Tiger) и
+  доработать. Также баг: при сильном горизонтальном сжатии бары не сжимались (ширина `candleWidth-8` уходила
+  в минус) и налезали друг на друга.
+- **Реализация** (только фронт, знак дельты не трогали — `candle.delta` нормализован в adapter.ts):
+  - `chart2d/indicators/delta.ts` + `chart2d/types.ts`: убрано `deltaPlotType`; добавлено `deltaMinimized`
+    (bool, false), `deltaColorUp` (#008f24), `deltaColorDown` (#e63737). `showLabels`, `sensitivity` оставлены.
+  - `chart2d/ClusterChart.tsx`: удалена свечная ветка рендера + осиротевшие мемо `maxWickValue`/
+    `zoomedMaxWickValue`. Ширина бара привязана к зуму как у ценовых свечей (`barW=max(1,(xR-xL)-gap*2)`,
+    `gap=candleWidth>6?1:0`) — фикс наложения при сжатии. Бары одноцветные (`fillStyle=delta≥0?up:down`,
+    без обводки/полупрозрачности). Два режима: false — двунаправленно от центра (`panelHeight*0.48`); true —
+    однонаправленно вверх от низа (`panelHeight*0.9`), базовая линия у низа. Y-подписи оси сделаны
+    mode-aware (минимизированный: верх `+max`, центр `+max/2`, низ `0.0K`).
+  - `components/IndicatorsModal.tsx`: убран select режима, добавлены 2 color-picker (вверх/вниз) + чекбокс
+    «минимизировать». `i18n/dictionaries/{ru,en,kz}.ts`: +`deltaMinimized/deltaColorUp/deltaColorDown`, убран `bars`.
+- **Verification**: `npx tsc --noEmit` ✓, `npx vite build` ✓. Ревью планировщика (рендер, ширина, осиротевшие
+  переменные, подписи оси) + UI-проверка юзером (сжатие/цвета/минимизация) — ок.
+- **Деплой**: коммит в main → push. Ручной деплой на VPS. Бэкенд не трогали.
+
+### [2026-06-29] fix(admin): поле «Название» в форме редактирования тикера
+
+- **Контекст**: В админке (База данных) при РЕДАКТИРОВАНИИ тикера не было поля «Название» (при добавлении —
+  было), поэтому отображаемое имя тикера (видно в селекторе пар на графике: Bitcoin/ETH/…) нельзя было изменить.
+- **Реализация** (чисто фронт, бэкенд/API/тип уже поддерживали `name`):
+  - `frontend/src/components/AdminPanel.tsx` (~стр.685–688): добавлен инпут «Название» в edit-форму сразу после
+    поля symbol. `value={editForm.name ?? tk.name ?? ''}` (как у symbol — открывается с текущим именем, нетронутое
+    остаётся undefined и в PUT не уходит → не затирает). Метка `t('admin.database.name')`. `handleUpdate` не менялся —
+    `editForm` уже летит в `apiUpdateTicker` → `PUT /api/v1/admin/tickers/{id}` (бэкенд принимает `name`, пишет в SQLite).
+- **Verification**: `npx tsc --noEmit` ✓, `npx vite build` ✓. Ревью планировщика + UI-проверка юзером — ок.
+- **Деплой**: коммит `5bf4ce2` в main → push. Ручной деплой на VPS (`/root/test-v2/deploy.sh`). Бэкенд не трогали.
+
+### [2026-06-29] indicators: новый индикатор Dynamic Levels (POC + Value Area, как в ATAS/Tiger)
+
+- **Контекст**: Нужен оверлей-индикатор динамических уровней объёмного профиля. Аналог Dynamic Levels
+  в ATAS/Tiger Trade: developing-уровни — POC и зона Value Area 70% пересчитываются накопительно на
+  каждой свече от начала периода (час/день/неделя/месяц/все бары), рисуются «лесенкой», на границе
+  периода — сброс. Первая версия рисовала статичный профиль на период (плоские боксы) — переделана
+  на developing после сверки со скрином эталона.
+- **Реализация**:
+  - NEW `frontend/src/chart2d/indicators/dynamicLevels.ts`: `bucketKey` (UTC-бакет час/день/неделя
+    (Thu-anchored, как cvd) /месяц/all), `computePocVa(volByPrice)` — POC + расширение 70% VA
+    (алгоритм один-в-один из эталона `design-src/.../drawingRenderer.ts`, маппинг index0=высшая цена,
+    VAH верх/VAL низ), `computeDynamicLevels(candles,period)` — накопительный проход по барам со сбросом
+    Map на границе периода, возвращает массив `DynamicLevel{poc,vah,val,periodStart}` длиной candles.
+  - `frontend/src/chart2d/indicators/{index,descriptions}.ts`: регистрация `dynamicLevelsIndicator`
+    в `MODULAR_INDICATORS` + desc/details RU/EN/KZ.
+  - `frontend/src/chart2d/types.ts`: поля `dl*` в `IndicatorSettings` (период, цвета/толщина/прозрачности
+    POC и VA, стиль границы, тоггл VA).
+  - `frontend/src/chart2d/ClusterChart.tsx`: импорт `computeDynamicLevels`, memo `dynamicLevels`,
+    рендер-блок лесенкой по видимым барам (заливка VA по барам, `drawStaircase` — непрерывный path с
+    уступами, разрыв пера на `periodStart`); прозрачности через `hexToRgba`, стиль границы через
+    `setLineDash` (solid `[]` / dashed `[4,4]` / dotted `[1,3]`); добавлен в `overlayIndicatorIds` (легенда).
+  - `frontend/src/components/IndicatorsModal.tsx`: блок настроек (select периода, color+width+opacity POC,
+    color заливки/границ VA, opacity заливки/границ, select стиля линии границы, тоггл показа VA).
+  - `frontend/src/i18n/dictionaries/{ru,en,kz}.ts`: ключи `indicators.set.dl*`.
+- **Проверка**: `npx tsc --noEmit` exit 0; `npx vite build` exit 0. Визуал юзером — ок (как ATAS).
+- **TODO**: серверная подгрузка истории под профиль — периоды неделя/месяц/все считаются только по
+  загруженным свечам, при недостатке истории уровни неполные. Отложено.
+- **Деплой**: коммит `8e6e5e5` в main → push. Ручной деплой на VPS (`/root/test-v2/deploy.sh`).
+
 ### [2026-06-29] i18n: доперевод фронта (ChartHeader / IndicatorsModal / описания индикаторов) RU/EN/KZ
 
 - **Контекст**: Часть пользовательского текста была захардкожена и не реагировала на смену языка.

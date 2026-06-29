@@ -124,7 +124,9 @@ export interface IndicatorSettings {
   rsiZoneColor?: string;
   rsiZoneOpacity?: number;
 
-  deltaPlotType?: "candles" | "bars";
+  deltaMinimized?: boolean;
+  deltaColorUp?: string;
+  deltaColorDown?: string;
 
   siRatio?: number;
   siRange?: number;
