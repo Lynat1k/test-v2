@@ -166,7 +166,7 @@ export default function IndicatorsModal({ isOpen, onClose, symbol = "", market =
   }
 
   const getAccordionIndicators = (tabName: keyof typeof expandedTabs) => {
-    return draft.filter((ind) => {
+    const filtered = draft.filter((ind) => {
       // Tier gate: never surface a gated indicator, even if a stale draft
       // entry slipped through (server already strips it on GET).
       if (gatedIds.includes(ind.id)) return false
@@ -177,6 +177,13 @@ export default function IndicatorsModal({ isOpen, onClose, symbol = "", market =
       }
       return true
     })
+    // "Все индикаторы": favorites first, rest keep original order.
+    // filtered is a fresh array → sort doesn't mutate draft; sort is stable
+    // (ES2019+) so non-favorites preserve relative order.
+    if (tabName === "Все индикаторы") {
+      return filtered.sort((a, b) => (b.isFavorite ? 1 : 0) - (a.isFavorite ? 1 : 0))
+    }
+    return filtered
   }
 
   const [offset, setOffset] = useState({ x: 0, y: 0 })
@@ -894,38 +901,23 @@ export default function IndicatorsModal({ isOpen, onClose, symbol = "", market =
               {selectedIndicator ? (
                 <div className="flex flex-col gap-5">
                   {/* Title Card */}
-                  <div className={`flex flex-col gap-1.5 sm:flex-row sm:items-center sm:justify-between sm:gap-3 pb-3 border-b transition-all duration-300 ${isLight ? "border-slate-200" : "border-white/5"}`}>
-                    <div className="min-w-0 flex flex-col gap-1">
-                      <h3 className={`text-base sm:text-[15px] font-extrabold tracking-tight font-sans flex items-center gap-1.5 leading-tight ${isLight ? "text-slate-900" : "text-white"}`}>
+                  <div className={`flex flex-col gap-2 pb-3 border-b transition-all duration-300 ${isLight ? "border-slate-200" : "border-white/5"}`}>
+                    {/* Row 1: indicator title (left) + TYPE chip (right, aligned to title) */}
+                    <div className="flex items-center justify-between gap-2">
+                      <h3 className={`min-w-0 truncate text-base sm:text-[15px] font-extrabold tracking-tight font-sans leading-tight ${isLight ? "text-slate-900" : "text-white"}`}>
                         {selectedIndicator.label.replace("(PROCLUSTER) ", "")}
                       </h3>
-                      {/* Desktop-only meta row (TYPE + PRESETS); mobile duplicates of these live in chip row below */}
-                      <div className="hidden sm:flex flex-wrap items-center gap-2 mt-1">
-                        <span className={`inline-flex items-center h-8 px-2 rounded font-bold uppercase tracking-wide font-mono text-[10px] ${isLight ? "bg-slate-200 text-slate-750" : "bg-white/10 text-slate-300"}`}>
-                          ТИП: {selectedIndicator.type.toUpperCase()}
-                        </span>
-                        <button
-                          ref={!isMobile ? presetBtnRef : undefined}
-                          onClick={() => { setPresetDropdownOpen((v) => !v); setPresetsError(null) }}
-                          className={`inline-flex items-center h-8 gap-1 px-3 rounded border text-xs font-extrabold cursor-pointer transition-all uppercase tracking-wider font-mono ${isLight ? "bg-slate-50 border-slate-250 hover:bg-slate-250 text-slate-700" : "bg-white/5 border-white/10 text-slate-300 hover:bg-white/10"}`}
-                          title="Пресеты настроек этого индикатора"
-                        >
-                          <Layers className="w-3 h-3 text-emerald-500" />
-                          <span>Пресеты ({(presetsByIndicator[selectedIndicator.id] ?? []).length})</span>
-                          <ChevronDown className={`w-2.5 h-2.5 opacity-60 transition-transform ${presetDropdownOpen ? "rotate-180" : ""}`} />
-                        </button>
-                      </div>
-                    </div>
-                    <div className="flex flex-row flex-wrap items-center gap-1 sm:gap-2 no-drag">
-                      {/* Mobile-only TYPE + PRESETS — flat in chip row with DEFAULT+ACTIVATE */}
-                      <span className={`sm:hidden inline-flex items-center h-6 px-1.5 rounded font-bold uppercase tracking-wide font-mono text-[9px] ${isLight ? "bg-slate-200 text-slate-750" : "bg-white/10 text-slate-300"}`}>
+                      <span className={`shrink-0 inline-flex items-center h-6 sm:h-8 px-1.5 sm:px-2 rounded font-bold uppercase tracking-wide font-mono text-[9px] sm:text-[10px] ${isLight ? "bg-slate-200 text-slate-750" : "bg-white/10 text-slate-300"}`}>
                         ТИП: {selectedIndicator.type.toUpperCase()}
                       </span>
+                    </div>
+                    {/* Row 2: PRESETS (left, under title) + DEFAULT/ACTIVATE (right) */}
+                    <div className="flex items-center justify-between gap-2 no-drag">
                       <button
-                        ref={isMobile ? presetBtnRef : undefined}
+                        ref={presetBtnRef}
                         onClick={() => { setPresetDropdownOpen((v) => !v); setPresetsError(null) }}
-                        className={`sm:hidden inline-flex items-center h-6 gap-1 px-1.5 rounded border text-[9px] font-extrabold cursor-pointer transition-all uppercase tracking-wider font-mono ${isLight ? "bg-slate-50 border-slate-250 hover:bg-slate-250 text-slate-700" : "bg-white/5 border-white/10 text-slate-300 hover:bg-white/10"}`}
-                        title="Пресеты"
+                        className={`shrink-0 inline-flex items-center h-6 sm:h-8 gap-1 px-1.5 sm:px-3 rounded border text-[9px] sm:text-xs font-extrabold cursor-pointer transition-all uppercase tracking-wider font-mono ${isLight ? "bg-slate-50 border-slate-250 hover:bg-slate-250 text-slate-700" : "bg-white/5 border-white/10 text-slate-300 hover:bg-white/10"}`}
+                        title="Пресеты настроек этого индикатора"
                       >
                         <Layers className="w-3 h-3 text-emerald-500" />
                         <span>Пресеты ({(presetsByIndicator[selectedIndicator.id] ?? []).length})</span>
@@ -1063,13 +1055,10 @@ export default function IndicatorsModal({ isOpen, onClose, symbol = "", market =
                           </div>,
                         document.body
                       )}
-                      {/* Admin-only "Дефолт" toggle (Feature 1). Writes the
-                          CURRENT live settings as admin default for the
-                          current (symbol, market, tf) via PATCH-single so
-                          sibling indicators are preserved. Pressing again
-                          removes this indicator from the per-tf admin row. */}
-                      {isAdmin && symbol && market && timeframe && (
-                        <div className="flex flex-col items-end gap-0.5">
+                      {/* Right group: admin DEFAULT toggle + ACTIVATE.
+                          Labels removed — status lives in each button title. */}
+                      <div className="flex items-center gap-2 shrink-0">
+                        {isAdmin && symbol && market && timeframe && (
                           <button
                             onClick={() => void handleToggleAdminDefault()}
                             title={adminTfHasSelected ? `Снять админ-дефолт (${timeframe.toUpperCase()})` : "Сохранить текущие настройки как админ-дефолт для этого ТФ"}
@@ -1083,29 +1072,19 @@ export default function IndicatorsModal({ isOpen, onClose, symbol = "", market =
                             <Shield className="w-3 h-3 sm:w-3.5 sm:h-3.5" />
                             {adminTfHasSelected ? "Дефолт ✓" : "Дефолт"}
                           </button>
-                          <span className={`hidden sm:block text-[9px] sm:text-[10px] font-bold font-mono leading-none ${adminTfHasSelected ? isLight ? "text-emerald-600" : "text-emerald-400" : "text-slate-500"}`}>
-                            {adminTfHasSelected ? `Для ${timeframe.toUpperCase()}` : "Не задан"}
-                          </span>
-                        </div>
-                      )}
-                      <div className="flex flex-col items-end gap-0.5">
-                      <button
-                        onClick={() => toggleActive(selectedIndicator.id)}
-                        title={selectedIndicator.isActive ? "Активно: 1 шт." : "Добавить"}
-                        className={`inline-flex items-center px-1.5 sm:px-3 h-6 sm:h-8 font-bold text-[9px] sm:text-[11px] rounded-md sm:rounded-lg cursor-pointer transition-all active:scale-[0.98] text-white ${selectedIndicator.isActive ? "bg-emerald-600 hover:bg-emerald-500" : "bg-blue-600 hover:bg-blue-500 shadow-sm shadow-blue-600/40"}`}
-                      >
-                        {selectedIndicator.isActive ? (
-                          <>
-                            <span className="sm:hidden">АКТИВЕН</span>
-                            <span className="hidden sm:inline">Добавить еще</span>
-                          </>
-                        ) : "Добавить"}
-                      </button>
-                      {selectedIndicator.isActive && (
-                        <span className={`hidden sm:block text-[10px] font-bold font-mono leading-none ${isLight ? "text-emerald-600" : "text-emerald-400"}`}>
-                          Активно: 1 шт.
-                        </span>
-                      )}
+                        )}
+                        <button
+                          onClick={() => toggleActive(selectedIndicator.id)}
+                          title={selectedIndicator.isActive ? "Активно: 1 шт." : "Добавить"}
+                          className={`inline-flex items-center px-1.5 sm:px-3 h-6 sm:h-8 font-bold text-[9px] sm:text-[11px] rounded-md sm:rounded-lg cursor-pointer transition-all active:scale-[0.98] text-white ${selectedIndicator.isActive ? "bg-emerald-600 hover:bg-emerald-500" : "bg-blue-600 hover:bg-blue-500 shadow-sm shadow-blue-600/40"}`}
+                        >
+                          {selectedIndicator.isActive ? (
+                            <>
+                              <span className="sm:hidden">АКТИВЕН</span>
+                              <span className="hidden sm:inline">Добавить еще</span>
+                            </>
+                          ) : "Добавить"}
+                        </button>
                       </div>
                     </div>
                   </div>
