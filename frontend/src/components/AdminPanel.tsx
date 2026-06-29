@@ -682,6 +682,10 @@ function TickerBlock({ isLight }: { isLight: boolean }) {
                     <label className={`text-[10px] font-mono font-bold uppercase tracking-wider ${isLight ? 'text-slate-600' : 'text-slate-400'}`}>{t('admin.database.symbol')}</label>
                     <input className={`px-2 py-1 rounded border text-xs ${input}`} value={editForm.symbol ?? tk.symbol} onChange={(e) => setEditForm({ ...editForm, symbol: e.target.value })} />
                   </div>
+                  <div className="flex flex-col gap-1">
+                    <label className={`text-[10px] font-mono font-bold uppercase tracking-wider ${isLight ? 'text-slate-600' : 'text-slate-400'}`}>{t('admin.database.name')}</label>
+                    <input className={`px-2 py-1 rounded border text-xs ${input}`} value={editForm.name ?? tk.name ?? ''} onChange={(e) => setEditForm({ ...editForm, name: e.target.value })} />
+                  </div>
                   <div className="grid grid-cols-2 gap-2">
                     <div className="flex flex-col gap-1">
                       <label className={`text-[9px] font-mono uppercase ${isLight ? 'text-slate-500' : 'text-slate-500'}`}>{t('admin.database.priceTickSpot')}</label>
