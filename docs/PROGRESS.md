@@ -3299,3 +3299,17 @@ Bid&Ask / Long&Short были пусты на 4h/1d. Причина: live-агр
 **Verification:** `go build -o procluster.exe ./cmd/procluster/` ✓ (exit 0); `npx tsc --noEmit` ✓ (exit 0). Бэкенд не стартовал (порт держит рабочий процесс юзера; lifecycle не нарушаю) — функционал юзер проверяет после рестарта с новым бинарником.
 
 **TODO:** нет.
+
+### [2026-06-29] feat(clickhouse): отключение TTL-автоудаления истории (хранение бессрочно)
+TTL у 4 таблиц загружаемой истории отодвинут на 100 лет = данные практически вечны. Новая миграция, идемпотентная.
+- **Новый файл `internal/repository/clickhouse/migrations/009_disable_data_ttl.sql`** (стиль 005: чистый SQL, по одному ALTER на строку, без комментариев):
+  - `ALTER TABLE clusters_futures MODIFY TTL toDateTime(candle_open) + INTERVAL 100 YEAR;`
+  - `ALTER TABLE clusters_spot MODIFY TTL toDateTime(candle_open) + INTERVAL 100 YEAR;`
+  - `ALTER TABLE bookdepth_ratio MODIFY TTL toDateTime(snapshot_ts) + INTERVAL 100 YEAR;`
+  - `ALTER TABLE long_short_ratio MODIFY TTL toDateTime(ts) + INTERVAL 100 YEAR;`
+- **Почему MODIFY TTL, а не REMOVE TTL**: REMOVE при повторном старте бэка (TTL уже убран) → `Code 36: Table doesn't have any table TTL expression` → log.Fatalf. MODIFY на +100 YEAR идемпотентен (exit 0 при повторе). Мигратор (ApplyMigrations) выполняет ВСЕ .sql при каждом старте, без таблицы применённых — идемпотентность обязательна.
+- **НЕ трогали**: cluster_cache (TTL 90 дней), clusters_futures_dom (6 мес), clusters_spot_dom (1 год) — TTL осмыслен, оставлен.
+
+**Verification:** `go build -o procluster.exe ./cmd/procluster/` ✓ (exit 0, 009 встроена через embed). Применено на локальной БД (docker exec, procluster): pass1 exit 0, pass2 (имитация 2-го старта) exit 0 — идемпотентность подтверждена. `SHOW CREATE TABLE`: clusters_futures/spot → `TTL toDateTime(candle_open) + toIntervalYear(100)`; bookdepth_ratio → `+ toIntervalYear(100)` от snapshot_ts; long_short_ratio → `+ toIntervalYear(100)` от ts. cluster_cache=toIntervalDay(90), *_dom=toIntervalMonth(6)/toIntervalYear(1) — не изменены. ApplyMigrations (ReadDir сортирует → 009 последняя; splitStatements по `;`, exec по одному) обрабатывает 009 идентично 005. Бэк юзера живёт на :8080 (PID 40288) — 2-й инстанс не поднимал (риск live-процесса/общего SQLite); идемпотентность доказана прямым прогоном тех же стейтментов. Старт с нуля юзер проверит после рестарта.
+
+**TODO:** нет.
