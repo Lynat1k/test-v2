@@ -11,7 +11,7 @@ import { ZoomIn, ZoomOut, Maximize2, Compass, Move, Layers, Activity, Eye, EyeOf
 import { Portal } from "@/components/Portal";
 import logoWatermark from "@/assets/images/procluster_logo_1779485281399.png";
 import { storage } from "./lib/storage";
-import { volumeOnChartIndicator, deltaIndicator, cvdIndicator, clusterSearchIndicator, rsiIndicator } from "./indicators";
+import { volumeOnChartIndicator, deltaIndicator, cvdIndicator, clusterSearchIndicator, rsiIndicator, computeDynamicLevels, type DynamicLevel } from "./indicators";
 import { macdHist, zToScale } from "./indicators/math";
 import { drawDrawingObjects } from "./utils/drawingRenderer";
 import { DrawingToolbar } from "./DrawingToolbar";
@@ -292,6 +292,19 @@ export default function ClusterChart({
   // Stacked Imbalance indicator specific settings
   const siSettings = indicatorSettings?.stackedImbalance || {};
   const siLineWidth = typeof siSettings.siLineWidth === "number" ? siSettings.siLineWidth : 2;
+
+  // Dynamic Levels indicator specific settings (period volume-profile POC + 70% VA)
+  const dlSettings = indicatorSettings?.dynamicLevels || {};
+  const dlPeriod = dlSettings.dlPeriod || "day";
+  const dlPocColor = dlSettings.dlPocColor || "#f59e0b";
+  const dlPocWidth = typeof dlSettings.dlPocWidth === "number" ? dlSettings.dlPocWidth : 2;
+  const dlVaFillColor = dlSettings.dlVaFillColor || "#3b82f6";
+  const dlVaBorderColor = dlSettings.dlVaBorderColor || "#3b82f6";
+  const dlShowValueArea = dlSettings.dlShowValueArea !== false;
+  const dlVaFillOpacity = typeof dlSettings.dlVaFillOpacity === "number" ? dlSettings.dlVaFillOpacity : 0.12;
+  const dlVaBorderOpacity = typeof dlSettings.dlVaBorderOpacity === "number" ? dlSettings.dlVaBorderOpacity : 0.7;
+  const dlPocOpacity = typeof dlSettings.dlPocOpacity === "number" ? dlSettings.dlPocOpacity : 1;
+  const dlVaBorderStyle = dlSettings.dlVaBorderStyle || "dashed";
 
   const [activeDrawingTool, setActiveDrawingTool] = useState<string | null>(null);
   const [drawings, setDrawings] = useState<any[]>([]);
@@ -3468,6 +3481,12 @@ export default function ClusterChart({
     return lines;
   }, [candles, indicatorSettings, activeIndicators.stackedImbalance]);
 
+  // --- DYNAMIC LEVELS: developing per-bar POC + 70% Value Area (staircase) ---
+  const dynamicLevels = useMemo(() => {
+    if (!activeIndicators.dynamicLevels || candles.length === 0) return [];
+    return computeDynamicLevels(candles, dlPeriod);
+  }, [candles, activeIndicators.dynamicLevels, dlPeriod]);
+
   // Window-level mouse resize tracker for indicator panels
   useEffect(() => {
     if (!resizingPanel) return;
@@ -4024,6 +4043,78 @@ export default function ClusterChart({
         }
       });
 
+      ctx.restore();
+    }
+
+    // --- DRAW DYNAMIC LEVELS (developing POC + 70% Value Area, staircase) ---
+    if (activeIndicators.dynamicLevels && dynamicLevels.length > 0) {
+      ctx.save();
+      ctx.beginPath();
+      // Clip to the main candlestick area (same rect as the stacked-imbalance block).
+      ctx.rect(margin.left, margin.top, scrollWidth - margin.left + 50, chartHeight);
+      ctx.clip();
+
+      const cwSpacing = candleWidth + candleSpacing;
+
+      // 1) Value Area fill — one rect per bar. Neighbouring bars form a stepped
+      //    zone that hugs the price as the developing level evolves.
+      if (dlShowValueArea) {
+        ctx.fillStyle = hexToRgba(dlVaFillColor, dlVaFillOpacity);
+        for (let i = startIdx; i <= endIdx; i++) {
+          const lvl = dynamicLevels[i];
+          if (!lvl) continue;
+          const x = margin.left + i * cwSpacing;
+          const yVah = priceToY(lvl.vah);
+          const yVal = priceToY(lvl.val);
+          ctx.fillRect(x, Math.min(yVah, yVal), cwSpacing, Math.abs(yVal - yVah));
+        }
+      }
+
+      // Stroke one continuous staircase across the visible bars: a horizontal
+      // tread at each bar's level, a vertical riser where the level changes.
+      // The path is lifted (no riser) at the chart edge and at every period reset.
+      const drawStaircase = (
+        pick: (lvl: DynamicLevel) => number,
+        color: string,
+        width: number,
+        dashPattern: number[]
+      ) => {
+        ctx.strokeStyle = color;
+        ctx.lineWidth = width;
+        ctx.setLineDash(dashPattern);
+        ctx.beginPath();
+        let started = false;
+        let prevY = 0;
+        for (let i = startIdx; i <= endIdx; i++) {
+          const lvl = dynamicLevels[i];
+          if (!lvl) { started = false; continue; } // break path on gaps
+          const x = margin.left + i * cwSpacing;
+          const xEnd = x + cwSpacing;
+          const y = priceToY(pick(lvl));
+          if (!started || lvl.periodStart) {
+            ctx.moveTo(x, y);
+            started = true;
+          } else {
+            ctx.lineTo(x, prevY); // riser at the bar boundary
+            ctx.lineTo(x, y);
+          }
+          ctx.lineTo(xEnd, y);    // tread across this bar
+          prevY = y;
+        }
+        ctx.stroke();
+      };
+
+      const vaBorderDash = dlVaBorderStyle === "solid" ? [] : dlVaBorderStyle === "dotted" ? [1, 3] : [4, 4];
+
+      if (dlShowValueArea) {
+        const vaBorderColor = hexToRgba(dlVaBorderColor, dlVaBorderOpacity);
+        drawStaircase((l) => l.vah, vaBorderColor, 1, vaBorderDash);
+        drawStaircase((l) => l.val, vaBorderColor, 1, vaBorderDash);
+      }
+      // POC — always drawn (the VA toggle does not hide it).
+      drawStaircase((l) => l.poc, hexToRgba(dlPocColor, dlPocOpacity), dlPocWidth, []);
+
+      ctx.setLineDash([]);
       ctx.restore();
     }
 
@@ -5631,7 +5722,7 @@ export default function ClusterChart({
 
         {/* Overlay Legend — top-left, collapsible panel for overlay indicators */}
         {(() => {
-          const overlayIndicatorIds = ["clusterSearch", "volumeOnChart", "stackedImbalance"];
+          const overlayIndicatorIds = ["clusterSearch", "volumeOnChart", "stackedImbalance", "dynamicLevels"];
           const activeOverlayIndicators = indicators ? indicators.filter(ind => ind.isActive && overlayIndicatorIds.includes(ind.id)) : [];
 
           if (activeOverlayIndicators.length === 0) return null;

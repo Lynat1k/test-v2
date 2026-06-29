@@ -166,6 +166,17 @@ export interface IndicatorSettings {
   bsZoneOverDownColor?: string;
   bsZoneOverOpacity?: number;
   bsZoneShowBadges?: boolean;
+
+  dlPeriod?: "hour" | "day" | "week" | "month" | "all";
+  dlPocColor?: string;
+  dlPocWidth?: number;
+  dlVaFillColor?: string;
+  dlVaBorderColor?: string;
+  dlShowValueArea?: boolean;
+  dlVaFillOpacity?: number;
+  dlVaBorderOpacity?: number;
+  dlPocOpacity?: number;
+  dlVaBorderStyle?: "solid" | "dashed" | "dotted";
 }
 
 export interface Indicator {

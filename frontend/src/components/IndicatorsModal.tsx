@@ -2323,6 +2323,147 @@ export default function IndicatorsModal({ isOpen, onClose, symbol = "", market =
                         </div>
                       )}
 
+                      {selectedIndicator.id === "dynamicLevels" && (
+                        <div className={`flex flex-col gap-4 font-sans text-xs p-4.5 rounded-2xl border transition-all duration-300 ${isLight ? "bg-slate-100/40 border-slate-200/85" : "bg-slate-950/20 border-white/5"}`}>
+                          <span className="text-[10px] text-slate-500 uppercase tracking-widest font-black font-mono">
+                            {t('indicators.set.dlParams')}
+                          </span>
+
+                          <div className="flex flex-col gap-1.5">
+                            <span className={`font-bold ${isLight ? "text-slate-700" : "text-slate-300"}`}>{t('indicators.set.dlPeriod')}</span>
+                            <select
+                              value={selectedIndicator.settings.dlPeriod ?? "day"}
+                              onChange={(e) => updateSettings({ dlPeriod: e.target.value as any })}
+                              className={`rounded-xl px-3 py-2 text-xs outline-none transition-all duration-300 border ${isLight ? "bg-white border-slate-200 text-slate-800 focus:ring-1 focus:ring-blue-400" : "bg-[#0b0f19] border border-white/10 text-slate-200 focus:ring-1 focus:ring-yellow-500/40 hover:border-white/20"}`}
+                            >
+                              <option value="hour">{t('indicators.set.dlHour')}</option>
+                              <option value="day">{t('indicators.set.dlDay')}</option>
+                              <option value="week">{t('indicators.set.dlWeek')}</option>
+                              <option value="month">{t('indicators.set.dlMonth')}</option>
+                              <option value="all">{t('indicators.set.dlAll')}</option>
+                            </select>
+                          </div>
+
+                          <div className="grid grid-cols-2 gap-4 border-t border-dashed border-slate-700/20 pt-3">
+                            <label className="flex flex-col gap-1.5 font-sans text-xs">
+                              <span className={`font-bold ${isLight ? "text-slate-700" : "text-slate-300"}`}>{t('indicators.set.dlPocColor')}</span>
+                              <div className="flex items-center gap-2 mt-1">
+                                <input
+                                  type="color"
+                                  value={selectedIndicator.settings.dlPocColor ?? "#f59e0b"}
+                                  onChange={(e) => updateSettings({ dlPocColor: e.target.value })}
+                                  className="w-7 h-7 rounded cursor-pointer border-0 p-0 overflow-hidden bg-transparent shrink-0"
+                                />
+                                <span className="text-[10px] font-mono text-slate-400 truncate w-14">{selectedIndicator.settings.dlPocColor ?? "#f59e0b"}</span>
+                              </div>
+                            </label>
+
+                            <label className="flex flex-col gap-1.5 font-sans text-xs">
+                              <span className={`font-bold ${isLight ? "text-slate-700" : "text-slate-300"}`}>{t('indicators.set.dlPocWidth')}</span>
+                              <input
+                                type="number"
+                                step="0.5"
+                                min="0.5"
+                                max="10"
+                                value={selectedIndicator.settings.dlPocWidth ?? 2}
+                                onChange={(e) => updateSettings({ dlPocWidth: parseFloat(e.target.value) || 2 })}
+                                className={`rounded-xl px-3 py-2 text-xs outline-none transition-all duration-300 border ${isLight ? "bg-white border-slate-200 text-slate-800 focus:ring-1 focus:ring-blue-400" : "bg-[#0b0f19] border border-white/10 text-slate-200 focus:ring-1 focus:ring-yellow-500/40 hover:border-white/20"}`}
+                              />
+                            </label>
+                          </div>
+
+                          <div className="grid grid-cols-2 gap-4 border-t border-dashed border-slate-700/20 pt-3">
+                            <label className="flex flex-col gap-1.5 font-sans text-xs">
+                              <span className={`font-bold ${isLight ? "text-slate-700" : "text-slate-300"}`}>{t('indicators.set.dlVaFill')}</span>
+                              <div className="flex items-center gap-2 mt-1">
+                                <input
+                                  type="color"
+                                  value={selectedIndicator.settings.dlVaFillColor ?? "#3b82f6"}
+                                  onChange={(e) => updateSettings({ dlVaFillColor: e.target.value })}
+                                  className="w-7 h-7 rounded cursor-pointer border-0 p-0 overflow-hidden bg-transparent shrink-0"
+                                />
+                                <span className="text-[10px] font-mono text-slate-400 truncate w-14">{selectedIndicator.settings.dlVaFillColor ?? "#3b82f6"}</span>
+                              </div>
+                            </label>
+
+                            <label className="flex flex-col gap-1.5 font-sans text-xs">
+                              <span className={`font-bold ${isLight ? "text-slate-700" : "text-slate-300"}`}>{t('indicators.set.dlVaBorder')}</span>
+                              <div className="flex items-center gap-2 mt-1">
+                                <input
+                                  type="color"
+                                  value={selectedIndicator.settings.dlVaBorderColor ?? "#3b82f6"}
+                                  onChange={(e) => updateSettings({ dlVaBorderColor: e.target.value })}
+                                  className="w-7 h-7 rounded cursor-pointer border-0 p-0 overflow-hidden bg-transparent shrink-0"
+                                />
+                                <span className="text-[10px] font-mono text-slate-400 truncate w-14">{selectedIndicator.settings.dlVaBorderColor ?? "#3b82f6"}</span>
+                              </div>
+                            </label>
+                          </div>
+
+                          <div className="flex flex-col gap-1.5 border-t border-dashed border-slate-700/20 pt-3">
+                            <span className={`font-bold ${isLight ? "text-slate-700" : "text-slate-300"}`}>{t('indicators.set.dlBorderStyle')}</span>
+                            <select
+                              value={selectedIndicator.settings.dlVaBorderStyle ?? "dashed"}
+                              onChange={(e) => updateSettings({ dlVaBorderStyle: e.target.value as any })}
+                              className={`rounded-xl px-3 py-2 text-xs outline-none transition-all duration-300 border ${isLight ? "bg-white border-slate-200 text-slate-800 focus:ring-1 focus:ring-blue-400" : "bg-[#0b0f19] border border-white/10 text-slate-200 focus:ring-1 focus:ring-yellow-500/40 hover:border-white/20"}`}
+                            >
+                              <option value="solid">{t('indicators.set.dlStyleSolid')}</option>
+                              <option value="dashed">{t('indicators.set.dlStyleDashed')}</option>
+                              <option value="dotted">{t('indicators.set.dlStyleDotted')}</option>
+                            </select>
+                          </div>
+
+                          <label className="flex flex-col gap-1.5 font-sans text-xs border-t border-dashed border-slate-700/20 pt-3">
+                            <span className={`font-bold ${isLight ? "text-slate-700" : "text-slate-300"}`}>{t('indicators.set.dlVaFillOpacity')} ({Math.round((selectedIndicator.settings.dlVaFillOpacity ?? 0.12) * 100)}%)</span>
+                            <input
+                              type="range"
+                              min="0"
+                              max="100"
+                              step="5"
+                              value={(selectedIndicator.settings.dlVaFillOpacity ?? 0.12) * 100}
+                              onChange={(e) => updateSettings({ dlVaFillOpacity: parseInt(e.target.value) / 100 })}
+                              className="w-full h-1 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-yellow-500"
+                            />
+                          </label>
+
+                          <label className="flex flex-col gap-1.5 font-sans text-xs">
+                            <span className={`font-bold ${isLight ? "text-slate-700" : "text-slate-300"}`}>{t('indicators.set.dlVaBorderOpacity')} ({Math.round((selectedIndicator.settings.dlVaBorderOpacity ?? 0.7) * 100)}%)</span>
+                            <input
+                              type="range"
+                              min="0"
+                              max="100"
+                              step="5"
+                              value={(selectedIndicator.settings.dlVaBorderOpacity ?? 0.7) * 100}
+                              onChange={(e) => updateSettings({ dlVaBorderOpacity: parseInt(e.target.value) / 100 })}
+                              className="w-full h-1 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-yellow-500"
+                            />
+                          </label>
+
+                          <label className="flex flex-col gap-1.5 font-sans text-xs">
+                            <span className={`font-bold ${isLight ? "text-slate-700" : "text-slate-300"}`}>{t('indicators.set.dlPocOpacity')} ({Math.round((selectedIndicator.settings.dlPocOpacity ?? 1) * 100)}%)</span>
+                            <input
+                              type="range"
+                              min="0"
+                              max="100"
+                              step="5"
+                              value={(selectedIndicator.settings.dlPocOpacity ?? 1) * 100}
+                              onChange={(e) => updateSettings({ dlPocOpacity: parseInt(e.target.value) / 100 })}
+                              className="w-full h-1 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-yellow-500"
+                            />
+                          </label>
+
+                          <label className={`flex items-center gap-2.5 p-2 rounded-xl cursor-pointer mt-1 border ${isLight ? "hover:bg-slate-150 bg-slate-200/50 text-slate-700 border-slate-300" : "hover:bg-white/5 bg-slate-950/45 text-slate-200 border-white/5"}`}>
+                            <input
+                              type="checkbox"
+                              checked={selectedIndicator.settings.dlShowValueArea !== false}
+                              onChange={(e) => updateSettings({ dlShowValueArea: e.target.checked })}
+                              className="rounded text-blue-600 focus:ring-blue-500 w-4 h-4"
+                            />
+                            <span className="font-bold text-[11px]">{t('indicators.set.dlShowVa')}</span>
+                          </label>
+                        </div>
+                      )}
+
                       {selectedIndicator.id !== "clusterSearch" &&
                         selectedIndicator.id !== "volume" &&
                         selectedIndicator.id !== "volumeOnChart" &&
@@ -2330,6 +2471,7 @@ export default function IndicatorsModal({ isOpen, onClose, symbol = "", market =
                         selectedIndicator.id !== "delta" &&
                         selectedIndicator.id !== "cvd" &&
                         selectedIndicator.id !== "stackedImbalance" &&
+                        selectedIndicator.id !== "dynamicLevels" &&
                         selectedIndicator.id !== "depthOfMarket" && (
                           <div className="text-slate-500 italic text-xs py-3 font-sans">
                             {t('indicators.modal.moreParamsSoon')}

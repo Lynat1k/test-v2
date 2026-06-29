@@ -9,6 +9,7 @@ import { rsiIndicator } from "./rsi";
 import { bidAskRatioIndicator } from "./bidAskRatio";
 import { longShortRatioIndicator } from "./longShortRatio";
 import { buySellZoneIndicator } from "./buySellZone";
+import { dynamicLevelsIndicator } from "./dynamicLevels";
 
 export * from "./types";
 export * from "./volumeOnChart";
@@ -21,6 +22,7 @@ export * from "./rsi";
 export * from "./bidAskRatio";
 export * from "./longShortRatio";
 export * from "./buySellZone";
+export * from "./dynamicLevels";
 
 export const MODULAR_INDICATORS: IndicatorModule[] = [
   volumeOnChartIndicator,
@@ -32,5 +34,6 @@ export const MODULAR_INDICATORS: IndicatorModule[] = [
   rsiIndicator,
   bidAskRatioIndicator,
   longShortRatioIndicator,
-  buySellZoneIndicator
+  buySellZoneIndicator,
+  dynamicLevelsIndicator
 ];

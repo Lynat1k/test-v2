@@ -203,4 +203,16 @@ export const INDICATOR_DESCRIPTIONS: Record<string, LocalizedDescription> = {
       KZ: "Әр компонент 0..100-ге қалыпқа келтіріледі және қолжетімділері салмақтармен орташаланады (әдепкі LS 0.35, RSI 0.25, MACD 0.20, Bar 0.20). 35–65 дәлізі ішіндегі мәндер — тепе-теңдік; 80-нен жоғары — сатып алушылардың қызуы (қызыл толтыру), 20-дан төмен — сатушылардың қызуы (жасыл). Егер свечада стакан/арақатынас деректері болмаса немесе z-score үшін тарих аз болса, компонент алынып тасталып, оның салмағы қалғандарына қайта бөлінеді.",
     },
   },
+  dynamicLevels: {
+    desc: {
+      RU: "Динамические уровни POC и зона Value Area (70%) объёмного профиля, рассчитанные отдельно по каждому периоду (час/день/неделя/месяц/все бары).",
+      EN: "Dynamic POC levels and a 70% Value Area zone of the volume profile, computed per period (hour/day/week/month/all bars).",
+      KZ: "Әр кезең бойынша (сағат/күн/апта/ай/барлық барлар) есептелген көлем профилінің динамикалық POC деңгейлері және Value Area (70%) аймағы.",
+    },
+    details: {
+      RU: "Профиль объёма агрегируется по выбранному периоду: для каждого находится POC (цена с максимальным объёмом) и Value Area — диапазон вокруг POC, вмещающий 70% объёма (VAH сверху, VAL снизу). Уровни рисуются ступеньками на своих участках времени; текущий незакрытый период тянется до правого края графика.",
+      EN: "The volume profile is aggregated over the selected period: each period yields a POC (the price with the maximum volume) and a Value Area — the range around POC holding 70% of volume (VAH above, VAL below). Levels are drawn as steps over their own time spans; the current open period extends to the right edge of the chart.",
+      KZ: "Көлем профилі таңдалған кезең бойынша біріктіріледі: әр кезеңде POC (максималды көлемі бар баға) және Value Area — POC айналасындағы көлемнің 70%-ын қамтитын диапазон (жоғарыда VAH, төменде VAL) анықталады. Деңгейлер өз уақыт аралықтарында сатылап сызылады; ағымдағы жабылмаған кезең графиктің оң шетіне дейін созылады.",
+    },
+  },
 }
