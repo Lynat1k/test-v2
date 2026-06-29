@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect, useRef, useCallback, Fragment } from 'react'
 import { useTheme } from '@/contexts/ThemeContext'
 import { useTranslation } from '@/i18n'
 import { useAuthContext } from '@/features/auth/AuthContext'
@@ -20,7 +20,7 @@ import {
   Download,
   RefreshCw,
 } from 'lucide-react'
-import { apiGetMetrics, apiGetMetricsHistory, apiGetTickers, apiAddTicker, apiUpdateTicker, apiDeleteTicker, apiGetCompressions, apiUpsertCompressions, apiStartDownload, apiGetJobs, apiClearJobs, apiGetCoverage, apiGetUserStats, apiListUsers, apiCreateUser, apiUpdateUserRole, apiDeleteUser, apiGetPolicies, apiUpdatePolicies, apiListIndicatorDefaults, apiPutIndicatorDefaults, apiDeleteIndicatorDefaults, apiGetBinanceTickerInfo, apiGetDatabaseUsage, type ServerMetrics, type MetricsHistoryPoint, type Ticker, type DefaultCompression, type DownloadJob, type CoverageRow, type DatabaseUsage, type UserListItem, type UserStats, type TierPolicy, type AdminIndicatorDefault } from '@/features/admin/api'
+import { apiGetMetrics, apiGetMetricsHistory, apiGetTickers, apiAddTicker, apiUpdateTicker, apiDeleteTicker, apiGetCompressions, apiUpsertCompressions, apiStartDownload, apiGetJobs, apiClearJobs, apiGetCoverage, apiGetCoverageGaps, apiGetUserStats, apiListUsers, apiCreateUser, apiUpdateUserRole, apiDeleteUser, apiGetPolicies, apiUpdatePolicies, apiListIndicatorDefaults, apiPutIndicatorDefaults, apiDeleteIndicatorDefaults, apiGetBinanceTickerInfo, apiGetDatabaseUsage, type ServerMetrics, type MetricsHistoryPoint, type Ticker, type DefaultCompression, type DownloadJob, type CoverageRow, type CoverageGap, type DatabaseUsage, type UserListItem, type UserStats, type TierPolicy, type AdminIndicatorDefault } from '@/features/admin/api'
 import { useChartControls } from '@/contexts/ChartControlsContext'
 import { useIndicatorsStorage } from '@/features/indicators/IndicatorsStorageContext'
 import { MODULAR_INDICATORS } from '@/chart2d/indicators'
@@ -1199,6 +1199,12 @@ function CoverageBlock({ isLight }: { isLight: boolean }) {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
+  // Детализация пропусков: одна раскрытая строка за раз; кэш/loading/ошибка по ключу.
+  const [openKey, setOpenKey] = useState<string | null>(null)
+  const [gapsCache, setGapsCache] = useState<Record<string, CoverageGap[]>>({})
+  const [gapsLoading, setGapsLoading] = useState<Record<string, boolean>>({})
+  const [gapsError, setGapsError] = useState<Record<string, string>>({})
+
   const fetchCoverage = useCallback(async () => {
     setLoading(true)
     setError(null)
@@ -1211,6 +1217,23 @@ function CoverageBlock({ isLight }: { isLight: boolean }) {
   }, [])
 
   useEffect(() => { fetchCoverage() }, [fetchCoverage])
+
+  const toggleGaps = useCallback(async (row: CoverageRow) => {
+    const key = `${row.symbol}-${row.market}-${row.dataType}`
+    if (openKey === key) { setOpenKey(null); return }
+    setOpenKey(key)
+    if (gapsCache[key] || gapsLoading[key]) return // уже загружено/грузится
+    setGapsLoading((s) => ({ ...s, [key]: true }))
+    setGapsError((s) => { const n = { ...s }; delete n[key]; return n })
+    try {
+      const gaps = await apiGetCoverageGaps(row.symbol, row.market, row.dataType)
+      setGapsCache((s) => ({ ...s, [key]: gaps }))
+    } catch (e: any) {
+      setGapsError((s) => ({ ...s, [key]: e?.message || JSON.stringify(e) }))
+    } finally {
+      setGapsLoading((s) => { const n = { ...s }; delete n[key]; return n })
+    }
+  }, [openKey, gapsCache, gapsLoading])
 
   const card = isLight ? 'bg-white border-slate-200' : 'liquid-glass-card'
   const headCell = `text-left text-[10px] font-bold font-mono uppercase tracking-wide px-3 py-2 ${isLight ? 'text-slate-400' : 'text-slate-500'}`
@@ -1266,20 +1289,59 @@ function CoverageBlock({ isLight }: { isLight: boolean }) {
               {rows.map((row, i) => {
                 const badge = dataTypeBadge(row.dataType, isLight)
                 const hasGaps = row.missingDays > 0
+                const key = `${row.symbol}-${row.market}-${row.dataType}`
+                const isOpen = openKey === key
+                const rowGaps = gapsCache[key]
+                const isGapsLoading = gapsLoading[key]
+                const gapErr = gapsError[key]
                 return (
-                  <tr key={`${row.symbol}-${row.market}-${row.dataType}-${i}`} className={`border-b ${isLight ? 'border-slate-100' : 'border-white/5'}`}>
-                    <td className={`${cell} font-black ${isLight ? 'text-slate-900' : 'text-white'}`}>{row.symbol}</td>
-                    <td className={`${cell} font-bold uppercase ${marketColor(row.market)}`}>{row.market}</td>
-                    <td className={cell}><span className={badge.cls}>{badge.label}</span></td>
-                    <td className={`${cell} font-mono`}>{row.firstDay}</td>
-                    <td className={`${cell} font-mono`}>{row.lastDay}</td>
-                    <td className={`${cell} font-mono text-right`}>{row.daysWithData}</td>
-                    <td className={`${cell} font-mono text-right font-bold ${
-                      hasGaps ? (isLight ? 'text-amber-600' : 'text-amber-400') : (isLight ? 'text-emerald-600' : 'text-emerald-400')
-                    }`}>
-                      {hasGaps ? row.missingDays : '—'}
-                    </td>
-                  </tr>
+                  <Fragment key={`${key}-${i}`}>
+                    <tr className={`border-b ${isLight ? 'border-slate-100' : 'border-white/5'}`}>
+                      <td className={`${cell} font-black ${isLight ? 'text-slate-900' : 'text-white'}`}>{row.symbol}</td>
+                      <td className={`${cell} font-bold uppercase ${marketColor(row.market)}`}>{row.market}</td>
+                      <td className={cell}><span className={badge.cls}>{badge.label}</span></td>
+                      <td className={`${cell} font-mono`}>{row.firstDay}</td>
+                      <td className={`${cell} font-mono`}>{row.lastDay}</td>
+                      <td className={`${cell} font-mono text-right`}>{row.daysWithData}</td>
+                      <td className={`${cell} font-mono text-right`}>
+                        {hasGaps ? (
+                          <button
+                            onClick={() => toggleGaps(row)}
+                            title="Показать диапазоны пропусков"
+                            className={`inline-flex items-center gap-1 font-bold cursor-pointer transition-colors ${
+                              isLight ? 'text-amber-600 hover:text-amber-700' : 'text-amber-400 hover:text-amber-300'
+                            }`}
+                          >
+                            <span className="text-[9px] leading-none">{isOpen ? '▾' : '▸'}</span>
+                            {row.missingDays}
+                          </button>
+                        ) : (
+                          <span className={`font-bold ${isLight ? 'text-emerald-600' : 'text-emerald-400'}`}>—</span>
+                        )}
+                      </td>
+                    </tr>
+                    {isOpen && (
+                      <tr className={isLight ? 'bg-slate-50' : 'bg-white/[0.02]'}>
+                        <td colSpan={7} className="px-3 py-2">
+                          {isGapsLoading ? (
+                            <div className="text-slate-400 text-[11px] font-mono">…</div>
+                          ) : gapErr ? (
+                            <div className="text-red-400 text-[11px] font-mono">{gapErr}</div>
+                          ) : rowGaps && rowGaps.length > 0 ? (
+                            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-x-4 gap-y-1">
+                              {rowGaps.map((g, gi) => (
+                                <div key={gi} className={`font-mono text-[11px] ${isLight ? 'text-slate-600' : 'text-slate-400'}`}>
+                                  {g.from} → {g.to} · <span className={isLight ? 'text-amber-600' : 'text-amber-400'}>{g.days}д</span>
+                                </div>
+                              ))}
+                            </div>
+                          ) : (
+                            <div className="text-slate-400 text-[11px] font-mono">нет пропусков</div>
+                          )}
+                        </td>
+                      </tr>
+                    )}
+                  </Fragment>
                 )
               })}
             </tbody>

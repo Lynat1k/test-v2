@@ -235,6 +235,18 @@ export async function apiGetCoverage(): Promise<CoverageRow[]> {
   return request<CoverageRow[]>('/admin/history/coverage')
 }
 
+// Конкретные диапазоны пропусков для одной строки покрытия (ленивая загрузка по клику).
+export interface CoverageGap {
+  from: string
+  to: string
+  days: number
+}
+
+export async function apiGetCoverageGaps(symbol: string, market: string, dataType: string): Promise<CoverageGap[]> {
+  const q = new URLSearchParams({ symbol, market, dataType })
+  return request<CoverageGap[]>(`/admin/history/coverage/gaps?${q}`)
+}
+
 // --- Database usage (объём хранилищ; считается по запросу, без авто-polling) ---
 
 export interface DatabaseUsage {

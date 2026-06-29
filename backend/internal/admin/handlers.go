@@ -139,6 +139,7 @@ func (h *AdminHandler) RegisterAdminRoutes(mux *http.ServeMux) {
 	mux.Handle("GET /api/v1/admin/history/jobs/{id}", wrap(h.handleGetJobStatus))
 	mux.Handle("POST /api/v1/admin/history/clear-jobs", wrap(h.handleClearJobs))
 	mux.Handle("GET /api/v1/admin/history/coverage", wrap(h.handleHistoryCoverage))
+	mux.Handle("GET /api/v1/admin/history/coverage/gaps", wrap(h.handleCoverageGaps))
 
 	// Billing
 	mux.Handle("GET /api/v1/admin/billing", wrap(h.handleGetBilling))
@@ -585,6 +586,48 @@ func (h *AdminHandler) handleHistoryCoverage(w http.ResponseWriter, r *http.Requ
 	}
 
 	writeJSON(w, http.StatusOK, adminResponse{OK: true, Data: rows})
+}
+
+// handleCoverageGaps возвращает конкретные диапазоны пропущенных дней для одного
+// источника покрытия (тикер+рынок+тип) — ленивая детализация столбца «Пропусков».
+func (h *AdminHandler) handleCoverageGaps(w http.ResponseWriter, r *http.Request) {
+	if h.chRepo == nil {
+		writeJSON(w, http.StatusOK, adminResponse{OK: true, Data: []clickhouse.GapRange{}})
+		return
+	}
+
+	q := r.URL.Query()
+	symbol := strings.ToUpper(strings.TrimSpace(q.Get("symbol")))
+	market := q.Get("market")
+	dataType := q.Get("dataType")
+
+	if symbol == "" {
+		writeError(w, http.StatusBadRequest, "MISSING_SYMBOL", "symbol is required")
+		return
+	}
+	if market != "futures" && market != "spot" {
+		writeError(w, http.StatusBadRequest, "INVALID_MARKET", "market must be 'futures' or 'spot'")
+		return
+	}
+	if dataType != "clusters" && dataType != "bookDepth" && dataType != "longShortRatio" {
+		writeError(w, http.StatusBadRequest, "INVALID_DATATYPE", "dataType must be 'clusters', 'bookDepth' or 'longShortRatio'")
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
+	defer cancel()
+
+	gaps, err := h.chRepo.GetCoverageGaps(ctx, dataType, symbol, market)
+	if err != nil {
+		log.Printf("[admin] coverage gaps error: %v", err)
+		writeError(w, http.StatusInternalServerError, "CH_ERROR", "failed to get coverage gaps")
+		return
+	}
+	if gaps == nil {
+		gaps = []clickhouse.GapRange{}
+	}
+
+	writeJSON(w, http.StatusOK, adminResponse{OK: true, Data: gaps})
 }
 
 // --- Users ---

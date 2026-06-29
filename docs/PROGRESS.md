@@ -3288,3 +3288,14 @@ Bid&Ask / Long&Short были пусты на 4h/1d. Причина: live-агр
 - **`App.tsx`**: в 4 wrapper-div активного слота (горизонт. слот 0/1, вертик. слот 0/1) в базовую часть className добавлен `rounded-2xl` рядом с `overflow-hidden border-2`. Радиус применяется всегда — и к активной жёлтой рамке (`border-yellow-500/50`), и к прозрачной неактивной. Бейдж «Активен» и логику `activeSlot` не трогал.
 
 **Verification:** `npx tsc --noEmit` ✓ (exit 0); `npx vite build` ✓ (built in 666ms; chunk-size warning — пред­существующий). Визуально (рамка активного окна в горизонт. и вертик. сплите скруглена, совпадает с углами графика) юзер проверяет в браузере: `cd frontend; npm run dev`.
+
+### [2026-06-29] feat(admin): детализация пропусков покрытия — раскрытие диапазонов по клику
+Столбец «Пропусков» в блоке «Покрытие данных» (админка) стал кликабельным: клик по числу раскрывает под строкой конкретные диапазоны дней без данных. Загрузка диапазонов ленивая (отдельный запрос по клику, не для всех строк сразу).
+- **Backend `internal/repository/clickhouse/clickhouse.go`**: новый тип `GapRange{From,To,Days}` + метод `GetCoverageGaps(ctx, dataType, symbol, market)`. Таблица/поле времени по dataType из whitelist (switch): clusters→clusters_spot/_futures.candle_open; bookDepth→bookdepth_ratio.snapshot_ts; longShortRatio→long_short_ratio.ts. symbol/market — ТОЛЬКО через параметры `?` (имя таблицы не из польз. ввода). SQL `SELECT DISTINCT toDate(<T>) AS d ... ORDER BY d`; в Go проход по соседним дням, разрыв >1 → диапазон (From=день после пред., To=день перед след., Days=diff-1). Нормализация к UTC-полуночи (без DST-сдвигов). Пустой источник → пустой срез. Сумма Days = MissingDays из coverage.
+- **Backend `internal/admin/handlers.go`**: хендлер `handleCoverageGaps` + роут GET `/api/v1/admin/history/coverage/gaps?symbol=&market=&dataType=` (под тем же auth+admin+rate-limit, timeout 15с). Валидация: symbol непустой (upper-case), market∈{spot,futures}, dataType∈{clusters,bookDepth,longShortRatio} иначе 400.
+- **Frontend `features/admin/api.ts`**: `interface CoverageGap{from,to,days}` + `apiGetCoverageGaps(symbol,market,dataType)` (query-параметры через URLSearchParams).
+- **Frontend `components/AdminPanel.tsx`** (CoverageBlock): число пропусков при missingDays>0 — кнопка (cursor-pointer, стрелка ▸/▾); 0 → «—» некликабельно. Клик toggle раскрытия одной строки (ключ `symbol-market-dataType`); кэш gaps/loading/ошибка по ключу. Раскрытие — доп. `<tr colSpan={7}>` со списком диапазонов «from → to · Nд» (моноширинный, 1–3 колонки по ширине), light/dark темы. Загрузка — «…», ошибка — текст, пусто — «нет пропусков».
+
+**Verification:** `go build -o procluster.exe ./cmd/procluster/` ✓ (exit 0); `npx tsc --noEmit` ✓ (exit 0). Бэкенд не стартовал (порт держит рабочий процесс юзера; lifecycle не нарушаю) — функционал юзер проверяет после рестарта с новым бинарником.
+
+**TODO:** нет.

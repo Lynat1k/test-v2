@@ -672,6 +672,16 @@ type HistoryCoverageRow struct {
 	MissingDays  int    `json:"missingDays"`
 }
 
+// GapRange — один непрерывный диапазон дней без данных внутри покрытого периода
+// тикера: From..To включительно (YYYY-MM-DD), Days — число пропущенных дней.
+// Используется админкой для детализации столбца «Пропусков» (ленивая загрузка
+// по клику). Сумма Days по всем диапазонам совпадает с MissingDays из coverage.
+type GapRange struct {
+	From string `json:"from"`
+	To   string `json:"to"`
+	Days int    `json:"days"`
+}
+
 // GetHistoryCoverage агрегирует реальное покрытие данных в ClickHouse по
 // 4 источникам (clusters_futures/spot, bookdepth_ratio, long_short_ratio).
 // Имена таблиц и полей времени — константы из кода (не пользовательский ввод),
@@ -760,6 +770,87 @@ func (r *ClickhouseRepository) GetHistoryCoverage(ctx context.Context) ([]Histor
 	}
 
 	return result, nil
+}
+
+// GetCoverageGaps возвращает конкретные диапазоны пропущенных дней для одного
+// источника покрытия (тикер+рынок+тип). Таблица и поле времени выбираются по
+// dataType из фиксированного whitelist (switch) — пользовательский ввод НЕ
+// попадает в имя таблицы. symbol/market подставляются ТОЛЬКО через параметры
+// запроса (?). Пустой источник → пустой срез (не ошибка).
+func (r *ClickhouseRepository) GetCoverageGaps(ctx context.Context, dataType, symbol, market string) ([]GapRange, error) {
+	var table, timeCol, where string
+	var queryArgs []any
+	switch dataType {
+	case "clusters":
+		if market == "spot" {
+			table = "clusters_spot"
+		} else {
+			table = "clusters_futures"
+		}
+		timeCol = "candle_open"
+		where = "symbol = ?"
+		queryArgs = []any{symbol}
+	case "bookDepth":
+		table = "bookdepth_ratio"
+		timeCol = "snapshot_ts"
+		where = "symbol = ? AND market = ?"
+		queryArgs = []any{symbol, market}
+	case "longShortRatio":
+		table = "long_short_ratio"
+		timeCol = "ts"
+		where = "symbol = ? AND market = ?"
+		queryArgs = []any{symbol, market}
+	default:
+		return nil, fmt.Errorf("coverage gaps: invalid dataType %q", dataType)
+	}
+
+	// table/timeCol — из whitelist выше (константы кода, не пользовательский ввод);
+	// symbol/market идут параметрами (?). Конкатенация безопасна.
+	query := fmt.Sprintf(
+		"SELECT DISTINCT toDate(%s) AS d FROM %s WHERE %s ORDER BY d",
+		timeCol, table, where,
+	)
+
+	rows, err := r.conn.Query(ctx, query, queryArgs...)
+	if err != nil {
+		return nil, fmt.Errorf("coverage gaps query %s: %w", table, err)
+	}
+	defer rows.Close()
+
+	var days []time.Time
+	for rows.Next() {
+		var d time.Time
+		if err := rows.Scan(&d); err != nil {
+			return nil, fmt.Errorf("coverage gaps scan %s: %w", table, err)
+		}
+		days = append(days, d)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("coverage gaps rows %s: %w", table, err)
+	}
+
+	// Нормализуем к UTC-полуночи: toDate отдаёт чистую дату, так разница между
+	// соседними днями — точное кратное 24ч (без DST-сдвигов).
+	toDay := func(t time.Time) time.Time {
+		return time.Date(t.Year(), t.Month(), t.Day(), 0, 0, 0, 0, time.UTC)
+	}
+
+	gaps := make([]GapRange, 0)
+	for i := 1; i < len(days); i++ {
+		prev := toDay(days[i-1])
+		cur := toDay(days[i])
+		diff := int(cur.Sub(prev).Hours() / 24)
+		if diff > 1 {
+			from := prev.AddDate(0, 0, 1)
+			to := cur.AddDate(0, 0, -1)
+			gaps = append(gaps, GapRange{
+				From: from.Format("2006-01-02"),
+				To:   to.Format("2006-01-02"),
+				Days: diff - 1,
+			})
+		}
+	}
+	return gaps, nil
 }
 
 // GetTableSizes возвращает размер на диске (bytes_on_disk) по каждой активной
