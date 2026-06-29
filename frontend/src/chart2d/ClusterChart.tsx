@@ -6567,35 +6567,35 @@ export default function ClusterChart({
         return (
           <div
             key={`plate-${id}`}
-            className="absolute z-30 flex items-center gap-2 px-3 py-1 rounded-lg border shadow-xl backdrop-blur-md transition-all duration-300 select-none"
+            className="absolute z-30 flex items-center gap-1 sm:gap-2 px-2 sm:px-3 py-0.5 sm:py-1 rounded-lg border shadow-xl backdrop-blur-md transition-all duration-300 select-none"
             style={{
-              top: `${panelTopY[id] + 1}px`,
-              right: "76px", // Pinned just to the left of the 66px price scale panel
+              top: `${panelTopY[id] + 5}px`,
+              left: "52px", // 44px DrawingToolbar (w-11) + 8px gap — clears the left toolbar
               backgroundColor: isLight ? "rgba(241, 245, 249, 0.9)" : "rgba(15, 23, 42, 0.75)",
               borderColor: isLight ? "rgba(203, 213, 225, 0.8)" : "rgba(255, 255, 255, 0.08)",
             }}
           >
             {/* Label / Dynamic value indicator */}
-            <div className="flex items-center gap-1.5 font-mono text-[10px] sm:text-[11px] font-bold tracking-wider">
+            <div className="flex items-center gap-1 sm:gap-1.5 font-mono text-[9px] sm:text-[11px] font-bold tracking-wider">
               {meta.dotColor && (
                 <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: meta.dotColor }} />
               )}
-              <span className={isLight ? "text-slate-800" : "text-white"}>{meta.label}</span>
+              <span className={isLight ? "text-slate-800" : "text-white"}>{isMobile ? meta.label.replace(/^\(PROCLUSTER\)\s+/i, "") : meta.label}</span>
               {/* S1: value — written imperatively in handleSvgMouseMove via ref. */}
               <span ref={meta.valueRef} className="text-slate-500">--</span>
             </div>
 
-            <div className={`w-[1px] h-3 ${isLight ? "bg-slate-300" : "bg-white/10"}`} />
+            <div className={`hidden sm:block w-[1px] h-3 ${isLight ? "bg-slate-300" : "bg-white/10"}`} />
 
             {/* Control Buttons */}
-            <div className="flex items-center gap-1.5">
+            <div className="flex items-center gap-1 sm:gap-1.5">
               <button
                 onClick={() => { if (!isFirst) movePanel(id, -1); }}
                 disabled={isFirst}
                 className={arrowBtnCls(isFirst)}
                 title="Move panel up"
               >
-                <ChevronUp className="w-3.5 h-3.5" />
+                <ChevronUp className="w-3 h-3 sm:w-3.5 sm:h-3.5" />
               </button>
 
               <button
@@ -6604,15 +6604,15 @@ export default function ClusterChart({
                 className={arrowBtnCls(isLast)}
                 title="Move panel down"
               >
-                <ChevronDown className="w-3.5 h-3.5" />
+                <ChevronDown className="w-3 h-3 sm:w-3.5 sm:h-3.5" />
               </button>
 
               <button onClick={() => onToggleVisibility?.(id)} className={iconBtnCls} title="Hide panel">
-                <Eye className="w-3.5 h-3.5" />
+                <Eye className="w-3 h-3 sm:w-3.5 sm:h-3.5" />
               </button>
 
               <button onClick={() => onShowIndicatorsSettings?.(id)} className={iconBtnCls} title="Panel settings">
-                <Settings className="w-3.5 h-3.5" />
+                <Settings className="w-3 h-3 sm:w-3.5 sm:h-3.5" />
               </button>
 
               <button
@@ -6622,7 +6622,7 @@ export default function ClusterChart({
                 }`}
                 title="Remove panel"
               >
-                <Trash2 className="w-3.5 h-3.5" />
+                <Trash2 className="w-3 h-3 sm:w-3.5 sm:h-3.5" />
               </button>
             </div>
           </div>
