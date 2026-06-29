@@ -4080,24 +4080,24 @@ export default function ClusterChart({
 
       // Determine colors based on palette
       const useAltPalette = candlePalette === "alternative";
-      const bullFill = useAltPalette 
-        ? "#E3E3E3" 
+      const bullFill = useAltPalette
+        ? (isLight ? "#E3E3E3" : "#E3E3E3")
         : "#10b981";
-      const bullBorder = useAltPalette 
-        ? "#909090" 
+      const bullBorder = useAltPalette
+        ? (isLight ? "#2F2F2F" : "#909090")
         : "#10b981";
-      const bullWick = useAltPalette 
-        ? "#9D9D9D" 
+      const bullWick = useAltPalette
+        ? (isLight ? "#2F2F2F" : "#9D9D9D")
         : "#10b981";
 
-      const bearFill = useAltPalette 
-        ? "#665D5D" 
+      const bearFill = useAltPalette
+        ? (isLight ? "#292929" : "#665D5D")
         : "#de3538";
-      const bearBorder = useAltPalette 
-        ? "#858585" 
+      const bearBorder = useAltPalette
+        ? (isLight ? "#3A3A3A" : "#858585")
         : "#de3538";
-      const bearWick = useAltPalette 
-        ? "#9B9B9B" 
+      const bearWick = useAltPalette
+        ? (isLight ? "#3C3C3C" : "#9B9B9B")
         : "#de3538";
 
       const candleFillColor = isGreen ? bullFill : bearFill;
