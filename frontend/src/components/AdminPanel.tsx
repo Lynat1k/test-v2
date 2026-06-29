@@ -20,7 +20,7 @@ import {
   Download,
   RefreshCw,
 } from 'lucide-react'
-import { apiGetMetrics, apiGetMetricsHistory, apiGetTickers, apiAddTicker, apiUpdateTicker, apiDeleteTicker, apiGetCompressions, apiUpsertCompressions, apiStartDownload, apiGetJobs, apiClearJobs, apiGetCoverage, apiGetUserStats, apiListUsers, apiCreateUser, apiUpdateUserRole, apiDeleteUser, apiGetPolicies, apiUpdatePolicies, apiListIndicatorDefaults, apiPutIndicatorDefaults, apiDeleteIndicatorDefaults, apiGetBinanceTickerInfo, type ServerMetrics, type MetricsHistoryPoint, type Ticker, type DefaultCompression, type DownloadJob, type CoverageRow, type UserListItem, type UserStats, type TierPolicy, type AdminIndicatorDefault } from '@/features/admin/api'
+import { apiGetMetrics, apiGetMetricsHistory, apiGetTickers, apiAddTicker, apiUpdateTicker, apiDeleteTicker, apiGetCompressions, apiUpsertCompressions, apiStartDownload, apiGetJobs, apiClearJobs, apiGetCoverage, apiGetUserStats, apiListUsers, apiCreateUser, apiUpdateUserRole, apiDeleteUser, apiGetPolicies, apiUpdatePolicies, apiListIndicatorDefaults, apiPutIndicatorDefaults, apiDeleteIndicatorDefaults, apiGetBinanceTickerInfo, apiGetDatabaseUsage, type ServerMetrics, type MetricsHistoryPoint, type Ticker, type DefaultCompression, type DownloadJob, type CoverageRow, type DatabaseUsage, type UserListItem, type UserStats, type TierPolicy, type AdminIndicatorDefault } from '@/features/admin/api'
 import { useChartControls } from '@/contexts/ChartControlsContext'
 import { useIndicatorsStorage } from '@/features/indicators/IndicatorsStorageContext'
 import { MODULAR_INDICATORS } from '@/chart2d/indicators'
@@ -224,26 +224,6 @@ function ServerTab({ isLight }: { isLight: boolean }) {
             color="blue"
             historyData={history.map(h => h.diskPercent)}
             historyTimestamps={history.map(h => h.timestamp)}
-          />
-        </div>
-
-        {/* DB Size + Users */}
-        <div className="grid grid-cols-2 gap-3 shrink-0">
-          <InfoCard
-            isLight={isLight}
-            label={t('admin.server.database')}
-            items={[
-              { k: 'SQLite', v: metrics ? formatBytes(metrics.database.sqliteSizeBytes) : '---' },
-              { k: 'ClickHouse', v: metrics ? formatBytes(metrics.database.clickHouseBytes) : '---' },
-            ]}
-          />
-          <InfoCard
-            isLight={isLight}
-            label={t('admin.server.users')}
-            items={[
-              { k: t('admin.users.registered'), v: metrics?.users.registeredCount?.toString() ?? '---' },
-              { k: t('admin.users.online'), v: metrics?.users.onlineCount?.toString() ?? '---' },
-            ]}
           />
         </div>
       </div>
@@ -535,26 +515,6 @@ function DailyChart({ data, timestamps, color, maxVal, isLight, hoveredIdx, onHo
   )
 }
 
-function InfoCard({ isLight, label, items }: {
-  isLight: boolean
-  label: string
-  items: { k: string; v: string }[]
-}) {
-  return (
-    <div className={`p-5 rounded-2xl border ${isLight ? 'bg-white border-slate-200' : 'liquid-glass-card'}`}>
-      <div className="text-xs font-bold font-mono text-slate-400 uppercase mb-3">{label}</div>
-      <div className="space-y-2">
-        {items.map(({ k, v }) => (
-          <div key={k} className="flex justify-between text-sm">
-            <span className="text-slate-500">{k}</span>
-            <span className="font-mono font-bold">{v}</span>
-          </div>
-        ))}
-      </div>
-    </div>
-  )
-}
-
 function formatBytes(bytes: number): string {
   if (bytes === 0) return '0 B'
   const k = 1024
@@ -587,7 +547,10 @@ function DatabaseTab({ isLight }: { isLight: boolean }) {
   return (
     <div className="flex-1 grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-4 gap-6 min-h-0">
       <TickerBlock isLight={isLight} />
-      <CompressionBlock isLight={isLight} />
+      <div className="flex flex-col gap-6">
+        <CompressionBlock isLight={isLight} />
+        <DatabaseMetricsBlock isLight={isLight} />
+      </div>
       <CoverageBlock isLight={isLight} />
       <HistoryBlock isLight={isLight} />
     </div>
@@ -1323,6 +1286,84 @@ function CoverageBlock({ isLight }: { isLight: boolean }) {
           </table>
         </div>
       )}
+    </div>
+  )
+}
+
+// DatabaseMetricsBlock — объём хранилищ (SQLite / ClickHouse-разбивка / Redis).
+// БЕЗ авто-polling: грузится один раз при открытии и по кнопке «Обновить»
+// (подсчёт размера БД тяжёлый). Паттерн повторяет CoverageBlock.
+function DatabaseMetricsBlock({ isLight }: { isLight: boolean }) {
+  const { t } = useTranslation()
+  const [usage, setUsage] = useState<DatabaseUsage | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+
+  const fetchUsage = useCallback(async () => {
+    setLoading(true)
+    setError(null)
+    try {
+      setUsage(await apiGetDatabaseUsage())
+    } catch (e: any) {
+      setError(e?.message || JSON.stringify(e))
+    }
+    setLoading(false)
+  }, [])
+
+  useEffect(() => { fetchUsage() }, [fetchUsage])
+
+  const card = isLight ? 'bg-white border-slate-200' : 'liquid-glass-card'
+  // До первой загрузки usage === null → во всех строках «---».
+  const fmt = (v: number | undefined) => (usage && v !== undefined ? formatBytes(v) : '---')
+
+  // Подкатегории ClickHouse (sub) рисуются с отступом и точкой.
+  const rows: { key: string; label: string; value: string; sub?: boolean }[] = [
+    { key: 'sqlite', label: 'SQLite', value: fmt(usage?.sqliteSizeBytes) },
+    { key: 'ch', label: t('admin.database.dbUsageClickhouse'), value: fmt(usage?.clickHouseBytes) },
+    { key: 'clusters', label: t('admin.database.dbUsageClusters'), value: fmt(usage?.clustersBytes), sub: true },
+    { key: 'bookDepth', label: t('admin.database.dbUsageBookDepth'), value: fmt(usage?.bookDepthBytes), sub: true },
+    { key: 'dom', label: t('admin.database.dbUsageDom'), value: fmt(usage?.domBytes), sub: true },
+    { key: 'longShort', label: t('admin.database.dbUsageLongShort'), value: fmt(usage?.longShortBytes), sub: true },
+    { key: 'cache', label: t('admin.database.dbUsageCache'), value: fmt(usage?.cacheBytes), sub: true },
+    { key: 'other', label: t('admin.database.dbUsageOther'), value: fmt(usage?.otherBytes), sub: true },
+    { key: 'redis', label: t('admin.database.dbUsageRedis'), value: fmt(usage?.redisBytes) },
+  ]
+
+  return (
+    <div className={`p-5 rounded-2xl border flex flex-col gap-4 ${card}`}>
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2 text-xs font-bold font-mono text-emerald-500 uppercase shrink-0">
+          <Database className="w-4 h-4" />
+          {t('admin.database.dbUsageTitle')}
+        </div>
+        <button
+          onClick={fetchUsage}
+          disabled={loading}
+          className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-bold cursor-pointer transition-colors ${
+            loading ? 'opacity-50 cursor-not-allowed' : ''
+          } ${isLight ? 'hover:bg-slate-100 text-slate-600' : 'hover:bg-white/5 text-slate-300'}`}
+        >
+          <RefreshCw className={`w-3 h-3 ${loading ? 'animate-spin' : ''}`} />
+          {t('admin.database.dbUsageRefresh')}
+        </button>
+      </div>
+
+      {error && (
+        <div className="px-2 py-1.5 rounded-lg bg-red-500/10 border border-red-500/20 text-red-400 text-[10px] font-mono">{error}</div>
+      )}
+
+      <div className="flex flex-col gap-1.5">
+        {rows.map((row) => (
+          <div key={row.key} className={`flex justify-between items-center text-[12px] ${row.sub ? 'pl-3' : ''}`}>
+            <span className={row.sub
+              ? (isLight ? 'text-slate-500' : 'text-slate-400')
+              : `font-semibold ${isLight ? 'text-slate-700' : 'text-slate-200'}`}>
+              {row.sub ? '· ' : ''}{row.label}
+            </span>
+            <span className="font-mono font-bold text-[11px]">{row.value}</span>
+          </div>
+        ))}
+      </div>
     </div>
   )
 }

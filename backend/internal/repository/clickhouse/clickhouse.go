@@ -762,6 +762,35 @@ func (r *ClickhouseRepository) GetHistoryCoverage(ctx context.Context) ([]Histor
 	return result, nil
 }
 
+// GetTableSizes возвращает размер на диске (bytes_on_disk) по каждой активной
+// таблице указанной базы — одним запросом к system.parts. Используется админкой
+// для разбивки объёма ClickHouse по категориям; агрегация по категориям — на
+// стороне вызывающего кода.
+func (r *ClickhouseRepository) GetTableSizes(ctx context.Context, database string) (map[string]int64, error) {
+	const query = "SELECT table, sum(bytes_on_disk) AS bytes FROM system.parts WHERE database = ? AND active GROUP BY table"
+	rows, err := r.conn.Query(ctx, query, database)
+	if err != nil {
+		return nil, fmt.Errorf("table sizes: %w", err)
+	}
+	defer rows.Close()
+
+	result := make(map[string]int64)
+	for rows.Next() {
+		var (
+			table string
+			bytes uint64
+		)
+		if err := rows.Scan(&table, &bytes); err != nil {
+			return nil, fmt.Errorf("scan table size: %w", err)
+		}
+		result[table] = int64(bytes)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("table sizes rows: %w", err)
+	}
+	return result, nil
+}
+
 // PutClustersBatchToCache writes pre-aggregated cluster levels for the given closed
 // candles into cluster_cache. updated_at is left to its DEFAULT now(). Callers must
 // pass only CLOSED candles at the admin-default priceStep.

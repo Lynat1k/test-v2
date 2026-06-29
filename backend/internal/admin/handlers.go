@@ -99,6 +99,9 @@ func (h *AdminHandler) RegisterAdminRoutes(mux *http.ServeMux) {
 	mux.Handle("GET /api/v1/admin/metrics", wrap(h.handleGetMetrics))
 	mux.Handle("GET /api/v1/admin/metrics/history", wrap(h.handleGetMetricsHistory))
 
+	// Database usage breakdown (по запросу — подсчёт размера тяжёлый)
+	mux.Handle("GET /api/v1/admin/database/usage", wrap(h.handleDatabaseUsage))
+
 	// Users
 	mux.Handle("GET /api/v1/admin/users/stats", wrap(h.handleGetUsersStats))
 	mux.Handle("GET /api/v1/admin/users", wrap(h.handleGetUsers))

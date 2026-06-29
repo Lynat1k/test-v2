@@ -3,6 +3,32 @@
 > Claude обновляет этот файл в КОНЦЕ каждой задачи. Новые записи — сверху.
 > Формат записи строго по шаблону. Это память между чатами.
 
+### [2026-06-29] feat(admin): объём БД с разбивкой ClickHouse + перенос блоков
+
+- **Контекст**: Во вкладке «Сервер» блок «Пользователи» дублировал вкладку «Пользователи», а блок
+  «База данных» логичнее во вкладке «База данных». Плюс по ClickHouse хотелось видеть не только
+  суммарный размер, но разбивку (кластеры/стакан/DOM/ratio/кеш) + Redis.
+- **Вкладка «Сервер»** (`frontend/src/components/AdminPanel.tsx`, ServerTab): удалены оба InfoCard —
+  «Пользователи» (совсем) и «База данных» (переехал). Удалена осиротевшая функция `InfoCard`
+  (`noUnusedLocals`). Метрики CPU/RAM/Disk/логи и эндпоинт /admin/metrics не тронуты.
+- **Backend — новый эндпоинт по запросу** (подсчёт тяжёлый, не в общем /metrics):
+  - `backend/internal/repository/clickhouse/clickhouse.go`: метод `GetTableSizes(ctx, db)` —
+    `SELECT table, sum(bytes_on_disk) FROM system.parts WHERE database=? AND active GROUP BY table`.
+  - `backend/internal/admin/database_usage.go` (НОВЫЙ): struct `DatabaseUsage`, `handleDatabaseUsage`,
+    `getRedisMemory`. Агрегация в Go: clusters=clusters_futures+spot, dom=clusters_*_dom,
+    bookDepth=bookdepth_ratio, longShort=long_short_ratio, cache=cluster_cache, total=Σвсех,
+    other=total−категории (guard <0→0). SQLite=os.Stat. Redis=used_memory из INFO memory
+    (префикс `used_memory:`, _rss не матчится; nil/ошибка→0). Ошибка CH→нули, ответ не валится.
+  - `backend/internal/admin/handlers.go`: роут `GET /api/v1/admin/database/usage` (auth+admin+rl, таймаут 15с).
+- **Frontend**: `features/admin/api.ts` — `interface DatabaseUsage` + `apiGetDatabaseUsage()`.
+  Новый `DatabaseMetricsBlock` (паттерн CoverageBlock: грузит 1 раз + по кнопке «Обновить», без
+  авто-polling). Размещён ПОД CompressionBlock (обёртка `flex flex-col gap-6` 2-й колонкой грида,
+  колонок по-прежнему 4). i18n ключи `admin.database.dbUsage*` в ru/en/kz.
+- **Verification**: `go build`/`go vet`/`go test ./internal/admin/` ✓, `npx tsc --noEmit` ✓,
+  `npx vite build` ✓. Живой GET /admin/database/usage → 200, поля заполнены, Σкатегорий=clickHouseBytes,
+  other=0, redisBytes>0. UI-проверка юзером — ок.
+- **Деплой**: коммит в main → push. Ручной деплой на VPS.
+
 ### [2026-06-29] style(chart): альт-палитра свечей — отдельные цвета для светлой темы
 
 - **Контекст**: Альтернативная (бело-серая) палитра японских свечей в обычном режиме (zoom out)

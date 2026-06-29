@@ -235,6 +235,24 @@ export async function apiGetCoverage(): Promise<CoverageRow[]> {
   return request<CoverageRow[]>('/admin/history/coverage')
 }
 
+// --- Database usage (объём хранилищ; считается по запросу, без авто-polling) ---
+
+export interface DatabaseUsage {
+  sqliteSizeBytes: number
+  clickHouseBytes: number
+  clustersBytes: number
+  bookDepthBytes: number
+  domBytes: number
+  longShortBytes: number
+  cacheBytes: number
+  otherBytes: number
+  redisBytes: number
+}
+
+export async function apiGetDatabaseUsage(): Promise<DatabaseUsage> {
+  return request<DatabaseUsage>('/admin/database/usage')
+}
+
 // --- Billing ---
 
 export interface PaymentRecord {
