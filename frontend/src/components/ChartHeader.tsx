@@ -136,7 +136,7 @@ export function ChartHeader({ showAnomalies = true, onToggleAnomalies }: ChartHe
     }`} style={{ zIndex: 1000 }}>
       {/* 1. Ticker selector */}
       <div className="shrink-0">
-        <span className={`text-[10px] uppercase font-mono tracking-widest font-bold block mb-0.5 ${isLight ? 'text-slate-500' : 'text-slate-400/80'}`}>Active Ticker</span>
+        <span className={`text-[10px] uppercase font-mono tracking-widest font-bold block mb-0.5 ${isLight ? 'text-slate-500' : 'text-slate-400/80'}`}>{t('chart.ticker')}</span>
         <div className="relative" ref={tickerRef}>
         <button
           onClick={() => tickerDropdownOpen ? setTickerDropdownOpen(false) : openTickerDropdown()}
@@ -154,7 +154,7 @@ export function ChartHeader({ showAnomalies = true, onToggleAnomalies }: ChartHe
 
       {/* 2. Market type SPOT / FUTURES */}
       <div className="shrink-0">
-        <span className={`text-[10px] uppercase font-mono tracking-widest font-bold block mb-0.5 ${isLight ? 'text-slate-500' : 'text-slate-400/80'}`}>Market Type</span>
+        <span className={`text-[10px] uppercase font-mono tracking-widest font-bold block mb-0.5 ${isLight ? 'text-slate-500' : 'text-slate-400/80'}`}>{t('chart.market')}</span>
         <div className={`flex items-center p-0.5 rounded-lg border h-[30px] ${isLight ? 'bg-slate-200 border-slate-300' : 'bg-slate-950/60 border-white/5'}`}>
           {(['futures', 'spot'] as MarketType[]).map((m) => (
             <button
@@ -180,7 +180,7 @@ export function ChartHeader({ showAnomalies = true, onToggleAnomalies }: ChartHe
 
       {/* 3. Timeframes */}
       <div className="shrink-0">
-        <span className={`text-[10px] uppercase font-mono tracking-widest font-bold block mb-0.5 ${isLight ? 'text-slate-500' : 'text-slate-400/80'}`}>Interval</span>
+        <span className={`text-[10px] uppercase font-mono tracking-widest font-bold block mb-0.5 ${isLight ? 'text-slate-500' : 'text-slate-400/80'}`}>{t('chart.interval')}</span>
         <div className="flex items-center gap-0.5">
           {TIMEFRAMES_BY_MARKET[market].map((tf) => (
             <button
@@ -229,7 +229,7 @@ export function ChartHeader({ showAnomalies = true, onToggleAnomalies }: ChartHe
 
       {/* 4b. Anomalies toggle */}
       <div className="shrink-0">
-        <span className={`text-[10px] uppercase font-mono tracking-widest font-bold block mb-0.5 ${isLight ? 'text-slate-500' : 'text-slate-400/80'}`}>Anomalies</span>
+        <span className={`text-[10px] uppercase font-mono tracking-widest font-bold block mb-0.5 ${isLight ? 'text-slate-500' : 'text-slate-400/80'}`}>{t('chart.anomalies')}</span>
         <button
           onClick={limits.anomaliesEnabled ? onToggleAnomalies : undefined}
           disabled={!limits.anomaliesEnabled}
@@ -243,7 +243,7 @@ export function ChartHeader({ showAnomalies = true, onToggleAnomalies }: ChartHe
           }`}
         >
           <span className={`w-1.5 h-1.5 rounded-full ${showAnomalies ? 'bg-emerald-400' : 'bg-slate-500'}`} />
-          <span>{showAnomalies ? 'On' : 'Off'}</span>
+          <span>{showAnomalies ? t('common.on') : t('common.off')}</span>
         </button>
       </div>
 
@@ -316,7 +316,7 @@ export function ChartHeader({ showAnomalies = true, onToggleAnomalies }: ChartHe
 
       {/* 8. Indicators button */}
       <div className="shrink-0">
-        <span className={`text-[10px] uppercase font-mono tracking-widest font-bold block mb-0.5 ${isLight ? 'text-slate-500' : 'text-slate-400/80'}`}>Controls</span>
+        <span className={`text-[10px] uppercase font-mono tracking-widest font-bold block mb-0.5 ${isLight ? 'text-slate-500' : 'text-slate-400/80'}`}>{t('chart.controls')}</span>
         <button
           onClick={() => setShowIndicatorsModal(!showIndicatorsModal)}
           className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg liquid-glass-button text-xs font-bold cursor-pointer select-none h-[30px]"
@@ -346,7 +346,7 @@ export function ChartHeader({ showAnomalies = true, onToggleAnomalies }: ChartHe
               }}
             >
               <div className={`text-[9px] font-bold px-2 pb-1 border-b mb-1.5 uppercase tracking-widest ${isLight ? 'text-slate-500 border-slate-100' : 'text-slate-400 border-white/5'}`}>
-                Available Pairs
+                {t('chart.availablePairs')}
               </div>
               <div className="flex flex-col gap-0.5 max-h-[300px] overflow-y-auto pr-1">
                 {[...tickerList]
@@ -383,7 +383,7 @@ export function ChartHeader({ showAnomalies = true, onToggleAnomalies }: ChartHe
                                 ? 'text-slate-300 hover:text-slate-500'
                                 : 'text-slate-600 hover:text-slate-400'
                           }`}
-                          title={isFav ? 'Remove from favorites' : 'Add to favorites'}
+                          title={isFav ? t('chart.removeFavorite') : t('chart.addFavorite')}
                         >
                           <Star className={`w-3.5 h-3.5 ${isFav ? 'fill-current' : ''}`} />
                         </button>
@@ -452,7 +452,7 @@ export function ChartHeader({ showAnomalies = true, onToggleAnomalies }: ChartHe
                     >
                       <span className="font-mono text-[11px] flex items-center gap-1">
                         {level}
-                        {isBase && <span className="text-[9px] text-amber-500/70">base</span>}
+                        {isBase && <span className="text-[9px] text-amber-500/70">{t('chart.compressionBase')}</span>}
                         {isRecommended && (
                           <span className="relative group">
                             <span className="text-[9px] font-bold px-1 py-0.5 rounded bg-emerald-500/15 text-emerald-400 border border-emerald-500/25 leading-none cursor-help">

@@ -110,7 +110,7 @@ function ChartToolsHeaderImpl({
                   ? "text-purple-900 bg-purple-100 border-purple-300 font-extrabold shadow-sm hover:bg-purple-200"
                   : "text-purple-400 bg-purple-950/30 border-purple-500/10 hover:bg-purple-900/40"
             }`}
-            title="Click to toggle Market Type"
+            title={language === "RU" ? "Нажмите для смены типа рынка" : language === "KZ" ? "Нарық түрін ауыстыру үшін басыңыз" : "Click to toggle Market Type"}
           >
             {marketType}
           </button>
@@ -140,13 +140,13 @@ function ChartToolsHeaderImpl({
         {/* Zoom Buttons */}
         <div className={`flex rounded-lg sm:rounded-xl p-[2px] sm:p-[3px] border backdrop-blur-sm shadow-inner gap-0.5 transition-all duration-300 ${
           isLight ? "bg-slate-100 border-slate-200" : "bg-slate-950/60 border-white/5"
-        }`} title="Horizontal Scale">
+        }`} title={language === "RU" ? "Горизонтальный масштаб" : language === "KZ" ? "Көлденең масштаб" : "Horizontal Scale"}>
           <button
             onClick={() => onZoom(15)}
             className={`p-1 rounded-md sm:rounded-lg transition-all duration-150 cursor-pointer ${
               isLight ? "hover:bg-slate-200 text-slate-650 hover:text-slate-900" : "hover:bg-white/5 text-slate-400 hover:text-yellow-450"
             }`}
-            title="Zoom In (Expand Clusters)"
+            title={language === "RU" ? "Приблизить (расширить кластеры)" : language === "KZ" ? "Жақындату (кластерлерді кеңейту)" : "Zoom In (Expand Clusters)"}
           >
             <ZoomIn className="w-3 sm:w-3.5 h-3 sm:h-3.5" />
           </button>
@@ -155,7 +155,7 @@ function ChartToolsHeaderImpl({
             className={`p-1 rounded-md sm:rounded-lg transition-all duration-150 cursor-pointer ${
               isLight ? "hover:bg-slate-200 text-slate-650 hover:text-slate-900" : "hover:bg-white/5 text-slate-400 hover:text-yellow-450"
             }`}
-            title="Zoom Out"
+            title={language === "RU" ? "Отдалить" : language === "KZ" ? "Алыстату" : "Zoom Out"}
           >
             <ZoomOut className="w-3 sm:w-3.5 h-3 sm:h-3.5" />
           </button>
@@ -164,13 +164,13 @@ function ChartToolsHeaderImpl({
         {/* Vertical Price Scale Buttons */}
         <div className={`hidden sm:flex rounded-lg sm:rounded-xl p-[2px] sm:p-[3px] border backdrop-blur-sm shadow-inner gap-0.5 transition-all duration-300 ${
           isLight ? "bg-slate-100 border-slate-200" : "bg-slate-950/60 border-white/5"
-        }`} title="Vertical Price Scale">
+        }`} title={language === "RU" ? "Вертикальный масштаб цены" : language === "KZ" ? "Тік баға масштабы" : "Vertical Price Scale"}>
           <button
             onClick={() => onVerticalZoom(0.15)}
             className={`px-1.5 sm:px-2 py-0.5 text-[9px] sm:text-[10px] font-mono font-bold rounded-md sm:rounded-lg transition-all duration-150 cursor-pointer ${
               isLight ? "hover:bg-slate-200 text-slate-600 hover:text-slate-900" : "hover:bg-white/5 text-slate-400 hover:text-cyan-405"
             }`}
-            title="Stretch Vertically (Narrow visible range)"
+            title={language === "RU" ? "Растянуть по вертикали (сузить диапазон)" : language === "KZ" ? "Тігінен созу (диапазонды тарылту)" : "Stretch Vertically (Narrow visible range)"}
           >
             ↕+
           </button>
@@ -179,7 +179,7 @@ function ChartToolsHeaderImpl({
             className={`px-1.5 sm:px-2 py-0.5 text-[9px] sm:text-[10px] font-mono font-bold rounded-md sm:rounded-lg transition-all duration-150 cursor-pointer ${
               isLight ? "hover:bg-slate-200 text-slate-600 hover:text-slate-900" : "hover:bg-white/5 text-slate-400 hover:text-cyan-405"
             }`}
-            title="Compress Vertically (Widen visible range)"
+            title={language === "RU" ? "Сжать по вертикали (расширить диапазон)" : language === "KZ" ? "Тігінен қысу (диапазонды кеңейту)" : "Compress Vertically (Widen visible range)"}
           >
             ↕-
           </button>
@@ -188,7 +188,7 @@ function ChartToolsHeaderImpl({
             className={`px-1.5 sm:px-2 py-0.5 text-[9px] sm:text-[10px] font-bold rounded-md sm:rounded-lg transition-all duration-150 font-mono cursor-pointer ${
               isLight ? "hover:bg-slate-200 text-slate-600 hover:text-yellow-600" : "hover:bg-white/5 text-slate-400 hover:text-yellow-450"
             }`}
-            title="Reset Zoom & Offsets"
+            title={language === "RU" ? "Сбросить масштаб и смещения" : language === "KZ" ? "Масштаб пен ығысуларды қалпына келтіру" : "Reset Zoom & Offsets"}
           >
             100%
           </button>
@@ -349,7 +349,7 @@ function ChartToolsHeaderImpl({
           <div className={`border px-2.5 py-1.5 rounded-xl text-[10px] font-mono font-bold flex items-center gap-1.5 hidden xl:flex shadow-inner transition-all duration-300 cursor-help ${
             isLight ? "bg-slate-100 border-slate-200/60 text-slate-600" : "bg-slate-950/60 border-white/5 text-slate-400"
           }`}>
-            <Move className="w-3 h-3 text-slate-500 animate-pulse" /> Click & Drag to Pan (2D)
+            <Move className="w-3 h-3 text-slate-500 animate-pulse" /> {language === "RU" ? "Зажмите и тяните для перемещения (2D)" : language === "KZ" ? "Жылжыту үшін басып сүйреңіз (2D)" : "Click & Drag to Pan (2D)"}
           </div>
           <div className={`absolute top-full mt-2 z-50 hidden group-hover:block right-0 w-56 p-3 rounded-xl shadow-2xl border backdrop-blur-md pointer-events-none ${
             isLight ? "bg-white border-slate-300" : "bg-[#090d16]/98 border-white/10"

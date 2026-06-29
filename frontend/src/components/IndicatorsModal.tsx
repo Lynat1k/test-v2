@@ -421,7 +421,7 @@ export default function IndicatorsModal({ isOpen, onClose, symbol = "", market =
       if (turningOn) {
         const activeCount = prev.filter((ind) => ind.isActive).length
         if (activeCount >= maxIndicators) {
-          notify(`Лимит индикаторов: ${maxIndicators}. Удалите другой или выберите платный тариф.`, { kind: 'warn' })
+          notify(t('indicators.modal.limitReached').replace('{max}', String(maxIndicators)), { kind: 'warn' })
           return prev
         }
       }
@@ -441,7 +441,7 @@ export default function IndicatorsModal({ isOpen, onClose, symbol = "", market =
     // first N actives. Voluntarily hidden items within the cap stay
     // togglable as before.
     if (blockedIds.has(id)) {
-      notify(`Лимит тарифа: освободите место, чтобы показать этот индикатор.`, { kind: 'warn' })
+      notify(t('indicators.modal.tierBlockedNotify'), { kind: 'warn' })
       return
     }
     setDraft((prev) =>
@@ -483,7 +483,7 @@ export default function IndicatorsModal({ isOpen, onClose, symbol = "", market =
     if (!selectedIndicator) return
     const name = newPresetName.trim()
     if (!name) {
-      setPresetsError('Введите имя пресета')
+      setPresetsError(t('indicators.modal.errEnterName'))
       return
     }
     setPresetsError(null)
@@ -497,7 +497,7 @@ export default function IndicatorsModal({ isOpen, onClose, symbol = "", market =
       setNewPresetName('')
     } catch (err) {
       const e = err as { code?: string; message?: string }
-      setPresetsError(e.code === 'NAME_EXISTS' ? 'Имя уже занято' : e.message ?? 'Не удалось сохранить пресет')
+      setPresetsError(e.code === 'NAME_EXISTS' ? t('indicators.modal.errNameTaken') : e.message ?? t('indicators.modal.errSaveFailed'))
     }
   }
 
@@ -518,7 +518,7 @@ export default function IndicatorsModal({ isOpen, onClose, symbol = "", market =
       setRenamingId(null)
     } catch (err) {
       const e = err as { code?: string; message?: string }
-      setPresetsError(e.code === 'NAME_EXISTS' ? 'Имя уже занято' : e.message ?? 'Не удалось переименовать')
+      setPresetsError(e.code === 'NAME_EXISTS' ? t('indicators.modal.errNameTaken') : e.message ?? t('indicators.modal.errRenameFailed'))
     }
   }
 
@@ -537,7 +537,7 @@ export default function IndicatorsModal({ isOpen, onClose, symbol = "", market =
   const handleApplyPreset = async (preset: IndicatorPreset) => {
     if (!selectedIndicator) return
     if (!symbol || !market || !timeframe) {
-      setPresetsError('Откройте график перед применением')
+      setPresetsError(t('indicators.modal.errOpenChartApply'))
       return
     }
     // Patch draft so the preview reflects the preset immediately. Server-side
@@ -561,7 +561,7 @@ export default function IndicatorsModal({ isOpen, onClose, symbol = "", market =
       setPresetDropdownOpen(false)
     } catch (err) {
       const e = err as { code?: string; message?: string }
-      setPresetsError(e.message ?? 'Не удалось применить пресет')
+      setPresetsError(e.message ?? t('indicators.modal.errApplyFailed'))
     }
   }
 
@@ -583,7 +583,7 @@ export default function IndicatorsModal({ isOpen, onClose, symbol = "", market =
   const handleToggleAdminDefault = async () => {
     if (!selectedIndicator) return
     if (!symbol || !market || !timeframe) {
-      setPresetsError('Откройте график перед сохранением дефолта')
+      setPresetsError(t('indicators.modal.errOpenChartDefault'))
       return
     }
     setPresetsError(null)
@@ -602,7 +602,7 @@ export default function IndicatorsModal({ isOpen, onClose, symbol = "", market =
       await onRefreshAdminDefaults?.()
     } catch (err) {
       const e = err as { code?: string; message?: string }
-      setPresetsError(e.message ?? 'Не удалось обновить админ-дефолт')
+      setPresetsError(e.message ?? t('indicators.modal.errAdminDefaultFailed'))
     }
   }
 
@@ -652,7 +652,7 @@ export default function IndicatorsModal({ isOpen, onClose, symbol = "", market =
             <div className="flex items-center gap-2.5 pointer-events-none">
               <Layers className="w-5 h-5 text-blue-500" />
               <span className="text-base font-bold tracking-wide">
-                Индикаторы <span className="text-slate-455 font-medium font-mono">{"→"} {symbol || "..."}</span>
+                {t('indicators.modal.title')} <span className="text-slate-455 font-medium font-mono">{"→"} {symbol || "..."}</span>
               </span>
             </div>
             <button
@@ -669,13 +669,13 @@ export default function IndicatorsModal({ isOpen, onClose, symbol = "", market =
           {source && (source === 'admin-tf' || source === 'admin-all-tf' || source === 'system') && (
             <div className={`px-6 py-2 text-[11px] font-medium flex items-center gap-2 border-b ${isLight ? "bg-amber-50 text-amber-800 border-amber-100" : "bg-amber-500/10 text-amber-300 border-amber-500/20"}`}>
               <Info className="w-3.5 h-3.5 shrink-0" />
-              <span>Вы видите настройки по умолчанию — измените что-нибудь, чтобы создать свои.</span>
+              <span>{t('indicators.modal.sourceDefaultHint')}</span>
             </div>
           )}
           {source === 'user-all-tf' && (
             <div className={`px-6 py-2 text-[11px] font-medium flex items-center gap-2 border-b ${isLight ? "bg-blue-50 text-blue-800 border-blue-100" : "bg-blue-500/10 text-blue-300 border-blue-500/20"}`}>
               <Info className="w-3.5 h-3.5 shrink-0" />
-              <span>Применено ко всем ТФ. Изменение настроек затронет только текущий ТФ{timeframe ? ` (${timeframe})` : ""}.</span>
+              <span>{t('indicators.modal.sourceAllTfHint').replace('{tf}', timeframe ? ` (${timeframe})` : "")}</span>
             </div>
           )}
 
@@ -694,7 +694,7 @@ export default function IndicatorsModal({ isOpen, onClose, symbol = "", market =
                 <Search className="w-3.5 h-3.5 absolute left-3 top-2.5 text-slate-400" />
                 <input
                   type="text"
-                  placeholder="Поиск индикаторов..."
+                  placeholder={t('indicators.modal.search')}
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   className={`w-full border rounded-xl py-1.5 px-3.5 pl-9 text-xs outline-none font-sans transition-all duration-300 no-drag ${isLight ? "bg-slate-50 border-slate-200 text-slate-850 placeholder-slate-400 focus:ring-1 focus:ring-blue-400 focus:border-blue-400" : "bg-[#030712]/50 border border-white/10 text-slate-200 placeholder-slate-500 focus:ring-1 focus:ring-yellow-500/40 focus:border-yellow-500/40"}`}
@@ -704,13 +704,13 @@ export default function IndicatorsModal({ isOpen, onClose, symbol = "", market =
               {/* Active indicators */}
               <div className={`flex flex-col min-h-0 border-b pb-2 shrink-0 flex-[0.7] ${isLight ? "border-slate-200" : "border-white/5"}`}>
                 <span className="text-[10px] font-bold text-slate-500 tracking-widest uppercase mb-1 block font-mono pl-1">
-                  АКТИВНЫЕ ({addedIndicators.length})
+                  {t('indicators.modal.activeSection')} ({addedIndicators.length})
                 </span>
                 <div className={`flex-1 overflow-y-auto pr-1 flex flex-col gap-1 ${isLight ? "scrollbar-thin-light" : "scrollbar-thin-dark"}`}>
                   <AnimatePresence initial={false}>
                     {addedIndicators.length === 0 ? (
                       <div className="text-slate-500 text-[11px] italic pl-1.5 pt-1">
-                        Нет активных индикаторов
+                        {t('indicators.modal.noActive')}
                       </div>
                     ) : (
                       addedIndicators.map((ind, idx) => {
@@ -739,7 +739,7 @@ export default function IndicatorsModal({ isOpen, onClose, symbol = "", market =
                                 disabled={idx === 0}
                                 onClick={(e) => moveIndicator(ind.id, "up", e)}
                                 className={`p-1 rounded transition ${idx === 0 ? "opacity-20 cursor-not-allowed" : isLight ? "hover:bg-slate-200 text-slate-500 hover:text-slate-850" : "hover:bg-white/10 text-slate-400 hover:text-slate-200"}`}
-                                title="Переместить вверх"
+                                title={t('indicators.modal.moveUp')}
                               >
                                 <ArrowUp className="w-3.5 h-3.5" />
                               </button>
@@ -747,7 +747,7 @@ export default function IndicatorsModal({ isOpen, onClose, symbol = "", market =
                                 disabled={idx === addedIndicators.length - 1}
                                 onClick={(e) => moveIndicator(ind.id, "down", e)}
                                 className={`p-1 rounded transition ${idx === addedIndicators.length - 1 ? "opacity-20 cursor-not-allowed" : isLight ? "hover:bg-slate-200 text-slate-500 hover:text-slate-850" : "hover:bg-white/10 text-slate-400 hover:text-slate-200"}`}
-                                title="Переместить вниз"
+                                title={t('indicators.modal.moveDown')}
                               >
                                 <ArrowDown className="w-3.5 h-3.5" />
                               </button>
@@ -764,8 +764,8 @@ export default function IndicatorsModal({ isOpen, onClose, symbol = "", market =
                                 }`}
                                 title={
                                   blockedIds.has(ind.id)
-                                    ? "Лимит тарифа: освободите место, чтобы показать этот индикатор"
-                                    : isVisible ? "Скрыть на графике" : "Показать на графике"
+                                    ? t('indicators.modal.tierBlocked')
+                                    : isVisible ? t('indicators.modal.hideOnChart') : t('indicators.modal.showOnChart')
                                 }
                               >
                                 {blockedIds.has(ind.id)
@@ -777,7 +777,7 @@ export default function IndicatorsModal({ isOpen, onClose, symbol = "", market =
                               <button
                                 onClick={(e) => deactivateIndicator(ind.id, e)}
                                 className={`p-1 rounded transition ${isLight ? "hover:bg-rose-100 text-slate-500 hover:text-rose-600" : "hover:bg-rose-500/20 text-slate-400 hover:text-rose-400"}`}
-                                title="Удалить из активных"
+                                title={t('indicators.modal.removeActive')}
                               >
                                 <Trash2 className="w-3.5 h-3.5" />
                               </button>
@@ -812,7 +812,7 @@ export default function IndicatorsModal({ isOpen, onClose, symbol = "", market =
                       >
                         <div className="flex items-center gap-2">
                           <ChevronDown className={`w-4 h-4 transition-transform duration-200 ${isExpanded ? "rotate-0" : "-rotate-90"}`} />
-                          <span>{tab}</span>
+                          <span>{t(tab === "Все индикаторы" ? "indicators.modal.tabAll" : tab === "Избранные" ? "indicators.modal.tabFavorites" : "indicators.modal.tabCommunity")}</span>
                         </div>
                         <span className={`px-2 py-0.5 rounded-full text-[10px] font-mono font-bold transition-all duration-300 ${isExpanded ? isLight ? "bg-blue-100 text-blue-800" : "bg-blue-500/20 text-blue-400" : isLight ? "bg-slate-200 text-slate-605" : "bg-slate-800 text-slate-400"}`}>
                           {count}
@@ -830,7 +830,7 @@ export default function IndicatorsModal({ isOpen, onClose, symbol = "", market =
                           >
                             {items.length === 0 ? (
                               <div className="text-slate-500 text-[10.5px] italic pl-6 py-1.5">
-                                Нет индикаторов
+                                {t('indicators.modal.noIndicators')}
                               </div>
                             ) : (
                               items.map((ind) => {
@@ -854,7 +854,7 @@ export default function IndicatorsModal({ isOpen, onClose, symbol = "", market =
                                       </span>
                                       {ind.isActive && (
                                         <span className={`text-[8px] font-black rounded px-1 uppercase tracking-wide shrink-0 ${isLight ? "bg-blue-100 text-blue-700 animate-pulse" : "bg-blue-500/10 text-blue-400"}`}>
-                                          АКТИВЕН
+                                          {t('indicators.modal.activeBadge')}
                                         </span>
                                       )}
                                     </div>
@@ -895,7 +895,7 @@ export default function IndicatorsModal({ isOpen, onClose, symbol = "", market =
                       : 'bg-white/[0.04] hover:bg-white/[0.08] text-slate-200 border-white/10'
                   }`}
                 >
-                  ← {language === 'RU' ? 'Назад к выбору' : language === 'KZ' ? 'Таңдауға қайту' : 'Back to list'}
+                  ← {t('indicators.modal.backToList')}
                 </button>
               )}
               {selectedIndicator ? (
@@ -908,7 +908,7 @@ export default function IndicatorsModal({ isOpen, onClose, symbol = "", market =
                         {selectedIndicator.label.replace("(PROCLUSTER) ", "")}
                       </h3>
                       <span className={`shrink-0 inline-flex items-center h-6 sm:h-8 px-1.5 sm:px-2 rounded font-bold uppercase tracking-wide font-mono text-[9px] sm:text-[10px] ${isLight ? "bg-slate-200 text-slate-750" : "bg-white/10 text-slate-300"}`}>
-                        ТИП: {selectedIndicator.type.toUpperCase()}
+                        {t('indicators.modal.typeLabel')}: {t(selectedIndicator.type === "Оверлей" ? "indicators.modal.typeOverlay" : selectedIndicator.type === "Подвальный" ? "indicators.modal.typePane" : "indicators.modal.typeGlobal").toUpperCase()}
                       </span>
                     </div>
                     {/* Row 2: PRESETS (left, under title) + DEFAULT/ACTIVATE (right) */}
@@ -917,10 +917,10 @@ export default function IndicatorsModal({ isOpen, onClose, symbol = "", market =
                         ref={presetBtnRef}
                         onClick={() => { setPresetDropdownOpen((v) => !v); setPresetsError(null) }}
                         className={`shrink-0 inline-flex items-center h-6 sm:h-8 gap-1 px-1.5 sm:px-3 rounded border text-[9px] sm:text-xs font-extrabold cursor-pointer transition-all uppercase tracking-wider font-mono ${isLight ? "bg-slate-50 border-slate-250 hover:bg-slate-250 text-slate-700" : "bg-white/5 border-white/10 text-slate-300 hover:bg-white/10"}`}
-                        title="Пресеты настроек этого индикатора"
+                        title={t('indicators.modal.presetsTitle')}
                       >
                         <Layers className="w-3 h-3 text-emerald-500" />
-                        <span>Пресеты ({(presetsByIndicator[selectedIndicator.id] ?? []).length})</span>
+                        <span>{t('indicators.modal.presets')} ({(presetsByIndicator[selectedIndicator.id] ?? []).length})</span>
                         <ChevronDown className={`w-2.5 h-2.5 opacity-60 transition-transform ${presetDropdownOpen ? "rotate-180" : ""}`} />
                       </button>
                       {presetDropdownOpen && presetPopoverPos && createPortal(
@@ -931,16 +931,16 @@ export default function IndicatorsModal({ isOpen, onClose, symbol = "", market =
                         >
                             <div className="flex items-center justify-between">
                               <span className={`text-[10px] font-bold uppercase tracking-widest font-mono ${isLight ? "text-slate-500" : "text-slate-400"}`}>
-                                Пресеты — {selectedIndicator.label.replace("(PROCLUSTER) ", "")}
+                                {t('indicators.modal.presetsFor')} — {selectedIndicator.label.replace("(PROCLUSTER) ", "")}
                               </span>
                               <button
                                 onClick={() => { setCreatePresetOpen((v) => !v); setNewPresetName(''); setPresetsError(null) }}
                                 disabled={!limits.customIndicatorSettings}
-                                title={!limits.customIndicatorSettings ? "Доступно на платных тарифах" : undefined}
+                                title={!limits.customIndicatorSettings ? t('indicators.modal.paidOnly') : undefined}
                                 className={`flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-bold transition disabled:opacity-40 disabled:cursor-not-allowed ${isLight ? "bg-blue-50 text-blue-700 hover:bg-blue-100" : "bg-blue-500/10 text-blue-300 hover:bg-blue-500/20"}`}
                               >
                                 <Plus className="w-3 h-3" />
-                                Новый
+                                {t('indicators.modal.newPreset')}
                               </button>
                             </div>
 
@@ -950,7 +950,7 @@ export default function IndicatorsModal({ isOpen, onClose, symbol = "", market =
                                   autoFocus
                                   type="text"
                                   value={newPresetName}
-                                  placeholder="Имя пресета"
+                                  placeholder={t('indicators.modal.presetName')}
                                   maxLength={64}
                                   onChange={(e) => setNewPresetName(e.target.value)}
                                   onKeyDown={(e) => { if (e.key === 'Enter') void handleSavePreset() }}
@@ -960,7 +960,7 @@ export default function IndicatorsModal({ isOpen, onClose, symbol = "", market =
                                   onClick={() => void handleSavePreset()}
                                   className="px-2 py-1.5 rounded-md text-[11px] font-bold bg-blue-600 hover:bg-blue-500 text-white"
                                 >
-                                  Сохранить
+                                  {t('common.save')}
                                 </button>
                               </div>
                             )}
@@ -981,26 +981,26 @@ export default function IndicatorsModal({ isOpen, onClose, symbol = "", market =
                                 <div className={`flex items-center justify-between px-2 py-1.5 rounded-lg border ${isLight ? "bg-emerald-50 border-emerald-200" : "bg-emerald-500/5 border-emerald-500/20"}`}>
                                   <div className="flex items-center gap-1.5 min-w-0">
                                     <Shield className={`w-3 h-3 shrink-0 ${isLight ? "text-emerald-600" : "text-emerald-400"}`} />
-                                    <span className={`text-[11px] font-bold truncate ${isLight ? "text-emerald-900" : "text-emerald-200"}`}>Дефолт от админа</span>
+                                    <span className={`text-[11px] font-bold truncate ${isLight ? "text-emerald-900" : "text-emerald-200"}`}>{t('indicators.modal.adminDefault')}</span>
                                     <span className={`text-[9px] font-black px-1.5 py-0.5 rounded uppercase tracking-wider font-mono shrink-0 ${isLight ? "bg-emerald-200 text-emerald-900" : "bg-emerald-500/30 text-emerald-200"}`}>
-                                      ДЕФОЛТ
+                                      {t('indicators.modal.defaultBadge')}
                                     </span>
                                   </div>
                                   <button
                                     onClick={() => handleApplyAdminDefault(adminDefaultForSelected.settings)}
                                     className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-emerald-500 hover:bg-emerald-400 text-white"
                                   >
-                                    Применить
+                                    {t('common.apply')}
                                   </button>
                                 </div>
                               )}
 
                               {presetsLoading[selectedIndicator.id] && (
-                                <div className={`text-[10px] italic px-1 py-1 ${isLight ? "text-slate-500" : "text-slate-400"}`}>Загрузка…</div>
+                                <div className={`text-[10px] italic px-1 py-1 ${isLight ? "text-slate-500" : "text-slate-400"}`}>{t('common.loading')}</div>
                               )}
 
                               {(presetsByIndicator[selectedIndicator.id] ?? []).length === 0 && !presetsLoading[selectedIndicator.id] && !adminDefaultForSelected && (
-                                <div className={`text-[10px] italic px-1 py-2 ${isLight ? "text-slate-500" : "text-slate-400"}`}>Нет пресетов</div>
+                                <div className={`text-[10px] italic px-1 py-2 ${isLight ? "text-slate-500" : "text-slate-400"}`}>{t('indicators.modal.noPresets')}</div>
                               )}
 
                               {(presetsByIndicator[selectedIndicator.id] ?? []).map((preset) => (
@@ -1027,7 +1027,7 @@ export default function IndicatorsModal({ isOpen, onClose, symbol = "", market =
                                   <div className="flex items-center gap-0.5 shrink-0">
                                     <button
                                       onClick={() => void handleApplyPreset(preset)}
-                                      title="Применить пресет к текущему графику"
+                                      title={t('indicators.modal.applyPresetTitle')}
                                       className={`p-1 rounded ${isLight ? "hover:bg-emerald-100 text-emerald-700" : "hover:bg-emerald-500/20 text-emerald-400"}`}
                                     >
                                       <Check className="w-3.5 h-3.5" />
@@ -1035,7 +1035,7 @@ export default function IndicatorsModal({ isOpen, onClose, symbol = "", market =
                                     <button
                                       onClick={() => { setRenamingId(preset.id); setRenameDraft(preset.name) }}
                                       disabled={!limits.customIndicatorSettings}
-                                      title={!limits.customIndicatorSettings ? "Доступно на платных тарифах" : "Переименовать"}
+                                      title={!limits.customIndicatorSettings ? t('indicators.modal.paidOnly') : t('indicators.modal.rename')}
                                       className={`p-1 rounded disabled:opacity-40 disabled:cursor-not-allowed ${isLight ? "hover:bg-slate-200 text-slate-600" : "hover:bg-white/10 text-slate-400"}`}
                                     >
                                       <Pencil className="w-3 h-3" />
@@ -1043,7 +1043,7 @@ export default function IndicatorsModal({ isOpen, onClose, symbol = "", market =
                                     <button
                                       onClick={() => void handleDeletePreset(preset)}
                                       disabled={!limits.customIndicatorSettings}
-                                      title={!limits.customIndicatorSettings ? "Доступно на платных тарифах" : "Удалить"}
+                                      title={!limits.customIndicatorSettings ? t('indicators.modal.paidOnly') : t('common.delete')}
                                       className={`p-1 rounded disabled:opacity-40 disabled:cursor-not-allowed ${isLight ? "hover:bg-rose-100 text-rose-600" : "hover:bg-rose-500/20 text-rose-400"}`}
                                     >
                                       <Trash2 className="w-3 h-3" />
@@ -1061,7 +1061,7 @@ export default function IndicatorsModal({ isOpen, onClose, symbol = "", market =
                         {isAdmin && symbol && market && timeframe && (
                           <button
                             onClick={() => void handleToggleAdminDefault()}
-                            title={adminTfHasSelected ? `Снять админ-дефолт (${timeframe.toUpperCase()})` : "Сохранить текущие настройки как админ-дефолт для этого ТФ"}
+                            title={adminTfHasSelected ? t('indicators.modal.adminDefaultRemove').replace('{tf}', timeframe.toUpperCase()) : t('indicators.modal.adminDefaultSave')}
                             className={`inline-flex items-center gap-1 sm:gap-1.5 px-1.5 sm:px-3 h-6 sm:h-8 font-bold text-[9px] sm:text-[11px] rounded-md sm:rounded-lg cursor-pointer transition-all active:scale-[0.98] border ${adminTfHasSelected
                               ? "bg-emerald-500 hover:bg-emerald-400 text-white border-emerald-600"
                               : isLight
@@ -1070,20 +1070,20 @@ export default function IndicatorsModal({ isOpen, onClose, symbol = "", market =
                               }`}
                           >
                             <Shield className="w-3 h-3 sm:w-3.5 sm:h-3.5" />
-                            {adminTfHasSelected ? "Дефолт ✓" : "Дефолт"}
+                            {adminTfHasSelected ? `${t('indicators.modal.defaultBtn')} ✓` : t('indicators.modal.defaultBtn')}
                           </button>
                         )}
                         <button
                           onClick={() => toggleActive(selectedIndicator.id)}
-                          title={selectedIndicator.isActive ? "Активно: 1 шт." : "Добавить"}
+                          title={selectedIndicator.isActive ? t('indicators.modal.addedTooltip') : t('indicators.modal.add')}
                           className={`inline-flex items-center px-1.5 sm:px-3 h-6 sm:h-8 font-bold text-[9px] sm:text-[11px] rounded-md sm:rounded-lg cursor-pointer transition-all active:scale-[0.98] text-white ${selectedIndicator.isActive ? "bg-emerald-600 hover:bg-emerald-500" : "bg-blue-600 hover:bg-blue-500 shadow-sm shadow-blue-600/40"}`}
                         >
                           {selectedIndicator.isActive ? (
                             <>
-                              <span className="sm:hidden">АКТИВЕН</span>
-                              <span className="hidden sm:inline">Добавить еще</span>
+                              <span className="sm:hidden">{t('indicators.modal.activeBadge')}</span>
+                              <span className="hidden sm:inline">{t('indicators.modal.addMore')}</span>
                             </>
-                          ) : "Добавить"}
+                          ) : t('indicators.modal.add')}
                         </button>
                       </div>
                     </div>
@@ -1095,9 +1095,9 @@ export default function IndicatorsModal({ isOpen, onClose, symbol = "", market =
                     <div className="flex flex-col min-w-0">
                       <p className={`text-[11px] leading-relaxed ${isLight ? "text-slate-700" : "text-slate-350"}`}>
                         <span className={`font-bold ${isLight ? "text-slate-850" : "text-slate-200"}`}>
-                          {INDICATOR_DESCRIPTIONS[selectedIndicator.id]?.desc || "Отображает математический и статистический анализ ценовых графиков."}
+                          {INDICATOR_DESCRIPTIONS[selectedIndicator.id]?.desc[language] || t('indicators.modal.fallbackDesc')}
                         </span>{" "}
-                        {INDICATOR_DESCRIPTIONS[selectedIndicator.id]?.details || "Визуализирует распределение объемов, плотностей и дисбалансов покупателей и продавцов на рабочей панели."}
+                        {INDICATOR_DESCRIPTIONS[selectedIndicator.id]?.details[language] || t('indicators.modal.fallbackDetails')}
                       </p>
                     </div>
                   </div>
@@ -1107,7 +1107,7 @@ export default function IndicatorsModal({ isOpen, onClose, symbol = "", market =
                     {!limits.customIndicatorSettings && (
                       <div className={`p-3.5 border rounded-xl text-center text-xs font-bold mb-1 flex flex-col md:flex-row items-center justify-center gap-2 leading-relaxed ${isLight ? "bg-rose-50 border-rose-200 text-rose-800 shadow-sm" : "bg-rose-500/10 border-rose-505/15 text-rose-450"}`}>
                         <X className="w-4 h-4 shrink-0 text-red-500 animate-pulse" />
-                        <span>Настройки индикаторов заблокированы для вашего тарифа ({limits.tier.toUpperCase()})! Выберите платный тариф для разблокировки.</span>
+                        <span>{t('indicators.modal.settingsLocked').replace('{tier}', limits.tier.toUpperCase())}</span>
                       </div>
                     )}
 
@@ -1119,7 +1119,7 @@ export default function IndicatorsModal({ isOpen, onClose, symbol = "", market =
                             <div className="flex items-center justify-between w-full">
                               <span className={`text-[11px] uppercase tracking-wider font-extrabold font-mono flex items-center gap-2 ${isLight ? "text-slate-600" : "text-slate-400"}`}>
                                 <span className="w-1.5 h-1.5 rounded-full bg-amber-500"></span>
-                                Средний фильтр объема
+                                {t('indicators.set.csMedium')}
                               </span>
                               <label className="flex items-center gap-1.5 cursor-pointer select-none">
                                 <input
@@ -1128,14 +1128,14 @@ export default function IndicatorsModal({ isOpen, onClose, symbol = "", market =
                                   onChange={(e) => updateSettings({ csMedEnabled: e.target.checked })}
                                   className="rounded text-blue-600 focus:ring-blue-500 w-3.5 h-3.5"
                                 />
-                                <span className="text-[10px] font-bold text-slate-400">Вкл.</span>
+                                <span className="text-[10px] font-bold text-slate-400">{t('indicators.modal.enabledShort')}</span>
                               </label>
                             </div>
 
                             <div className={`flex flex-col gap-3 transition-opacity duration-300 ${selectedIndicator.settings.csMedEnabled === false ? "opacity-35 pointer-events-none" : "opacity-100"}`}>
                               <div className="grid grid-cols-2 gap-3.5">
                                 <label className="flex flex-col gap-1.5 text-xs">
-                                  <span className={isLight ? "text-slate-700 font-medium" : "text-slate-350"}>Мин. объем</span>
+                                  <span className={isLight ? "text-slate-700 font-medium" : "text-slate-350"}>{t('indicators.set.minVolume')}</span>
                                   <input
                                     type="number"
                                     value={selectedIndicator.settings.csMedMinVolume ?? 100}
@@ -1144,7 +1144,7 @@ export default function IndicatorsModal({ isOpen, onClose, symbol = "", market =
                                   />
                                 </label>
                                 <label className="flex flex-col gap-1.5 text-xs">
-                                  <span className={isLight ? "text-slate-700 font-medium" : "text-slate-350"}>Макс. объем</span>
+                                  <span className={isLight ? "text-slate-700 font-medium" : "text-slate-350"}>{t('indicators.set.maxVolume')}</span>
                                   <input
                                     type="number"
                                     value={selectedIndicator.settings.csMedMaxVolume ?? 500}
@@ -1156,7 +1156,7 @@ export default function IndicatorsModal({ isOpen, onClose, symbol = "", market =
 
                               <div className="grid grid-cols-2 gap-3.5">
                                 <label className="flex flex-col gap-1.5 text-xs">
-                                  <span className={isLight ? "text-slate-700 font-medium" : "text-slate-350"}>Мин. размер фигуры (px)</span>
+                                  <span className={isLight ? "text-slate-700 font-medium" : "text-slate-350"}>{t('indicators.set.minSize')}</span>
                                   <input
                                     type="number"
                                     value={selectedIndicator.settings.csMedMinSize ?? 4}
@@ -1165,7 +1165,7 @@ export default function IndicatorsModal({ isOpen, onClose, symbol = "", market =
                                   />
                                 </label>
                                 <label className="flex flex-col gap-1.5 text-xs">
-                                  <span className={isLight ? "text-slate-700 font-medium" : "text-slate-350"}>Макс. размер фигуры (px)</span>
+                                  <span className={isLight ? "text-slate-700 font-medium" : "text-slate-350"}>{t('indicators.set.maxSize')}</span>
                                   <input
                                     type="number"
                                     value={selectedIndicator.settings.csMedMaxSize ?? 12}
@@ -1177,7 +1177,7 @@ export default function IndicatorsModal({ isOpen, onClose, symbol = "", market =
 
                               <div className="grid grid-cols-2 gap-3.5">
                                 <label className="flex flex-col gap-1.5 text-xs">
-                                  <span className={isLight ? "text-slate-700 font-medium" : "text-slate-350"}>Объединение уровней</span>
+                                  <span className={isLight ? "text-slate-700 font-medium" : "text-slate-350"}>{t('indicators.set.mergeLevels')}</span>
                                   <input
                                     type="number"
                                     min="1"
@@ -1189,7 +1189,7 @@ export default function IndicatorsModal({ isOpen, onClose, symbol = "", market =
                                 </label>
 
                                 <label className="flex flex-col gap-1.5 text-xs">
-                                  <span className={isLight ? "text-slate-700 font-medium" : "text-slate-350"}>Перевес по bid/ask (%)</span>
+                                  <span className={isLight ? "text-slate-700 font-medium" : "text-slate-350"}>{t('indicators.set.imbalance')}</span>
                                   <div className="relative">
                                     <input
                                       type="number"
@@ -1206,7 +1206,7 @@ export default function IndicatorsModal({ isOpen, onClose, symbol = "", market =
 
                               <div className="grid grid-cols-2 gap-3.5">
                                 <label className="flex flex-col gap-1.5 text-xs">
-                                  <span className={isLight ? "text-slate-700 font-medium" : "text-slate-350"}>Фильтрация по дельте</span>
+                                  <span className={isLight ? "text-slate-700 font-medium" : "text-slate-350"}>{t('indicators.set.deltaFilter')}</span>
                                   <input
                                     type="number"
                                     min="0"
@@ -1217,36 +1217,36 @@ export default function IndicatorsModal({ isOpen, onClose, symbol = "", market =
                                 </label>
 
                                 <label className="flex flex-col gap-1.5 text-xs">
-                                  <span className={isLight ? "text-slate-700 font-medium" : "text-slate-350"}>Расположение в свече</span>
+                                  <span className={isLight ? "text-slate-700 font-medium" : "text-slate-350"}>{t('indicators.set.location')}</span>
                                   <select
                                     value={selectedIndicator.settings.csMedLocation ?? "any"}
                                     onChange={(e) => updateSettings({ csMedLocation: e.target.value as any })}
                                     className={`rounded-xl px-2 py-2 text-xs outline-none cursor-pointer transition-all border ${isLight ? "bg-white border-slate-200 text-slate-800 focus:ring-1 focus:ring-blue-400" : "bg-[#0b0f19] border border-white/10 text-slate-200 focus:ring-1 focus:ring-yellow-500/40"}`}
                                   >
-                                    <option value="any">Вся свеча</option>
-                                    <option value="body">Тело свечи</option>
-                                    <option value="lowerWick">Нижняя тень</option>
-                                    <option value="upperWick">Верхняя тень</option>
+                                    <option value="any">{t('indicators.set.locAny')}</option>
+                                    <option value="body">{t('indicators.set.locBody')}</option>
+                                    <option value="lowerWick">{t('indicators.set.locLowerWick')}</option>
+                                    <option value="upperWick">{t('indicators.set.locUpperWick')}</option>
                                   </select>
                                 </label>
                               </div>
 
                               <div className="grid grid-cols-3 gap-2">
                                 <label className="flex flex-col gap-1.5 text-xs">
-                                  <span className={isLight ? "text-slate-700 font-medium" : "text-slate-350"}>Форма</span>
+                                  <span className={isLight ? "text-slate-700 font-medium" : "text-slate-350"}>{t('indicators.set.shape')}</span>
                                   <select
                                     value={selectedIndicator.settings.csMedShape ?? "circle"}
                                   onChange={(e) => updateSettings({ csMedShape: e.target.value as any })}
                                   className={`rounded-xl px-2 py-2 text-xs outline-none cursor-pointer transition-all border ${isLight ? "bg-white border-slate-200 text-slate-800 focus:ring-1 focus:ring-blue-400" : "bg-[#0b0f19] border border-white/10 text-slate-200 focus:ring-1 focus:ring-yellow-500/40"}`}
                                   >
-                                    <option value="circle">Круг (Circle)</option>
-                                    <option value="square">Квадрат (Square)</option>
-                                    <option value="rhombus">Ромб (Rhombus)</option>
+                                    <option value="circle">{t('indicators.set.shapeCircle')}</option>
+                                    <option value="square">{t('indicators.set.shapeSquare')}</option>
+                                    <option value="rhombus">{t('indicators.set.shapeRhombus')}</option>
                                   </select>
                                 </label>
 
                                 <label className="flex flex-col gap-1.5 text-xs">
-                                  <span className={isLight ? "text-slate-700 font-medium" : "text-slate-350"}>Цвет Ask</span>
+                                  <span className={isLight ? "text-slate-700 font-medium" : "text-slate-350"}>{t('indicators.set.colorAsk')}</span>
                                   <div className="flex items-center gap-1 mt-1">
                                     <input
                                       type="color"
@@ -1259,7 +1259,7 @@ export default function IndicatorsModal({ isOpen, onClose, symbol = "", market =
                                 </label>
 
                                 <label className="flex flex-col gap-1.5 text-xs">
-                                  <span className={isLight ? "text-slate-700 font-medium" : "text-slate-350"}>Цвет Bid</span>
+                                  <span className={isLight ? "text-slate-700 font-medium" : "text-slate-350"}>{t('indicators.set.colorBid')}</span>
                                   <div className="flex items-center gap-1 mt-1">
                                     <input
                                       type="color"
@@ -1274,7 +1274,7 @@ export default function IndicatorsModal({ isOpen, onClose, symbol = "", market =
 
                               <div className="flex flex-col gap-1.5 mt-1.5">
                                 <div className={`flex justify-between font-bold text-xs ${isLight ? "text-slate-700" : "text-slate-300"}`}>
-                                  <span>Прозрачность выделения</span>
+                                  <span>{t('indicators.set.highlightOpacity')}</span>
                                   <span className="font-mono text-yellow-500">{Math.round((selectedIndicator.settings.csMedOpacity ?? 0.70) * 100)}%</span>
                                 </div>
                                 <input
@@ -1296,8 +1296,8 @@ export default function IndicatorsModal({ isOpen, onClose, symbol = "", market =
                                   className="rounded text-blue-600 focus:ring-blue-500 w-4 h-4"
                                 />
                                 <div className="flex flex-col">
-                                  <span className="font-bold text-[11px]">Уведомление в Телеграм канал / чат</span>
-                                  <span className={`text-[9.5px] font-medium ${isLight ? "text-slate-500" : "text-slate-400"}`}>Только для VIP & Admin</span>
+                                  <span className="font-bold text-[11px]">{t('indicators.set.tgAlert')}</span>
+                                  <span className={`text-[9.5px] font-medium ${isLight ? "text-slate-500" : "text-slate-400"}`}>{t('indicators.set.vipOnly')}</span>
                                 </div>
                               </label>
                             </div>
@@ -1308,7 +1308,7 @@ export default function IndicatorsModal({ isOpen, onClose, symbol = "", market =
                             <div className="flex items-center justify-between w-full">
                               <span className={`text-[11px] uppercase tracking-wider font-extrabold font-mono flex items-center gap-2 ${isLight ? "text-slate-600" : "text-slate-400"}`}>
                                 <span className="w-1.5 h-1.5 rounded-full bg-rose-500 animate-pulse"></span>
-                                Крупный фильтр объема
+                                {t('indicators.set.csLarge')}
                               </span>
                               <label className="flex items-center gap-1.5 cursor-pointer select-none">
                                 <input
@@ -1317,13 +1317,13 @@ export default function IndicatorsModal({ isOpen, onClose, symbol = "", market =
                                   onChange={(e) => updateSettings({ csLargeEnabled: e.target.checked })}
                                   className="rounded text-blue-600 focus:ring-blue-500 w-3.5 h-3.5"
                                 />
-                                <span className="text-[10px] font-bold text-slate-400">Вкл.</span>
+                                <span className="text-[10px] font-bold text-slate-400">{t('indicators.modal.enabledShort')}</span>
                               </label>
                             </div>
 
                             <div className={`flex flex-col gap-3 transition-opacity duration-300 ${selectedIndicator.settings.csLargeEnabled === false ? "opacity-35 pointer-events-none" : "opacity-100"}`}>
                               <label className="flex flex-col gap-1.5 text-xs">
-                                <span className={isLight ? "text-slate-700 font-medium" : "text-slate-350"}>Минимальный объем (мин объем)</span>
+                                <span className={isLight ? "text-slate-700 font-medium" : "text-slate-350"}>{t('indicators.set.csLargeMinVolume')}</span>
                                 <input
                                   type="number"
                                   value={selectedIndicator.settings.csLargeMinVolume ?? 500}
@@ -1334,7 +1334,7 @@ export default function IndicatorsModal({ isOpen, onClose, symbol = "", market =
 
                               <div className="grid grid-cols-2 gap-3.5">
                                 <label className="flex flex-col gap-1.5 text-xs">
-                                  <span className={isLight ? "text-slate-700 font-medium" : "text-slate-350"}>Мин. размер фигуры (px)</span>
+                                  <span className={isLight ? "text-slate-700 font-medium" : "text-slate-350"}>{t('indicators.set.minSize')}</span>
                                   <input
                                     type="number"
                                     value={selectedIndicator.settings.csLargeMinSize ?? 10}
@@ -1343,7 +1343,7 @@ export default function IndicatorsModal({ isOpen, onClose, symbol = "", market =
                                   />
                                 </label>
                                 <label className="flex flex-col gap-1.5 text-xs">
-                                  <span className={isLight ? "text-slate-700 font-medium" : "text-slate-350"}>Макс. размер фигуры (px)</span>
+                                  <span className={isLight ? "text-slate-700 font-medium" : "text-slate-350"}>{t('indicators.set.maxSize')}</span>
                                   <input
                                     type="number"
                                     value={selectedIndicator.settings.csLargeMaxSize ?? 20}
@@ -1355,7 +1355,7 @@ export default function IndicatorsModal({ isOpen, onClose, symbol = "", market =
 
                               <div className="grid grid-cols-2 gap-3.5">
                                 <label className="flex flex-col gap-1.5 text-xs">
-                                  <span className={isLight ? "text-slate-700 font-medium" : "text-slate-350"}>Объединение уровней</span>
+                                  <span className={isLight ? "text-slate-700 font-medium" : "text-slate-350"}>{t('indicators.set.mergeLevels')}</span>
                                   <input
                                     type="number"
                                     min="1"
@@ -1367,7 +1367,7 @@ export default function IndicatorsModal({ isOpen, onClose, symbol = "", market =
                                 </label>
 
                                 <label className="flex flex-col gap-1.5 text-xs">
-                                  <span className={isLight ? "text-slate-700 font-medium" : "text-slate-350"}>Перевес по bid/ask (%)</span>
+                                  <span className={isLight ? "text-slate-700 font-medium" : "text-slate-350"}>{t('indicators.set.imbalance')}</span>
                                   <div className="relative">
                                     <input
                                       type="number"
@@ -1384,7 +1384,7 @@ export default function IndicatorsModal({ isOpen, onClose, symbol = "", market =
 
                               <div className="grid grid-cols-2 gap-3.5">
                                 <label className="flex flex-col gap-1.5 text-xs">
-                                  <span className={isLight ? "text-slate-700 font-medium" : "text-slate-350"}>Фильтрация по дельте</span>
+                                  <span className={isLight ? "text-slate-700 font-medium" : "text-slate-350"}>{t('indicators.set.deltaFilter')}</span>
                                   <input
                                     type="number"
                                     min="0"
@@ -1395,36 +1395,36 @@ export default function IndicatorsModal({ isOpen, onClose, symbol = "", market =
                                 </label>
 
                                 <label className="flex flex-col gap-1.5 text-xs">
-                                  <span className={isLight ? "text-slate-700 font-medium" : "text-slate-350"}>Расположение в свече</span>
+                                  <span className={isLight ? "text-slate-700 font-medium" : "text-slate-350"}>{t('indicators.set.location')}</span>
                                   <select
                                     value={selectedIndicator.settings.csLargeLocation ?? "any"}
                                     onChange={(e) => updateSettings({ csLargeLocation: e.target.value as any })}
                                     className={`rounded-xl px-2 py-2 text-xs outline-none cursor-pointer transition-all border ${isLight ? "bg-white border-slate-200 text-slate-800 focus:ring-1 focus:ring-blue-400" : "bg-[#0b0f19] border border-white/10 text-slate-200 focus:ring-1 focus:ring-yellow-500/40"}`}
                                   >
-                                    <option value="any">Вся свеча</option>
-                                    <option value="body">Тело свечи</option>
-                                    <option value="lowerWick">Нижняя тень</option>
-                                    <option value="upperWick">Верхняя тень</option>
+                                    <option value="any">{t('indicators.set.locAny')}</option>
+                                    <option value="body">{t('indicators.set.locBody')}</option>
+                                    <option value="lowerWick">{t('indicators.set.locLowerWick')}</option>
+                                    <option value="upperWick">{t('indicators.set.locUpperWick')}</option>
                                   </select>
                                 </label>
                               </div>
 
                               <div className="grid grid-cols-3 gap-2">
                                 <label className="flex flex-col gap-1.5 text-xs">
-                                  <span className={isLight ? "text-slate-700 font-medium" : "text-slate-350"}>Форма</span>
+                                  <span className={isLight ? "text-slate-700 font-medium" : "text-slate-350"}>{t('indicators.set.shape')}</span>
                                   <select
                                     value={selectedIndicator.settings.csLargeShape ?? "rhombus"}
                                   onChange={(e) => updateSettings({ csLargeShape: e.target.value as any })}
                                   className={`rounded-xl px-2 py-2 text-xs outline-none cursor-pointer transition-all border ${isLight ? "bg-white border-slate-200 text-slate-800 focus:ring-1 focus:ring-blue-400" : "bg-[#0b0f19] border border-white/10 text-slate-200 focus:ring-1 focus:ring-yellow-500/40"}`}
                                   >
-                                    <option value="circle">Круг (Circle)</option>
-                                    <option value="square">Квадрат (Square)</option>
-                                    <option value="rhombus">Ромб (Rhombus)</option>
+                                    <option value="circle">{t('indicators.set.shapeCircle')}</option>
+                                    <option value="square">{t('indicators.set.shapeSquare')}</option>
+                                    <option value="rhombus">{t('indicators.set.shapeRhombus')}</option>
                                   </select>
                                 </label>
 
                                 <label className="flex flex-col gap-1.5 text-xs">
-                                  <span className={isLight ? "text-slate-700 font-medium" : "text-slate-350"}>Цвет Ask</span>
+                                  <span className={isLight ? "text-slate-700 font-medium" : "text-slate-350"}>{t('indicators.set.colorAsk')}</span>
                                   <div className="flex items-center gap-1 mt-1">
                                     <input
                                       type="color"
@@ -1437,7 +1437,7 @@ export default function IndicatorsModal({ isOpen, onClose, symbol = "", market =
                                 </label>
 
                                 <label className="flex flex-col gap-1.5 text-xs">
-                                  <span className={isLight ? "text-slate-700 font-medium" : "text-slate-350"}>Цвет Bid</span>
+                                  <span className={isLight ? "text-slate-700 font-medium" : "text-slate-350"}>{t('indicators.set.colorBid')}</span>
                                   <div className="flex items-center gap-1 mt-1">
                                     <input
                                       type="color"
@@ -1452,7 +1452,7 @@ export default function IndicatorsModal({ isOpen, onClose, symbol = "", market =
 
                               <div className="flex flex-col gap-1.5 mt-1.5">
                                 <div className={`flex justify-between font-bold text-xs ${isLight ? "text-slate-700" : "text-slate-300"}`}>
-                                  <span>Прозрачность выделения</span>
+                                  <span>{t('indicators.set.highlightOpacity')}</span>
                                   <span className="font-mono text-yellow-500">{Math.round((selectedIndicator.settings.csLargeOpacity ?? 0.90) * 100)}%</span>
                                 </div>
                                 <input
@@ -1474,8 +1474,8 @@ export default function IndicatorsModal({ isOpen, onClose, symbol = "", market =
                                   className="rounded text-blue-600 focus:ring-blue-500 w-4 h-4"
                                 />
                                 <div className="flex flex-col">
-                                  <span className="font-bold text-[11px]">Уведомление в Телеграм канал / чат</span>
-                                  <span className={`text-[9.5px] font-medium ${isLight ? "text-slate-500" : "text-slate-400"}`}>Только для VIP & Admin</span>
+                                  <span className="font-bold text-[11px]">{t('indicators.set.tgAlert')}</span>
+                                  <span className={`text-[9.5px] font-medium ${isLight ? "text-slate-500" : "text-slate-400"}`}>{t('indicators.set.vipOnly')}</span>
                                 </div>
                               </label>
                             </div>
@@ -1486,12 +1486,12 @@ export default function IndicatorsModal({ isOpen, onClose, symbol = "", market =
                       {(selectedIndicator.id === "volume" || selectedIndicator.id === "volumeOnChart" || selectedIndicator.id === "volumeProfile") && (
                         <div className="flex flex-col gap-4 font-sans text-xs">
                           <span className="text-[10px] text-slate-500 uppercase tracking-widest font-black font-mono">
-                            ВИЗУАЛИЗАЦИЯ
+                            {t('indicators.set.visualization')}
                           </span>
 
                           <div className="flex flex-col gap-2">
                             <div className="flex justify-between font-bold">
-                              <span className={isLight ? "text-slate-700" : "text-slate-300"}>Opacity / Прозрачность</span>
+                              <span className={isLight ? "text-slate-700" : "text-slate-300"}>{t('indicators.set.opacity')}</span>
                               <span className={`font-mono font-bold ${isLight ? "text-blue-700" : "text-yellow-500"}`}>
                                 {Math.round((selectedIndicator.settings.opacity || 0.4) * 100)}%
                               </span>
@@ -1511,7 +1511,7 @@ export default function IndicatorsModal({ isOpen, onClose, symbol = "", market =
                             <>
                               <div className="flex flex-col gap-2">
                                 <div className="flex justify-between font-bold">
-                                  <span className={isLight ? "text-slate-700" : "text-slate-300"}>Max Height % / Макс. высота %</span>
+                                  <span className={isLight ? "text-slate-700" : "text-slate-300"}>{t('indicators.set.maxHeight')}</span>
                                   <span className={`font-mono font-bold ${isLight ? "text-blue-700" : "text-yellow-500"}`}>
                                     {selectedIndicator.settings.volumeOnChartMaxHeightPercent ?? 20}%
                                   </span>
@@ -1526,12 +1526,12 @@ export default function IndicatorsModal({ isOpen, onClose, symbol = "", market =
                                   className={`w-full accent-blue-600 rounded-lg h-1 ${isLight ? "bg-slate-200" : "bg-slate-800"}`}
                                 />
                                 <span className={`text-[10px] ${isLight ? "text-slate-500/80" : "text-slate-400/80"}`}>
-                                  Максимальная высота гистограммы объемов на основном графике.
+                                  {t('indicators.set.maxHeightHint')}
                                 </span>
                               </div>
 
                               <div className="flex flex-col gap-1.5 text-xs">
-                                <span className={isLight ? "text-slate-700 font-bold" : "text-slate-300 font-bold"}>Порог дельты для подсветки / Delta Threshold</span>
+                                <span className={isLight ? "text-slate-700 font-bold" : "text-slate-300 font-bold"}>{t('indicators.set.deltaThreshold')}</span>
                                 <input
                                   type="number"
                                   value={selectedIndicator.settings.volumeOnChartDeltaThreshold ?? 500}
@@ -1539,7 +1539,7 @@ export default function IndicatorsModal({ isOpen, onClose, symbol = "", market =
                                   className={`rounded-xl px-3 py-2 text-xs outline-none transition-all duration-300 border ${isLight ? "bg-white border-slate-200 text-slate-800 focus:ring-1 focus:ring-blue-400" : "bg-[#0b0f19] border border-white/10 text-slate-200 focus:ring-1 focus:ring-yellow-500/40"}`}
                                 />
                                 <span className={`text-[10px] ${isLight ? "text-slate-500/80" : "text-slate-400/80"}`}>
-                                  Столбцы с абсолютной дельтой в свече выше этого значения станут зелеными / красными, иначе будут серыми.
+                                  {t('indicators.set.deltaThresholdHint')}
                                 </span>
                               </div>
                             </>
@@ -1552,7 +1552,7 @@ export default function IndicatorsModal({ isOpen, onClose, symbol = "", market =
                               onChange={(e) => updateSettings({ showLabels: e.target.checked })}
                               className={`rounded w-4 h-4 ${isLight ? "border-slate-350 bg-white text-blue-600" : "border-white/10 bg-slate-900 text-blue-500"}`}
                             />
-                            <span className={`font-bold ${isLight ? "text-slate-700" : "text-slate-200"}`}>Draw Footprint Volume numbers</span>
+                            <span className={`font-bold ${isLight ? "text-slate-700" : "text-slate-200"}`}>{t('indicators.set.drawFootprintNumbers')}</span>
                           </label>
                         </div>
                       )}
@@ -1560,12 +1560,12 @@ export default function IndicatorsModal({ isOpen, onClose, symbol = "", market =
                       {selectedIndicator.id === "delta" && (
                         <div className="flex flex-col gap-4 font-sans text-xs">
                           <span className="text-[10px] text-slate-500 uppercase tracking-widest font-black font-mono">
-                            НАСТРОЙКИ ДЕЛЬТЫ
+                            {t('indicators.set.deltaSettings')}
                           </span>
 
                           <div className="flex flex-col gap-2">
                             <div className="flex justify-between font-bold">
-                              <span className={isLight ? "text-slate-700" : "text-slate-300"}>Extreme Delta sensitivity</span>
+                              <span className={isLight ? "text-slate-700" : "text-slate-300"}>{t('indicators.set.extremeSensitivity')}</span>
                               <span className={`font-mono font-bold ${isLight ? "text-blue-700" : "text-yellow-500"}`}>
                                 {selectedIndicator.settings.sensitivity || 5}
                               </span>
@@ -1581,21 +1581,21 @@ export default function IndicatorsModal({ isOpen, onClose, symbol = "", market =
                           </div>
 
                           <div className="flex flex-col gap-1.5 border-t border-dashed border-slate-700/20 pt-3">
-                            <span className={`font-bold ${isLight ? "text-slate-700" : "text-slate-300"}`}>Тип отображения</span>
+                            <span className={`font-bold ${isLight ? "text-slate-700" : "text-slate-300"}`}>{t('indicators.set.plotType')}</span>
                             <div className="flex gap-1 bg-slate-900/50 p-1 rounded-xl border border-white/5">
                               <button
                                 type="button"
                                 onClick={() => updateSettings({ deltaPlotType: "candles" })}
                                 className={`flex-1 py-1.5 text-[10px] font-bold rounded-lg transition-all duration-200 ${(selectedIndicator.settings.deltaPlotType || "candles") === "candles" ? isLight ? "bg-white text-slate-800 shadow-sm" : "bg-slate-850 text-white shadow" : "text-slate-400 hover:text-slate-300"}`}
                               >
-                                Свечи
+                                {t('indicators.set.candles')}
                               </button>
                               <button
                                 type="button"
                                 onClick={() => updateSettings({ deltaPlotType: "bars" })}
                                 className={`flex-1 py-1.5 text-[10px] font-bold rounded-lg transition-all duration-200 ${selectedIndicator.settings.deltaPlotType === "bars" ? isLight ? "bg-white text-slate-800 shadow-sm" : "bg-slate-850 text-white shadow" : "text-slate-400 hover:text-slate-300"}`}
                               >
-                                Столбики
+                                {t('indicators.set.bars')}
                               </button>
                             </div>
                           </div>
@@ -1607,7 +1607,7 @@ export default function IndicatorsModal({ isOpen, onClose, symbol = "", market =
                               onChange={(e) => updateSettings({ showLabels: e.target.checked })}
                               className={`rounded w-4 h-4 ${isLight ? "border-slate-350 bg-white text-blue-600" : "border-white/10 bg-slate-900 text-blue-500"}`}
                             />
-                            <span className={`font-bold ${isLight ? "text-slate-700" : "text-slate-200"}`}>Show Volume Delta Labels under chart</span>
+                            <span className={`font-bold ${isLight ? "text-slate-700" : "text-slate-200"}`}>{t('indicators.set.showDeltaLabels')}</span>
                           </label>
                         </div>
                       )}
@@ -1615,12 +1615,12 @@ export default function IndicatorsModal({ isOpen, onClose, symbol = "", market =
                       {selectedIndicator.id === "cvd" && (
                         <div className={`flex flex-col gap-4 font-sans text-xs p-4.5 rounded-2xl border transition-all duration-300 ${isLight ? "bg-slate-100/40 border-slate-200/85" : "bg-slate-950/20 border-white/5"}`}>
                           <span className="text-[10px] text-slate-500 uppercase tracking-widest font-black font-mono">
-                            ПАРАМЕТРЫ СГЛАЖИВАНИЯ И СТИЛИЗАЦИИ CVD
+                            {t('indicators.set.cvdParams')}
                           </span>
 
                           <div className="flex flex-col gap-2 mt-1">
                             <div className="flex justify-between font-bold">
-                              <span className={isLight ? "text-slate-700" : "text-slate-300"}>Smoothing period</span>
+                              <span className={isLight ? "text-slate-700" : "text-slate-300"}>{t('indicators.set.smoothingPeriod')}</span>
                               <span className={`font-mono font-bold ${isLight ? "text-blue-700" : "text-yellow-500"}`}>
                                 {selectedIndicator.settings.smoothing || 10}
                               </span>
@@ -1636,7 +1636,7 @@ export default function IndicatorsModal({ isOpen, onClose, symbol = "", market =
                           </div>
 
                           <div className="flex items-center justify-between border-t border-dashed border-slate-700/20 pt-3 mt-1">
-                            <span className={`font-bold ${isLight ? "text-slate-700" : "text-slate-300"}`}>Цвет линии индикатора</span>
+                            <span className={`font-bold ${isLight ? "text-slate-700" : "text-slate-300"}`}>{t('indicators.set.lineColorIndicator')}</span>
                             <div className="flex items-center gap-2">
                               <input
                                 type="color"
@@ -1651,36 +1651,36 @@ export default function IndicatorsModal({ isOpen, onClose, symbol = "", market =
                           </div>
 
                           <div className="flex flex-col gap-1.5 border-t border-dashed border-slate-700/20 pt-3">
-                            <span className={`font-bold ${isLight ? "text-slate-700" : "text-slate-300"}`}>Период группировки</span>
+                            <span className={`font-bold ${isLight ? "text-slate-700" : "text-slate-300"}`}>{t('indicators.set.groupingPeriod')}</span>
                             <select
                               value={selectedIndicator.settings.cvdPeriod ?? "all"}
                               onChange={(e) => updateSettings({ cvdPeriod: e.target.value as any })}
                               className={`rounded-xl px-3 py-2 text-xs outline-none transition-all duration-300 border ${isLight ? "bg-white border-slate-200 text-slate-800 focus:ring-1 focus:ring-blue-400" : "bg-[#0b0f19] border border-white/10 text-slate-200 focus:ring-1 focus:ring-yellow-500/40 hover:border-white/20"}`}
                             >
-                              <option value="all">Все бары</option>
-                              <option value="day">День</option>
-                              <option value="week">Неделя</option>
-                              <option value="month">Месяц</option>
-                              <option value="visible">Видимые бары</option>
+                              <option value="all">{t('indicators.set.cvdAll')}</option>
+                              <option value="day">{t('indicators.set.cvdDay')}</option>
+                              <option value="week">{t('indicators.set.cvdWeek')}</option>
+                              <option value="month">{t('indicators.set.cvdMonth')}</option>
+                              <option value="visible">{t('indicators.set.cvdVisible')}</option>
                             </select>
                           </div>
 
                           <div className="flex flex-col gap-1.5 border-t border-dashed border-slate-700/20 pt-3">
-                            <span className={`font-bold ${isLight ? "text-slate-700" : "text-slate-300"}`}>Тип отображения</span>
+                            <span className={`font-bold ${isLight ? "text-slate-700" : "text-slate-300"}`}>{t('indicators.set.plotType')}</span>
                             <div className="flex gap-1 bg-slate-900/50 p-1 rounded-xl border border-white/5">
                               <button
                                 type="button"
                                 onClick={() => updateSettings({ cvdPlotType: "line" })}
                                 className={`flex-1 py-1.5 text-[10px] font-bold rounded-lg transition-all duration-200 ${(selectedIndicator.settings.cvdPlotType || "line") === "line" ? isLight ? "bg-white text-slate-800 shadow-sm" : "bg-slate-850 text-white shadow" : "text-slate-400 hover:text-slate-300"}`}
                               >
-                                Линия
+                                {t('indicators.set.line')}
                               </button>
                               <button
                                 type="button"
                                 onClick={() => updateSettings({ cvdPlotType: "candles" })}
                                 className={`flex-1 py-1.5 text-[10px] font-bold rounded-lg transition-all duration-200 ${selectedIndicator.settings.cvdPlotType === "candles" ? isLight ? "bg-white text-slate-800 shadow-sm" : "bg-slate-850 text-white shadow" : "text-slate-400 hover:text-slate-300"}`}
                               >
-                                Свечи
+                                {t('indicators.set.candles')}
                               </button>
                             </div>
                           </div>
@@ -1690,11 +1690,11 @@ export default function IndicatorsModal({ isOpen, onClose, symbol = "", market =
                       {selectedIndicator.id === "bidAskRatio" && (
                         <div className={`flex flex-col gap-4 font-sans text-xs p-4.5 rounded-2xl border transition-all duration-300 ${isLight ? "bg-slate-100/40 border-slate-200/85" : "bg-slate-950/20 border-white/5"}`}>
                           <span className="text-[10px] text-slate-500 uppercase tracking-widest font-black font-mono">
-                            ПАРАМЕТРЫ BID &amp; ASK RATIO
+                            {t('indicators.set.barParams')}
                           </span>
 
                           <div className="flex flex-col gap-1.5">
-                            <span className={`font-bold ${isLight ? "text-slate-700" : "text-slate-300"}`}>Диапазон</span>
+                            <span className={`font-bold ${isLight ? "text-slate-700" : "text-slate-300"}`}>{t('indicators.set.range')}</span>
                             <select
                               value={selectedIndicator.settings.bidAskRatioBand ?? "5"}
                               onChange={(e) => updateSettings({ bidAskRatioBand: e.target.value as "1" | "3" | "5" })}
@@ -1707,7 +1707,7 @@ export default function IndicatorsModal({ isOpen, onClose, symbol = "", market =
                           </div>
 
                           <div className="flex items-center justify-between border-t border-dashed border-slate-700/20 pt-3">
-                            <span className={`font-bold ${isLight ? "text-slate-700" : "text-slate-300"}`}>Цвет bid</span>
+                            <span className={`font-bold ${isLight ? "text-slate-700" : "text-slate-300"}`}>{t('indicators.set.colorBid')}</span>
                             <div className="flex items-center gap-2">
                               <input
                                 type="color"
@@ -1722,7 +1722,7 @@ export default function IndicatorsModal({ isOpen, onClose, symbol = "", market =
                           </div>
 
                           <div className="flex items-center justify-between border-t border-dashed border-slate-700/20 pt-3">
-                            <span className={`font-bold ${isLight ? "text-slate-700" : "text-slate-300"}`}>Цвет ask</span>
+                            <span className={`font-bold ${isLight ? "text-slate-700" : "text-slate-300"}`}>{t('indicators.set.colorAsk')}</span>
                             <div className="flex items-center gap-2">
                               <input
                                 type="color"
@@ -1738,7 +1738,7 @@ export default function IndicatorsModal({ isOpen, onClose, symbol = "", market =
 
                           <div className="flex flex-col gap-2 border-t border-dashed border-slate-700/20 pt-3">
                             <div className="flex justify-between font-bold">
-                              <span className={isLight ? "text-slate-700" : "text-slate-300"}>Прозрачность</span>
+                              <span className={isLight ? "text-slate-700" : "text-slate-300"}>{t('indicators.set.opacityPlain')}</span>
                               <span className={`font-mono font-bold ${isLight ? "text-blue-700" : "text-yellow-500"}`}>
                                 {selectedIndicator.settings.bidAskRatioOpacity ?? 100}%
                               </span>
@@ -1758,11 +1758,11 @@ export default function IndicatorsModal({ isOpen, onClose, symbol = "", market =
                       {selectedIndicator.id === "longShortRatio" && (
                         <div className={`flex flex-col gap-4 font-sans text-xs p-4.5 rounded-2xl border transition-all duration-300 ${isLight ? "bg-slate-100/40 border-slate-200/85" : "bg-slate-950/20 border-white/5"}`}>
                           <span className="text-[10px] text-slate-500 uppercase tracking-widest font-black font-mono">
-                            ПАРАМЕТРЫ LONG/SHORT RATIO
+                            {t('indicators.set.lsParams')}
                           </span>
 
                           <div className="flex flex-col gap-1.5">
-                            <span className={`font-bold ${isLight ? "text-slate-700" : "text-slate-300"}`}>Режим</span>
+                            <span className={`font-bold ${isLight ? "text-slate-700" : "text-slate-300"}`}>{t('indicators.set.mode')}</span>
                             <select
                               value={selectedIndicator.settings.longShortRatioDisplayMode ?? "ratio"}
                               onChange={(e) => updateSettings({ longShortRatioDisplayMode: e.target.value as "ratio" | "longPct" })}
@@ -1774,7 +1774,7 @@ export default function IndicatorsModal({ isOpen, onClose, symbol = "", market =
                           </div>
 
                           <div className="flex flex-col gap-1.5">
-                            <span className={`font-bold ${isLight ? "text-slate-700" : "text-slate-300"}`}>Цвет линии</span>
+                            <span className={`font-bold ${isLight ? "text-slate-700" : "text-slate-300"}`}>{t('indicators.set.lineColor')}</span>
                             <div className="flex items-center gap-2">
                               <input
                                 type="color"
@@ -1793,11 +1793,11 @@ export default function IndicatorsModal({ isOpen, onClose, symbol = "", market =
                       {selectedIndicator.id === "buySellZone" && (
                         <div className={`flex flex-col gap-4 font-sans text-xs p-4.5 rounded-2xl border transition-all duration-300 ${isLight ? "bg-slate-100/40 border-slate-200/85" : "bg-slate-950/20 border-white/5"}`}>
                           <span className="text-[10px] text-slate-500 uppercase tracking-widest font-black font-mono">
-                            ПАРАМЕТРЫ BUY/SELL ZONE
+                            {t('indicators.set.bsParams')}
                           </span>
 
                           {/* Component weights */}
-                          <span className="text-[10px] text-slate-500 uppercase tracking-widest font-bold font-mono">Веса компонентов</span>
+                          <span className="text-[10px] text-slate-500 uppercase tracking-widest font-bold font-mono">{t('indicators.set.componentWeights')}</span>
                           <div className="grid grid-cols-2 gap-4">
                             <label className="flex flex-col gap-1.5 font-sans text-xs">
                               <span className={`font-bold ${isLight ? "text-slate-700" : "text-slate-300"}`}>Long/Short</span>
@@ -1851,7 +1851,7 @@ export default function IndicatorsModal({ isOpen, onClose, symbol = "", market =
 
                           {/* Bid/Ask depth band */}
                           <div className="flex flex-col gap-1.5 border-t border-dashed border-slate-700/20 pt-3">
-                            <span className={`font-bold ${isLight ? "text-slate-700" : "text-slate-300"}`}>Диапазон стакана (bid/ask)</span>
+                            <span className={`font-bold ${isLight ? "text-slate-700" : "text-slate-300"}`}>{t('indicators.set.bsBand')}</span>
                             <select
                               value={selectedIndicator.settings.bsZoneBand ?? "5"}
                               onChange={(e) => updateSettings({ bsZoneBand: e.target.value as "1" | "3" | "5" })}
@@ -1866,7 +1866,7 @@ export default function IndicatorsModal({ isOpen, onClose, symbol = "", market =
                           {/* Lookbacks */}
                           <div className="grid grid-cols-3 gap-4 border-t border-dashed border-slate-700/20 pt-3">
                             <label className="flex flex-col gap-1.5 font-sans text-xs">
-                              <span className={`font-bold ${isLight ? "text-slate-700" : "text-slate-300"}`}>RSI период</span>
+                              <span className={`font-bold ${isLight ? "text-slate-700" : "text-slate-300"}`}>{t('indicators.set.rsiPeriod')}</span>
                               <input
                                 type="number"
                                 step="1"
@@ -1906,7 +1906,7 @@ export default function IndicatorsModal({ isOpen, onClose, symbol = "", market =
                           {/* Corridor + overheat thresholds */}
                           <div className="grid grid-cols-2 gap-4 border-t border-dashed border-slate-700/20 pt-3">
                             <label className="flex flex-col gap-1.5 font-sans text-xs">
-                              <span className={`font-bold ${isLight ? "text-slate-700" : "text-slate-300"}`}>Коридор верх</span>
+                              <span className={`font-bold ${isLight ? "text-slate-700" : "text-slate-300"}`}>{t('indicators.set.corridorUp')}</span>
                               <input
                                 type="number"
                                 step="1"
@@ -1918,7 +1918,7 @@ export default function IndicatorsModal({ isOpen, onClose, symbol = "", market =
                               />
                             </label>
                             <label className="flex flex-col gap-1.5 font-sans text-xs">
-                              <span className={`font-bold ${isLight ? "text-slate-700" : "text-slate-300"}`}>Коридор низ</span>
+                              <span className={`font-bold ${isLight ? "text-slate-700" : "text-slate-300"}`}>{t('indicators.set.corridorDown')}</span>
                               <input
                                 type="number"
                                 step="1"
@@ -1930,7 +1930,7 @@ export default function IndicatorsModal({ isOpen, onClose, symbol = "", market =
                               />
                             </label>
                             <label className="flex flex-col gap-1.5 font-sans text-xs">
-                              <span className={`font-bold ${isLight ? "text-slate-700" : "text-slate-300"}`}>Перегрев верх</span>
+                              <span className={`font-bold ${isLight ? "text-slate-700" : "text-slate-300"}`}>{t('indicators.set.overheatUp')}</span>
                               <input
                                 type="number"
                                 step="1"
@@ -1942,7 +1942,7 @@ export default function IndicatorsModal({ isOpen, onClose, symbol = "", market =
                               />
                             </label>
                             <label className="flex flex-col gap-1.5 font-sans text-xs">
-                              <span className={`font-bold ${isLight ? "text-slate-700" : "text-slate-300"}`}>Перегрев низ</span>
+                              <span className={`font-bold ${isLight ? "text-slate-700" : "text-slate-300"}`}>{t('indicators.set.overheatDown')}</span>
                               <input
                                 type="number"
                                 step="1"
@@ -1957,7 +1957,7 @@ export default function IndicatorsModal({ isOpen, onClose, symbol = "", market =
 
                           {/* Line colour */}
                           <div className="flex items-center justify-between border-t border-dashed border-slate-700/20 pt-3">
-                            <span className={`font-bold ${isLight ? "text-slate-700" : "text-slate-300"}`}>Цвет линии</span>
+                            <span className={`font-bold ${isLight ? "text-slate-700" : "text-slate-300"}`}>{t('indicators.set.lineColor')}</span>
                             <div className="flex items-center gap-2">
                               <input
                                 type="color"
@@ -1973,7 +1973,7 @@ export default function IndicatorsModal({ isOpen, onClose, symbol = "", market =
 
                           {/* Corridor colour */}
                           <div className="flex items-center justify-between border-t border-dashed border-slate-700/20 pt-3">
-                            <span className={`font-bold ${isLight ? "text-slate-700" : "text-slate-300"}`}>Цвет коридора</span>
+                            <span className={`font-bold ${isLight ? "text-slate-700" : "text-slate-300"}`}>{t('indicators.set.corridorColor')}</span>
                             <div className="flex items-center gap-2">
                               <input
                                 type="color"
@@ -1990,7 +1990,7 @@ export default function IndicatorsModal({ isOpen, onClose, symbol = "", market =
                           {/* Corridor opacity */}
                           <div className="flex flex-col gap-2 border-t border-dashed border-slate-700/20 pt-3">
                             <div className="flex justify-between font-bold">
-                              <span className={isLight ? "text-slate-700" : "text-slate-300"}>Прозрачность коридора</span>
+                              <span className={isLight ? "text-slate-700" : "text-slate-300"}>{t('indicators.set.corridorOpacity')}</span>
                               <span className={`font-mono font-bold ${isLight ? "text-blue-700" : "text-yellow-500"}`}>
                                 {selectedIndicator.settings.bsZoneBalOpacity ?? 10}%
                               </span>
@@ -2007,7 +2007,7 @@ export default function IndicatorsModal({ isOpen, onClose, symbol = "", market =
 
                           {/* Overheat colours */}
                           <div className="flex items-center justify-between border-t border-dashed border-slate-700/20 pt-3">
-                            <span className={`font-bold ${isLight ? "text-slate-700" : "text-slate-300"}`}>Перегрев верх (цвет)</span>
+                            <span className={`font-bold ${isLight ? "text-slate-700" : "text-slate-300"}`}>{t('indicators.set.overheatUpColor')}</span>
                             <div className="flex items-center gap-2">
                               <input
                                 type="color"
@@ -2022,7 +2022,7 @@ export default function IndicatorsModal({ isOpen, onClose, symbol = "", market =
                           </div>
 
                           <div className="flex items-center justify-between border-t border-dashed border-slate-700/20 pt-3">
-                            <span className={`font-bold ${isLight ? "text-slate-700" : "text-slate-300"}`}>Перегрев низ (цвет)</span>
+                            <span className={`font-bold ${isLight ? "text-slate-700" : "text-slate-300"}`}>{t('indicators.set.overheatDownColor')}</span>
                             <div className="flex items-center gap-2">
                               <input
                                 type="color"
@@ -2039,7 +2039,7 @@ export default function IndicatorsModal({ isOpen, onClose, symbol = "", market =
                           {/* Zone fill brightness (both zones) */}
                           <div className="flex flex-col gap-2 border-t border-dashed border-slate-700/20 pt-3">
                             <div className="flex justify-between font-bold">
-                              <span className={isLight ? "text-slate-700" : "text-slate-300"}>Яркость зон</span>
+                              <span className={isLight ? "text-slate-700" : "text-slate-300"}>{t('indicators.set.zoneBrightness')}</span>
                               <span className={`font-mono font-bold ${isLight ? "text-blue-700" : "text-yellow-500"}`}>
                                 {selectedIndicator.settings.bsZoneOverOpacity ?? 30}%
                               </span>
@@ -2063,8 +2063,8 @@ export default function IndicatorsModal({ isOpen, onClose, symbol = "", market =
                               className="rounded text-blue-600 focus:ring-blue-500 w-4 h-4"
                             />
                             <div className="flex flex-col">
-                              <span className="font-bold text-[11px]">Бейджи LONG/SHORT</span>
-                              <span className={`text-[9.5px] font-medium ${isLight ? "text-slate-500" : "text-slate-400"}`}>Метка в экстремуме захода линии в зону</span>
+                              <span className="font-bold text-[11px]">{t('indicators.set.badges')}</span>
+                              <span className={`text-[9.5px] font-medium ${isLight ? "text-slate-500" : "text-slate-400"}`}>{t('indicators.set.badgesHint')}</span>
                             </div>
                           </label>
                         </div>
@@ -2144,12 +2144,12 @@ export default function IndicatorsModal({ isOpen, onClose, symbol = "", market =
                       {selectedIndicator.id === "stackedImbalance" && (
                         <div className={`flex flex-col gap-4 font-sans text-xs p-4.5 rounded-2xl border transition-all duration-300 ${isLight ? "bg-slate-100/40 border-slate-200/85" : "bg-slate-950/20 border-white/5"}`}>
                           <span className="text-[10px] text-slate-500 uppercase tracking-widest font-black font-mono">
-                            ПАРАМЕТРЫ ATAS STACKED IMBALANCE
+                            {t('indicators.set.siParams')}
                           </span>
 
                           <div className="grid grid-cols-2 gap-4 mt-1">
                             <label className="flex flex-col gap-1.5 font-sans text-xs">
-                              <span className={`font-bold ${isLight ? "text-slate-700" : "text-slate-300"}`}>Дисбаланс (%)</span>
+                              <span className={`font-bold ${isLight ? "text-slate-700" : "text-slate-300"}`}>{t('indicators.set.siImbalance')}</span>
                               <input
                                 type="number"
                                 step="10"
@@ -2162,7 +2162,7 @@ export default function IndicatorsModal({ isOpen, onClose, symbol = "", market =
                             </label>
 
                             <label className="flex flex-col gap-1.5 font-sans text-xs">
-                              <span className={`font-bold ${isLight ? "text-slate-700" : "text-slate-300"}`}>Диапазон уровней</span>
+                              <span className={`font-bold ${isLight ? "text-slate-700" : "text-slate-300"}`}>{t('indicators.set.siLevelRange')}</span>
                               <input
                                 type="number"
                                 step="1"
@@ -2175,7 +2175,7 @@ export default function IndicatorsModal({ isOpen, onClose, symbol = "", market =
                             </label>
 
                             <label className="flex flex-col gap-1.5 font-sans text-xs">
-                              <span className={`font-bold ${isLight ? "text-slate-705" : "text-slate-300"}`}>Мин. объем стороны</span>
+                              <span className={`font-bold ${isLight ? "text-slate-705" : "text-slate-300"}`}>{t('indicators.set.siMinSideVolume')}</span>
                               <input
                                 type="number"
                                 step="1"
@@ -2187,7 +2187,7 @@ export default function IndicatorsModal({ isOpen, onClose, symbol = "", market =
                             </label>
 
                             <label className="flex flex-col gap-1.5 font-sans text-xs">
-                              <span className={`font-bold ${isLight ? "text-slate-707" : "text-slate-300"}`}>Толщина линий (px)</span>
+                              <span className={`font-bold ${isLight ? "text-slate-707" : "text-slate-300"}`}>{t('indicators.set.lineWidth')}</span>
                               <input
                                 type="number"
                                 step="0.5"
@@ -2201,7 +2201,7 @@ export default function IndicatorsModal({ isOpen, onClose, symbol = "", market =
                           </div>
 
                           <div className="flex items-center justify-between border-t border-dashed border-slate-700/20 pt-3 mt-1">
-                            <span className={`font-bold ${isLight ? "text-slate-700" : "text-slate-300"}`}>{"Положительный (Asks > Bids)"}</span>
+                            <span className={`font-bold ${isLight ? "text-slate-700" : "text-slate-300"}`}>{t('indicators.set.siColorPos')}</span>
                             <div className="flex items-center gap-2">
                               <input
                                 type="color"
@@ -2220,7 +2220,7 @@ export default function IndicatorsModal({ isOpen, onClose, symbol = "", market =
                           </div>
 
                           <div className="flex items-center justify-between border-t border-dashed border-slate-700/20 pt-3">
-                            <span className={`font-bold ${isLight ? "text-slate-700" : "text-slate-300"}`}>{"Отрицательный (Bids > Asks)"}</span>
+                            <span className={`font-bold ${isLight ? "text-slate-700" : "text-slate-300"}`}>{t('indicators.set.siColorNeg')}</span>
                             <div className="flex items-center gap-2">
                               <input
                                 type="color"
@@ -2243,24 +2243,24 @@ export default function IndicatorsModal({ isOpen, onClose, symbol = "", market =
                       {selectedIndicator.id === "depthOfMarket" && (
                         <div className={`flex flex-col gap-4 font-sans text-xs p-4.5 rounded-2xl border transition-all duration-300 ${isLight ? "bg-slate-100/40 border-slate-200/85" : "bg-slate-950/20 border-white/5"}`}>
                           <span className="text-[10px] text-slate-500 uppercase tracking-widest font-black font-mono">
-                            ПАРАМЕТРЫ DEPTH OF MARKET (DOM)
+                            {t('indicators.set.domParams')}
                           </span>
 
                           <div className="grid grid-cols-2 gap-4 mt-1">
                             <label className="flex flex-col gap-1.5 font-sans text-xs col-span-2 sm:col-span-1">
-                              <span className={`font-bold ${isLight ? "text-slate-700" : "text-slate-300"}`}>Режим ширины</span>
+                              <span className={`font-bold ${isLight ? "text-slate-700" : "text-slate-300"}`}>{t('indicators.set.domWidthMode')}</span>
                               <select
                                 value={selectedIndicator.settings.domWidthMode ?? "auto"}
                                 onChange={(e) => updateSettings({ domWidthMode: e.target.value as any })}
                                 className={`rounded-xl px-3 py-2 text-xs outline-none transition-all duration-300 border ${isLight ? "bg-white border-slate-200 text-slate-800" : "bg-[#0b0f19] border border-white/10 text-slate-200 focus:ring-1 focus:ring-yellow-500/40"}`}
                               >
-                                <option value="auto">Авто (Макс. 100px)</option>
-                                <option value="manual">Вручную (Ввод ширины)</option>
+                                <option value="auto">{t('indicators.set.domWidthAuto')}</option>
+                                <option value="manual">{t('indicators.set.domWidthManual')}</option>
                               </select>
                             </label>
 
                             <label className="flex flex-col gap-1.5 font-sans text-xs col-span-2 sm:col-span-1">
-                              <span className={`font-bold ${isLight ? "text-slate-700" : "text-slate-300"}`}>Макс. ширина шкалы (px)</span>
+                              <span className={`font-bold ${isLight ? "text-slate-700" : "text-slate-300"}`}>{t('indicators.set.domMaxWidth')}</span>
                               <input
                                 type="number"
                                 step="10"
@@ -2274,7 +2274,7 @@ export default function IndicatorsModal({ isOpen, onClose, symbol = "", market =
                             </label>
 
                             <label className="flex flex-col gap-1.5 font-sans text-xs col-span-2">
-                              <span className={`font-bold ${isLight ? "text-slate-700" : "text-slate-300"}`}>Прозрачность гистограммы ({selectedIndicator.settings.domOpacity ?? 40}%)</span>
+                              <span className={`font-bold ${isLight ? "text-slate-700" : "text-slate-300"}`}>{t('indicators.set.domOpacity')} ({selectedIndicator.settings.domOpacity ?? 40}%)</span>
                               <input
                                 type="range"
                                 min="10"
@@ -2288,7 +2288,7 @@ export default function IndicatorsModal({ isOpen, onClose, symbol = "", market =
                           </div>
 
                           <div className="flex items-center justify-between border-t border-dashed border-slate-700/20 pt-3 mt-1">
-                            <span className={`font-bold ${isLight ? "text-slate-700" : "text-slate-300"}`}>Цвет Лимитов Покупок (Bids)</span>
+                            <span className={`font-bold ${isLight ? "text-slate-700" : "text-slate-300"}`}>{t('indicators.set.domColorBid')}</span>
                             <div className="flex items-center gap-2">
                               <input
                                 type="color"
@@ -2305,7 +2305,7 @@ export default function IndicatorsModal({ isOpen, onClose, symbol = "", market =
                           </div>
 
                           <div className="flex items-center justify-between border-t border-dashed border-slate-700/20 pt-3">
-                            <span className={`font-bold ${isLight ? "text-slate-700" : "text-slate-300"}`}>Цвет Лимитов Продаж (Asks)</span>
+                            <span className={`font-bold ${isLight ? "text-slate-700" : "text-slate-300"}`}>{t('indicators.set.domColorAsk')}</span>
                             <div className="flex items-center gap-2">
                               <input
                                 type="color"
@@ -2332,7 +2332,7 @@ export default function IndicatorsModal({ isOpen, onClose, symbol = "", market =
                         selectedIndicator.id !== "stackedImbalance" &&
                         selectedIndicator.id !== "depthOfMarket" && (
                           <div className="text-slate-500 italic text-xs py-3 font-sans">
-                            Дополнительные параметры конфигурирования будут добавлены в следующих обновлениях.
+                            {t('indicators.modal.moreParamsSoon')}
                           </div>
                         )}
 
@@ -2352,9 +2352,9 @@ export default function IndicatorsModal({ isOpen, onClose, symbol = "", market =
                           <label
                             htmlFor={`propagate-${selectedIndicator.id}`}
                             className={`text-[11px] font-medium select-none ${!limits.customIndicatorSettings ? "opacity-40 cursor-not-allowed" : "cursor-pointer"} ${isLight ? "text-slate-600 hover:text-slate-800" : "text-slate-400 hover:text-slate-200"}`}
-                            title={!limits.customIndicatorSettings ? "Доступно на платных тарифах" : "Применить настройки этого индикатора ко всем ТФ. Снимается при каждом открытии модалки."}
+                            title={!limits.customIndicatorSettings ? t('indicators.modal.paidOnly') : t('indicators.modal.propagateTitle')}
                           >
-                            Применить ко всем ТФ ({selectedIndicator.label.replace("(PROCLUSTER) ", "")})
+                            {t('indicators.modal.applyToAllTf').replace('{name}', selectedIndicator.label.replace("(PROCLUSTER) ", ""))}
                           </label>
                         </div>
                       )}
@@ -2363,7 +2363,7 @@ export default function IndicatorsModal({ isOpen, onClose, symbol = "", market =
                 </div>
               ) : (
                 <div className="flex-1 flex flex-col items-center justify-center text-slate-500 text-xs font-sans">
-                  Пожалуйста, выберите индикатор для настройки
+                  {t('indicators.modal.selectIndicator')}
                 </div>
               )}
             </div>
@@ -2373,14 +2373,14 @@ export default function IndicatorsModal({ isOpen, onClose, symbol = "", market =
           <div className={`flex items-center justify-between px-3 sm:px-6 py-2.5 sm:py-4.5 border-t transition-all duration-300 ${isLight ? "bg-white/30 border-slate-200" : "border-white/5 bg-slate-950/20"}`}>
             <div className="hidden sm:flex items-center gap-4.5 select-none text-[10.5px] font-mono text-slate-500 pb-0.5">
               <span>
-                Хоткей: <span className={`font-bold px-1.5 py-0.5 rounded border transition-colors ${isLight ? "bg-slate-105 text-slate-600 border-slate-200" : "bg-white/5 text-slate-400 border-white/5"}`}>/</span>
+                {t('indicators.modal.hotkey')} <span className={`font-bold px-1.5 py-0.5 rounded border transition-colors ${isLight ? "bg-slate-105 text-slate-600 border-slate-200" : "bg-white/5 text-slate-400 border-white/5"}`}>/</span>
               </span>
               <div className="flex items-center gap-1.5 text-emerald-500 font-sans font-semibold">
                 <span className="relative flex h-2 w-2">
                   <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
                   <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
                 </span>
-                <span>Изменения применяются мгновенно</span>
+                <span>{t('indicators.modal.instantApply')}</span>
               </div>
             </div>
             <div className="flex items-center gap-2 sm:gap-3 ml-auto">
@@ -2388,14 +2388,14 @@ export default function IndicatorsModal({ isOpen, onClose, symbol = "", market =
                 onClick={handleCancel}
                 className={`px-3 sm:px-5 py-1.5 sm:py-2 rounded-xl text-xs font-bold font-sans transition cursor-pointer ${isLight ? "hover:bg-slate-200/80 text-slate-600 hover:text-slate-800" : "hover:bg-white/5 text-slate-400 hover:text-slate-200"}`}
               >
-                Отмена
+                {t('common.cancel')}
               </button>
               <button
                 onClick={handleApply}
                 className="px-4 sm:px-6 py-1.5 sm:py-2 bg-[#2563eb] hover:bg-blue-600 text-white rounded-xl text-xs font-extrabold font-sans transition-all active:scale-[0.98] shadow-lg cursor-pointer flex items-center gap-1.5 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-[#2563eb]"
               >
                 <Activity className="w-3.5 h-3.5 text-blue-200" />
-                <span>Сохранить</span>
+                <span>{t('common.save')}</span>
               </button>
             </div>
           </div>
