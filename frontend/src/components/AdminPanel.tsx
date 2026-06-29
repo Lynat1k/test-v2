@@ -1066,6 +1066,21 @@ function HistoryBlock({ isLight }: { isLight: boolean }) {
   const isActiveStatus = (s: string) =>
     s === 'downloading' || s === 'parsing' || s === 'aggregating' || s === 'inserting' || s === 'running' || s === 'pending'
 
+  // Бейдж типа загрузки. Tailwind v4: классы заданы литералами (динамические оттенки сканер не подхватит).
+  const badgeBase = 'text-[9px] font-bold uppercase rounded-full px-2 py-0.5 border whitespace-nowrap'
+  const dataTypeBadge = (dt: string): { label: string; cls: string } => {
+    switch (dt) {
+      case 'clusters':
+        return { label: 'Кластера', cls: `${badgeBase} bg-blue-500/15 ${isLight ? 'text-blue-600 border-blue-500/40' : 'text-blue-400 border-blue-500/30'}` }
+      case 'bookDepth':
+        return { label: 'Стакан', cls: `${badgeBase} bg-violet-500/15 ${isLight ? 'text-violet-600 border-violet-500/40' : 'text-violet-400 border-violet-500/30'}` }
+      case 'longShortRatio':
+        return { label: 'L/S Ratio', cls: `${badgeBase} bg-amber-500/15 ${isLight ? 'text-amber-600 border-amber-500/40' : 'text-amber-400 border-amber-500/30'}` }
+      default:
+        return { label: dt, cls: `${badgeBase} bg-slate-500/15 ${isLight ? 'text-slate-600 border-slate-500/40' : 'text-slate-400 border-slate-500/30'}` }
+    }
+  }
+
   const card = isLight ? 'bg-white border-slate-200' : 'liquid-glass-card'
   const input = isLight
     ? 'bg-slate-50 border-slate-200 text-slate-900 focus:border-emerald-500'
@@ -1182,12 +1197,17 @@ function HistoryBlock({ isLight }: { isLight: boolean }) {
         {jobs.length === 0 ? (
           <div className="text-slate-400 text-center py-6">{t('admin.database.noData')}</div>
         ) : (
-          jobs.map((job) => (
+          jobs.map((job) => {
+            const badge = dataTypeBadge(job.dataType || '')
+            return (
             <div key={job.id} className={`p-3 rounded-lg border flex flex-col gap-1.5 ${
               isLight ? 'bg-white border-slate-200' : 'bg-white/[0.02] border-white/5'
             }`}>
               <div className="flex items-center justify-between">
-                <span className={`font-black ${isLight ? 'text-slate-900' : 'text-white'}`}>{job.symbol} <span className="text-slate-400 font-normal">{job.market}</span></span>
+                <span className="flex items-center gap-1.5 min-w-0">
+                  <span className={`font-black ${isLight ? 'text-slate-900' : 'text-white'}`}>{job.symbol} <span className="text-slate-400 font-normal">{job.market}</span></span>
+                  <span className={badge.cls}>{badge.label}</span>
+                </span>
                 <span className={`text-[10px] font-bold uppercase ${statusColor(job.status)}`}>{t(`admin.database.${job.status}` as any) || job.status}</span>
               </div>
               <div className={`text-[11px] font-medium ${isLight ? 'text-slate-700' : 'text-slate-300'}`}>{job.startDate} → {job.endDate}</div>
@@ -1201,7 +1221,8 @@ function HistoryBlock({ isLight }: { isLight: boolean }) {
               {job.error && <div className="text-[10px] text-red-400 truncate">{job.error}</div>}
               {job.totalTicks > 0 && <div className={`text-[11px] font-medium ${isLight ? 'text-slate-700' : 'text-slate-300'}`}>{t('admin.database.totalTicks')}: {job.totalTicks.toLocaleString()}</div>}
             </div>
-          ))
+            )
+          })
         )}
       </div>
     </div>
