@@ -218,6 +218,23 @@ export async function apiClearJobs(): Promise<void> {
   await request('/admin/history/clear-jobs', { method: 'POST' })
 }
 
+// --- History coverage (реальное покрытие данных в ClickHouse) ---
+
+export interface CoverageRow {
+  symbol: string
+  market: string
+  dataType: string
+  firstDay: string
+  lastDay: string
+  daysWithData: number
+  spanDays: number
+  missingDays: number
+}
+
+export async function apiGetCoverage(): Promise<CoverageRow[]> {
+  return request<CoverageRow[]>('/admin/history/coverage')
+}
+
 // --- Billing ---
 
 export interface PaymentRecord {

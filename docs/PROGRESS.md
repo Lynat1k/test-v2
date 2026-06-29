@@ -3,6 +3,35 @@
 > Claude обновляет этот файл в КОНЦЕ каждой задачи. Новые записи — сверху.
 > Формат записи строго по шаблону. Это память между чатами.
 
+### [2026-06-29] feat(admin): блок «Покрытие данных» в админке
+
+- **Контекст**: В админке не было видно РЕАЛЬНОГО покрытия истории в ClickHouse — с какого
+  по какое число лежат данные по тикеру+рынку+типу и есть ли дыры (простои бэка). Список
+  задач загрузки показывает что качали, но не фактическое состояние БД.
+- **Backend** (`backend/internal/repository/clickhouse/clickhouse.go`,
+  `backend/internal/admin/handlers.go`):
+  - Структура `HistoryCoverageRow` + метод `GetHistoryCoverage(ctx)`: 4 SELECT по источникам
+    (clusters_futures→futures, clusters_spot→spot, bookdepth_ratio и long_short_ratio с
+    `GROUP BY symbol, market`). Имена таблиц/колонок — константы в коде (не ввод юзера) →
+    SQL-инъекций нет. Падение одного источника логируется, не валит остальные.
+  - SQL: `toDate(min/max(T))` диапазон, `countDistinct(toDate(T))` дни с данными,
+    `dateDiff('day',...)+1` длина диапазона; `missingDays = spanDays - daysWithData` (в Go,
+    guard < 0 → 0). `toInt64(...)` фиксирует тип агрегатов под Scan.
+  - Хендлер `handleHistoryCoverage` (таймаут 15с) + роут `GET /api/v1/admin/history/coverage`.
+- **Frontend** (`frontend/src/features/admin/api.ts`, `frontend/src/components/AdminPanel.tsx`):
+  - `interface CoverageRow` + `apiGetCoverage()`.
+  - `dataTypeBadge` вынесен на уровень модуля (общий для HistoryBlock и CoverageBlock).
+  - Новый `CoverageBlock`: таблица Тикер|Рынок|Тип|С|По|Дней|Пропусков, бейдж типа, подсветка
+    строк с дырами (амбер если missingDays>0, изумруд «—» если 0), кнопка «Обновить».
+  - `DatabaseTab`: грид `xl:grid-cols-4` (lg:2, база:1); порядок Тикеры → Сжатие →
+    **Покрытие** → Загрузка.
+- **Ограничение**: дыры считаются по ДНЯМ (день покрыт, если есть хоть одна свеча) — простой
+  внутри дня не детектится. Для обзора достаточно.
+- **Verification**: `go build`/`go vet`/`go test ./internal/admin/` ✓, `npx tsc --noEmit` ✓,
+  `npx vite build` ✓. SQL прогнан по реальной БД `procluster` (4 источника отдают данные).
+  Новый бинарь поднят на alt-порту → роут зарегистрирован (401 без авторизации), 404 на левых.
+- **Деплой**: коммит в main → push. Ручной деплой на VPS.
+
 ### [2026-06-29] feat(admin): бейдж типа загрузки в «Задачи загрузки»
 
 - **Контекст**: В админке (ЗАГРУЗКА ИСТОРИИ / Binance Vision) список задач не показывал

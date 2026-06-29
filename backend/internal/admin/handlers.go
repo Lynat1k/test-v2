@@ -135,6 +135,7 @@ func (h *AdminHandler) RegisterAdminRoutes(mux *http.ServeMux) {
 	mux.Handle("GET /api/v1/admin/history/jobs", wrap(h.handleGetJobs))
 	mux.Handle("GET /api/v1/admin/history/jobs/{id}", wrap(h.handleGetJobStatus))
 	mux.Handle("POST /api/v1/admin/history/clear-jobs", wrap(h.handleClearJobs))
+	mux.Handle("GET /api/v1/admin/history/coverage", wrap(h.handleHistoryCoverage))
 
 	// Billing
 	mux.Handle("GET /api/v1/admin/billing", wrap(h.handleGetBilling))
@@ -557,6 +558,30 @@ func (h *AdminHandler) handleGetJobStatus(w http.ResponseWriter, r *http.Request
 func (h *AdminHandler) handleClearJobs(w http.ResponseWriter, r *http.Request) {
 	h.jobRegistry.ClearJobs()
 	writeJSON(w, http.StatusOK, adminResponse{OK: true, Data: "cleared"})
+}
+
+// handleHistoryCoverage возвращает реальное покрытие исторических данных в
+// ClickHouse (по тикеру/рынку/типу) — диапазон дат и число пропущенных дней.
+func (h *AdminHandler) handleHistoryCoverage(w http.ResponseWriter, r *http.Request) {
+	if h.chRepo == nil {
+		writeJSON(w, http.StatusOK, adminResponse{OK: true, Data: []clickhouse.HistoryCoverageRow{}})
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
+	defer cancel()
+
+	rows, err := h.chRepo.GetHistoryCoverage(ctx)
+	if err != nil {
+		log.Printf("[admin] history coverage error: %v", err)
+		writeError(w, http.StatusInternalServerError, "CH_ERROR", "failed to get history coverage")
+		return
+	}
+	if rows == nil {
+		rows = []clickhouse.HistoryCoverageRow{}
+	}
+
+	writeJSON(w, http.StatusOK, adminResponse{OK: true, Data: rows})
 }
 
 // --- Users ---

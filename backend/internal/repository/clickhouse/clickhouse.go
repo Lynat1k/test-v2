@@ -658,6 +658,110 @@ func (r *ClickhouseRepository) GetClustersBatchFromCache(ctx context.Context, sy
 	return result, rows.Err()
 }
 
+// HistoryCoverageRow — покрытие исторических данных по одному
+// тикеру+рынку+типу: первый/последний день с данными, число дней с данными
+// и размер диапазона. MissingDays = SpanDays - DaysWithData (дыры от простоя).
+type HistoryCoverageRow struct {
+	Symbol       string `json:"symbol"`
+	Market       string `json:"market"`
+	DataType     string `json:"dataType"`
+	FirstDay     string `json:"firstDay"`
+	LastDay      string `json:"lastDay"`
+	DaysWithData int    `json:"daysWithData"`
+	SpanDays     int    `json:"spanDays"`
+	MissingDays  int    `json:"missingDays"`
+}
+
+// GetHistoryCoverage агрегирует реальное покрытие данных в ClickHouse по
+// 4 источникам (clusters_futures/spot, bookdepth_ratio, long_short_ratio).
+// Имена таблиц и полей времени — константы из кода (не пользовательский ввод),
+// поэтому конкатенация в запрос безопасна. Пустая таблица просто не вернёт
+// строк. Ошибка отдельного источника логируется и не валит остальные.
+func (r *ClickhouseRepository) GetHistoryCoverage(ctx context.Context) ([]HistoryCoverageRow, error) {
+	type source struct {
+		table     string
+		timeCol   string
+		dataType  string
+		market    string // константа для clusters_* (рынок задаётся таблицей)
+		hasMarket bool   // true → рынок читается из колонки (bookdepth/long_short)
+	}
+	sources := []source{
+		{table: "clusters_futures", timeCol: "candle_open", dataType: "clusters", market: "futures"},
+		{table: "clusters_spot", timeCol: "candle_open", dataType: "clusters", market: "spot"},
+		{table: "bookdepth_ratio", timeCol: "snapshot_ts", dataType: "bookDepth", hasMarket: true},
+		{table: "long_short_ratio", timeCol: "ts", dataType: "longShortRatio", hasMarket: true},
+	}
+
+	var result []HistoryCoverageRow
+	for _, s := range sources {
+		selectCols := "symbol,"
+		groupBy := "symbol"
+		if s.hasMarket {
+			selectCols = "symbol, market,"
+			groupBy = "symbol, market"
+		}
+		// toInt64(...) фиксирует тип агрегатов под Scan в int64.
+		query := fmt.Sprintf(`
+			SELECT
+				%[1]s
+				toDate(min(%[2]s)) AS first_day,
+				toDate(max(%[2]s)) AS last_day,
+				toInt64(countDistinct(toDate(%[2]s))) AS days_with_data,
+				toInt64(dateDiff('day', toDate(min(%[2]s)), toDate(max(%[2]s))) + 1) AS span_days
+			FROM %[3]s
+			GROUP BY %[4]s
+			ORDER BY symbol
+		`, selectCols, s.timeCol, s.table, groupBy)
+
+		rows, err := r.conn.Query(ctx, query)
+		if err != nil {
+			log.Printf("[clickhouse] history coverage %s: %v", s.table, err)
+			continue
+		}
+
+		for rows.Next() {
+			var (
+				symbol             string
+				market             string
+				firstDay, lastDay  time.Time
+				daysWithData, span int64
+			)
+			var scanErr error
+			if s.hasMarket {
+				scanErr = rows.Scan(&symbol, &market, &firstDay, &lastDay, &daysWithData, &span)
+			} else {
+				scanErr = rows.Scan(&symbol, &firstDay, &lastDay, &daysWithData, &span)
+				market = s.market
+			}
+			if scanErr != nil {
+				log.Printf("[clickhouse] history coverage scan %s: %v", s.table, scanErr)
+				continue
+			}
+
+			missing := span - daysWithData
+			if missing < 0 {
+				missing = 0
+			}
+			result = append(result, HistoryCoverageRow{
+				Symbol:       symbol,
+				Market:       market,
+				DataType:     s.dataType,
+				FirstDay:     firstDay.Format("2006-01-02"),
+				LastDay:      lastDay.Format("2006-01-02"),
+				DaysWithData: int(daysWithData),
+				SpanDays:     int(span),
+				MissingDays:  int(missing),
+			})
+		}
+		if err := rows.Err(); err != nil {
+			log.Printf("[clickhouse] history coverage rows %s: %v", s.table, err)
+		}
+		rows.Close()
+	}
+
+	return result, nil
+}
+
 // PutClustersBatchToCache writes pre-aggregated cluster levels for the given closed
 // candles into cluster_cache. updated_at is left to its DEFAULT now(). Callers must
 // pass only CLOSED candles at the admin-default priceStep.

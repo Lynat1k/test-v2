@@ -20,7 +20,7 @@ import {
   Download,
   RefreshCw,
 } from 'lucide-react'
-import { apiGetMetrics, apiGetMetricsHistory, apiGetTickers, apiAddTicker, apiUpdateTicker, apiDeleteTicker, apiGetCompressions, apiUpsertCompressions, apiStartDownload, apiGetJobs, apiClearJobs, apiGetUserStats, apiListUsers, apiCreateUser, apiUpdateUserRole, apiDeleteUser, apiGetPolicies, apiUpdatePolicies, apiListIndicatorDefaults, apiPutIndicatorDefaults, apiDeleteIndicatorDefaults, apiGetBinanceTickerInfo, type ServerMetrics, type MetricsHistoryPoint, type Ticker, type DefaultCompression, type DownloadJob, type UserListItem, type UserStats, type TierPolicy, type AdminIndicatorDefault } from '@/features/admin/api'
+import { apiGetMetrics, apiGetMetricsHistory, apiGetTickers, apiAddTicker, apiUpdateTicker, apiDeleteTicker, apiGetCompressions, apiUpsertCompressions, apiStartDownload, apiGetJobs, apiClearJobs, apiGetCoverage, apiGetUserStats, apiListUsers, apiCreateUser, apiUpdateUserRole, apiDeleteUser, apiGetPolicies, apiUpdatePolicies, apiListIndicatorDefaults, apiPutIndicatorDefaults, apiDeleteIndicatorDefaults, apiGetBinanceTickerInfo, type ServerMetrics, type MetricsHistoryPoint, type Ticker, type DefaultCompression, type DownloadJob, type CoverageRow, type UserListItem, type UserStats, type TierPolicy, type AdminIndicatorDefault } from '@/features/admin/api'
 import { useChartControls } from '@/contexts/ChartControlsContext'
 import { useIndicatorsStorage } from '@/features/indicators/IndicatorsStorageContext'
 import { MODULAR_INDICATORS } from '@/chart2d/indicators'
@@ -567,11 +567,28 @@ function formatBytes(bytes: number): string {
 
 // --- Database Tab ---
 
+// Бейдж типа данных загрузки. Tailwind v4: классы заданы литералами
+// (динамические оттенки сканер не подхватит). Общий для HistoryBlock и CoverageBlock.
+const DATA_TYPE_BADGE_BASE = 'text-[9px] font-bold uppercase rounded-full px-2 py-0.5 border whitespace-nowrap'
+function dataTypeBadge(dt: string, isLight: boolean): { label: string; cls: string } {
+  switch (dt) {
+    case 'clusters':
+      return { label: 'Кластера', cls: `${DATA_TYPE_BADGE_BASE} bg-blue-500/15 ${isLight ? 'text-blue-600 border-blue-500/40' : 'text-blue-400 border-blue-500/30'}` }
+    case 'bookDepth':
+      return { label: 'Стакан', cls: `${DATA_TYPE_BADGE_BASE} bg-violet-500/15 ${isLight ? 'text-violet-600 border-violet-500/40' : 'text-violet-400 border-violet-500/30'}` }
+    case 'longShortRatio':
+      return { label: 'L/S Ratio', cls: `${DATA_TYPE_BADGE_BASE} bg-amber-500/15 ${isLight ? 'text-amber-600 border-amber-500/40' : 'text-amber-400 border-amber-500/30'}` }
+    default:
+      return { label: dt, cls: `${DATA_TYPE_BADGE_BASE} bg-slate-500/15 ${isLight ? 'text-slate-600 border-slate-500/40' : 'text-slate-400 border-slate-500/30'}` }
+  }
+}
+
 function DatabaseTab({ isLight }: { isLight: boolean }) {
   return (
-    <div className="flex-1 grid grid-cols-1 xl:grid-cols-3 gap-6 min-h-0">
+    <div className="flex-1 grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-4 gap-6 min-h-0">
       <TickerBlock isLight={isLight} />
       <CompressionBlock isLight={isLight} />
+      <CoverageBlock isLight={isLight} />
       <HistoryBlock isLight={isLight} />
     </div>
   )
@@ -1066,21 +1083,6 @@ function HistoryBlock({ isLight }: { isLight: boolean }) {
   const isActiveStatus = (s: string) =>
     s === 'downloading' || s === 'parsing' || s === 'aggregating' || s === 'inserting' || s === 'running' || s === 'pending'
 
-  // Бейдж типа загрузки. Tailwind v4: классы заданы литералами (динамические оттенки сканер не подхватит).
-  const badgeBase = 'text-[9px] font-bold uppercase rounded-full px-2 py-0.5 border whitespace-nowrap'
-  const dataTypeBadge = (dt: string): { label: string; cls: string } => {
-    switch (dt) {
-      case 'clusters':
-        return { label: 'Кластера', cls: `${badgeBase} bg-blue-500/15 ${isLight ? 'text-blue-600 border-blue-500/40' : 'text-blue-400 border-blue-500/30'}` }
-      case 'bookDepth':
-        return { label: 'Стакан', cls: `${badgeBase} bg-violet-500/15 ${isLight ? 'text-violet-600 border-violet-500/40' : 'text-violet-400 border-violet-500/30'}` }
-      case 'longShortRatio':
-        return { label: 'L/S Ratio', cls: `${badgeBase} bg-amber-500/15 ${isLight ? 'text-amber-600 border-amber-500/40' : 'text-amber-400 border-amber-500/30'}` }
-      default:
-        return { label: dt, cls: `${badgeBase} bg-slate-500/15 ${isLight ? 'text-slate-600 border-slate-500/40' : 'text-slate-400 border-slate-500/30'}` }
-    }
-  }
-
   const card = isLight ? 'bg-white border-slate-200' : 'liquid-glass-card'
   const input = isLight
     ? 'bg-slate-50 border-slate-200 text-slate-900 focus:border-emerald-500'
@@ -1198,7 +1200,7 @@ function HistoryBlock({ isLight }: { isLight: boolean }) {
           <div className="text-slate-400 text-center py-6">{t('admin.database.noData')}</div>
         ) : (
           jobs.map((job) => {
-            const badge = dataTypeBadge(job.dataType || '')
+            const badge = dataTypeBadge(job.dataType || '', isLight)
             return (
             <div key={job.id} className={`p-3 rounded-lg border flex flex-col gap-1.5 ${
               isLight ? 'bg-white border-slate-200' : 'bg-white/[0.02] border-white/5'
@@ -1225,6 +1227,102 @@ function HistoryBlock({ isLight }: { isLight: boolean }) {
           })
         )}
       </div>
+    </div>
+  )
+}
+
+function CoverageBlock({ isLight }: { isLight: boolean }) {
+  const [rows, setRows] = useState<CoverageRow[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+
+  const fetchCoverage = useCallback(async () => {
+    setLoading(true)
+    setError(null)
+    try {
+      setRows(await apiGetCoverage())
+    } catch (e: any) {
+      setError(e?.message || JSON.stringify(e))
+    }
+    setLoading(false)
+  }, [])
+
+  useEffect(() => { fetchCoverage() }, [fetchCoverage])
+
+  const card = isLight ? 'bg-white border-slate-200' : 'liquid-glass-card'
+  const headCell = `text-left text-[10px] font-bold font-mono uppercase tracking-wide px-3 py-2 ${isLight ? 'text-slate-400' : 'text-slate-500'}`
+  const cell = `px-3 py-2 text-[11px] ${isLight ? 'text-slate-700' : 'text-slate-300'}`
+  // Рынок: spot — изумруд, futures — небесный. Оба оттенка стандартные (Tailwind v4).
+  const marketColor = (m: string) =>
+    m === 'spot'
+      ? (isLight ? 'text-emerald-600' : 'text-emerald-400')
+      : (isLight ? 'text-sky-600' : 'text-sky-400')
+
+  return (
+    <div className={`p-5 rounded-2xl border flex flex-col gap-4 ${card}`}>
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2 text-xs font-bold font-mono text-purple-500 uppercase shrink-0">
+          <Database className="w-4 h-4" />
+          Покрытие данных
+        </div>
+        <button
+          onClick={fetchCoverage}
+          disabled={loading}
+          className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-bold cursor-pointer transition-colors ${
+            loading ? 'opacity-50 cursor-not-allowed' : ''
+          } ${isLight ? 'hover:bg-slate-100 text-slate-600' : 'hover:bg-white/5 text-slate-300'}`}
+        >
+          <RefreshCw className={`w-3 h-3 ${loading ? 'animate-spin' : ''}`} />
+          Обновить
+        </button>
+      </div>
+
+      {error && (
+        <div className="px-2 py-1.5 rounded-lg bg-red-500/10 border border-red-500/20 text-red-400 text-[10px] font-mono">{error}</div>
+      )}
+
+      {loading && rows.length === 0 ? (
+        <div className="text-slate-400 text-center py-6 text-xs font-mono">…</div>
+      ) : rows.length === 0 ? (
+        <div className="text-slate-400 text-center py-6 text-xs font-mono">Нет данных</div>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full border-collapse">
+            <thead>
+              <tr className={`border-b ${isLight ? 'border-slate-200' : 'border-white/10'}`}>
+                <th className={headCell}>Тикер</th>
+                <th className={headCell}>Рынок</th>
+                <th className={headCell}>Тип</th>
+                <th className={headCell}>С</th>
+                <th className={headCell}>По</th>
+                <th className={`${headCell} text-right`}>Дней</th>
+                <th className={`${headCell} text-right`}>Пропусков</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((row, i) => {
+                const badge = dataTypeBadge(row.dataType, isLight)
+                const hasGaps = row.missingDays > 0
+                return (
+                  <tr key={`${row.symbol}-${row.market}-${row.dataType}-${i}`} className={`border-b ${isLight ? 'border-slate-100' : 'border-white/5'}`}>
+                    <td className={`${cell} font-black ${isLight ? 'text-slate-900' : 'text-white'}`}>{row.symbol}</td>
+                    <td className={`${cell} font-bold uppercase ${marketColor(row.market)}`}>{row.market}</td>
+                    <td className={cell}><span className={badge.cls}>{badge.label}</span></td>
+                    <td className={`${cell} font-mono`}>{row.firstDay}</td>
+                    <td className={`${cell} font-mono`}>{row.lastDay}</td>
+                    <td className={`${cell} font-mono text-right`}>{row.daysWithData}</td>
+                    <td className={`${cell} font-mono text-right font-bold ${
+                      hasGaps ? (isLight ? 'text-amber-600' : 'text-amber-400') : (isLight ? 'text-emerald-600' : 'text-emerald-400')
+                    }`}>
+                      {hasGaps ? row.missingDays : '—'}
+                    </td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   )
 }
