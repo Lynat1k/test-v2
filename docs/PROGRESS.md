@@ -3,6 +3,23 @@
 > Claude обновляет этот файл в КОНЦЕ каждой задачи. Новые записи — сверху.
 > Формат записи строго по шаблону. Это память между чатами.
 
+### [2026-07-01] feat(frontend): сворачивание шапки сайта + панели настроек графика (кнопка слева от темы + бейдж сверху)
+Шапка сайта (`<header>`) и панель настроек графика (`ChartHeader`) теперь сворачиваются одной кнопкой — график раскрывается во весь экран. Эталон вида/поведения — design-src (PROCLUSTER3, только чтение): Header.tsx + App.tsx. Десктоп И мобила.
+- **`frontend/src/components/UserDropdown.tsx`**:
+  - Новый проп `onToggleHeaderCollapse: () => void` (интерфейс + деструктуризация); импорт `ChevronUp` (lucide).
+  - Кнопка-сворачивания (`ChevronUp`) вставлена СЛЕВА от переключателя темы (перед ним в flex-ряду), стиль из эталона, responsive `p-1.5 sm:p-2`, подсказка RU «Свернуть шапку» / EN «Collapse header». `isLight`/`language` — из тех же хуков (`useTheme`/`useTranslation`), что и тема.
+- **`frontend/src/App.tsx`**:
+  - State `isHeaderCollapsed` + `toggleHeaderCollapsed` (useCallback) с персистом в localStorage `procluster_header_collapsed` — тем же приёмом, что `domCollapsed`/`isFearGreedCollapsed`; импорт `ChevronDown`.
+  - `<UserDropdown>` получил `onToggleHeaderCollapse={toggleHeaderCollapsed}`.
+  - `<header>` (вся, включая мобильный overlay настроек внутри неё) обёрнута в `{!isHeaderCollapsed && (…)}`.
+  - Десктопный блок `{<div className="hidden lg:block"><ChartHeader/></div>}` обёрнут в `{!isHeaderCollapsed && (…)}`.
+  - Бейдж разворота: `fixed top-0 left-1/2 -translate-x-1/2 z-[9999]` (root не relative → fixed), вертикально-центрирован сверху, `ChevronDown` (yellow, animate-pulse) + текст «ШАПКА/HEADER» (+« РАЗВЕРНУТЬ/EXPAND» на sm и шире), по клику разворачивает. Рендерится только при `isHeaderCollapsed`.
+  - Лейаут root `flex flex-col` (header `shrink-0`, график `flex-1`) → при скрытии header график авто-расширяется. Лишнего не трогали.
+
+**Verification:** `npx tsc --noEmit` ✓ (TSC_EXIT=0), `npx vite build` ✓ (built in 686ms, BUILD_EXIT=0; только предсуществующее предупреждение о размере чанка >500kB). Playwright, десктоп 1440×860 И мобила 390×844: кнопка слева от темы → шапка + панель настроек исчезают, график во весь экран, бейдж «ШАПКА(/РАЗВЕРНУТЬ)» по центру сверху; клик/тап по бейджу → шапка вернулась (проверено: badgeVisible=false, collapseBtnVisible=true, headerPresent=true, localStorage=false). На мобиле бейдж показывает только «ШАПКА» (` РАЗВЕРНУТЬ` под `hidden sm:inline`). Скрины: hdr-desktop-expanded/collapsed, hdr-mobile-expanded/collapsed. Консольная 401 (auth/refresh, гость) к задаче не относится.
+
+**TODO:** нет.
+
 ### [2026-07-01] feat(frontend): сворачивание панели объектов рисования (кнопка-стрелка + бейдж разворота)
 Панель инструментов рисования (левая боковая, Canvas2D) теперь сворачивается. Эталон вида/размещения — design-src/src/components/ClusterChart.tsx (PROCLUSTER3, только чтение). Поддержаны десктоп и мобила.
 - **`frontend/src/chart2d/DrawingToolbar.tsx`**:

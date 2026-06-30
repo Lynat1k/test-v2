@@ -28,7 +28,7 @@ import { DOMSidebar } from '@/components/DOMSidebar'
 import type { CandleMode, VolumeMode } from '@/chart-engine'
 import type { Indicator } from '@/chart2d/types'
 import { useTheme } from '@/contexts/ThemeContext'
-import { Sparkles, Sliders, X, Layers, ChevronLeft, ChevronRight } from 'lucide-react'
+import { Sparkles, Sliders, X, Layers, ChevronLeft, ChevronRight, ChevronDown } from 'lucide-react'
 import { AnimatePresence, motion } from 'motion/react'
 
 // Code-split heavy components into their own chunks (Vite splits on dynamic
@@ -77,6 +77,16 @@ function AppShell() {
     setIsFearGreedCollapsed(prev => {
       const next = !prev
       try { localStorage.setItem('procluster_fng_collapsed', String(next)) } catch {}
+      return next
+    })
+  }, [])
+  const [isHeaderCollapsed, setIsHeaderCollapsed] = useState<boolean>(() => {
+    try { return localStorage.getItem('procluster_header_collapsed') === 'true' } catch { return false }
+  })
+  const toggleHeaderCollapsed = useCallback(() => {
+    setIsHeaderCollapsed(prev => {
+      const next = !prev
+      try { localStorage.setItem('procluster_header_collapsed', String(next)) } catch {}
       return next
     })
   }, [])
@@ -252,7 +262,26 @@ function AppShell() {
       </div>
       <VerifyEmailBanner />
 
+      {/* Floating restore-header badge — top center, shown only when collapsed */}
+      {isHeaderCollapsed && (
+        <div
+          onClick={toggleHeaderCollapsed}
+          className={`fixed top-0 left-1/2 -translate-x-1/2 z-[9999] flex items-center gap-1 sm:gap-1.5 px-2.5 sm:px-4 py-1 sm:py-1.5 rounded-b-xl sm:rounded-b-2xl border-x border-b shadow-xl backdrop-blur-md cursor-pointer group hover:scale-105 active:scale-95 transition-all select-none ${
+            isLight
+              ? 'bg-white/90 border-slate-300 text-slate-700 hover:text-slate-900 hover:bg-white'
+              : 'bg-slate-950/90 border-white/10 text-slate-300 hover:text-white hover:bg-slate-900'
+          }`}
+          title={language === 'RU' ? 'Развернуть шапку' : 'Expand header'}
+        >
+          <ChevronDown className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-yellow-500 group-hover:translate-y-0.5 transition-transform animate-pulse" />
+          <span className="text-[8px] sm:text-[10px] font-mono font-black uppercase tracking-wider">
+            {language === 'RU' ? 'ШАПКА' : 'HEADER'}<span className="hidden sm:inline"> {language === 'RU' ? 'РАЗВЕРНУТЬ' : 'EXPAND'}</span>
+          </span>
+        </div>
+      )}
+
       {/* Main app header */}
+      {!isHeaderCollapsed && (
       <header className={`shrink-0 relative z-[1100] transition-all duration-300 ${
         isLight ? 'bg-slate-100 shadow-md shadow-slate-200/10' : 'bg-slate-950/45 backdrop-blur-md'
       }`}>
@@ -291,6 +320,7 @@ function AppShell() {
               onOpenAdmin={() => setCurrentView('admin')}
               onOpenLogin={() => setLoginOpen(true)}
               onOpenHome={() => setCurrentView('terminal')}
+              onToggleHeaderCollapse={toggleHeaderCollapsed}
             />
           </div>
         </div>
@@ -601,15 +631,18 @@ function AppShell() {
         )}
       </AnimatePresence>
       </header>
+      )}
 
       {/* Main content */}
       <div className="flex-1 overflow-hidden flex flex-col pt-0 pl-0 pr-0 pb-1 sm:pb-2 gap-1.5 sm:gap-2">
         {currentView === 'terminal' && (
           <div className="flex-1 flex flex-col h-full gap-1 sm:gap-2">
             {/* Chart header controls */}
+            {!isHeaderCollapsed && (
             <div className="hidden lg:block">
               <ChartHeader showAnomalies={showAnomalies} onToggleAnomalies={() => setShowAnomalies(!showAnomalies)} />
             </div>
+            )}
 
             {/* Chart area */}
               <div ref={chartAreaRef} className="flex-1 flex relative overflow-hidden gap-3 lg:gap-5">

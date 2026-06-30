@@ -3,7 +3,7 @@ import { useTranslation } from '@/i18n'
 import { useTheme } from '@/contexts/ThemeContext'
 import { useAuthContext } from '@/features/auth/AuthContext'
 import {
-  User, LogIn, LogOut, ChevronDown, Sliders,
+  User, LogIn, LogOut, ChevronDown, ChevronUp, Sliders,
   Send, Video, Sun, Moon, Home, HelpCircle, Check,
 } from 'lucide-react'
 import { motion, AnimatePresence } from 'motion/react'
@@ -13,9 +13,10 @@ interface UserDropdownProps {
   onOpenAdmin: () => void
   onOpenLogin: () => void
   onOpenHome?: () => void
+  onToggleHeaderCollapse: () => void
 }
 
-export function UserDropdown({ onOpenProfile, onOpenAdmin, onOpenLogin }: UserDropdownProps) {
+export function UserDropdown({ onOpenProfile, onOpenAdmin, onOpenLogin, onToggleHeaderCollapse }: UserDropdownProps) {
   const { user, logout } = useAuthContext()
   const { t, language, setLanguage } = useTranslation()
   const { theme, toggleTheme } = useTheme()
@@ -73,6 +74,19 @@ export function UserDropdown({ onOpenProfile, onOpenAdmin, onOpenLogin }: UserDr
           <span className="hidden sm:inline">{t('header.admin')}</span>
         </button>
       )}
+
+      {/* Collapse header button — left of theme toggle */}
+      <button
+        onClick={onToggleHeaderCollapse}
+        className={`flex items-center justify-center p-1.5 sm:p-2 rounded-xl border cursor-pointer hover:scale-105 active:scale-95 transition-all ${
+          isLight
+            ? 'bg-slate-200 hover:bg-slate-300 border-slate-300 text-slate-800 shadow-sm'
+            : 'bg-slate-950/40 hover:bg-slate-900/60 border-white/5 text-slate-300 hover:text-white shadow-inner'
+        }`}
+        title={language === 'RU' ? 'Свернуть шапку' : 'Collapse header'}
+      >
+        <ChevronUp className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+      </button>
 
       {/* Theme toggle button */}
       <button
