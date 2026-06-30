@@ -100,8 +100,8 @@ func (s *Server) handleCandles(w http.ResponseWriter, r *http.Request) {
 	limit := 100
 	if l := r.URL.Query().Get("limit"); l != "" {
 		parsed, err := strconv.Atoi(l)
-		if err != nil || parsed < 1 || parsed > 500 {
-			writeError(w, http.StatusBadRequest, "INVALID_PARAMS", "limit must be 1-500")
+		if err != nil || parsed < 1 || parsed > 2000 {
+			writeError(w, http.StatusBadRequest, "INVALID_PARAMS", "limit must be 1-2000")
 			return
 		}
 		limit = parsed

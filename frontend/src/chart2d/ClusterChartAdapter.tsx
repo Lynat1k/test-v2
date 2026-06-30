@@ -16,13 +16,13 @@ const BATCH_SIZE = 100;
 const PARALLEL_LIMIT = 3;
 
 const TF_LIMIT: Record<string, number> = {
-  "1m": 500,
-  "5m": 500,
-  "15m": 500,
-  "30m": 400,
-  "1h": 300,
-  "4h": 200,
-  "1d": 200,
+  "1m": 1500,
+  "5m": 1500,
+  "15m": 1500,
+  "30m": 1200,
+  "1h": 1000,
+  "4h": 800,
+  "1d": 800,
 };
 
 export interface ClusterChartAdapterProps {

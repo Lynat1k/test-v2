@@ -45,7 +45,7 @@ export interface ChartSlot {
 const DEFAULT_SLOT: ChartSlot = {
   symbol: 'BTCUSDT',
   market: 'futures',
-  timeframe: '1m',
+  timeframe: '15m',
   candleMode: 'auto',
   palette: 'alternative',
   volumeMode: 'bidask',

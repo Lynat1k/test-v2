@@ -595,7 +595,7 @@ export default function ClusterChart({
   const [candleWidth, setCandleWidth] = useState<number>(145);
   const candleSpacing = Math.max(1, candleWidth < 30 ? Math.floor(candleWidth * 0.35) : 12);
   const margin = { top: 30, right: 66, bottom: 40, left: 60 };
-  const VISIBLE_CANDLES = 100;
+  const VISIBLE_CANDLES = 500;
 
   const candleWidthSpacing = candleWidth + candleSpacing;
   const indexToX = (idx: number) => margin.left + idx * candleWidthSpacing;
