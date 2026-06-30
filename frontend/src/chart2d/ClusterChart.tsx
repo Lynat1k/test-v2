@@ -7,7 +7,7 @@
 import React, { useState, useRef, useEffect, useLayoutEffect, useMemo, useCallback } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import type { ClusterCandle, ClusterCell, CryptoPair, IndicatorSettings, Indicator, OrderBook } from "./types";
-import { ZoomIn, ZoomOut, Maximize2, Compass, Move, Layers, Activity, Eye, EyeOff, Settings, Trash2, Globe, Slash, Minus, Square, Grid3X3, Ruler, Type, BarChart3, Check, ChevronDown, ChevronUp, LayoutGrid, ArrowUpRight, TrendingUp, TrendingDown, Equal } from "lucide-react";
+import { ZoomIn, ZoomOut, Maximize2, Compass, Move, Layers, Activity, Eye, EyeOff, Settings, Trash2, Globe, Slash, Minus, Square, Grid3X3, Ruler, Type, BarChart3, Check, ChevronDown, ChevronUp, ChevronRight, LayoutGrid, ArrowUpRight, TrendingUp, TrendingDown, Equal } from "lucide-react";
 import { Portal } from "@/components/Portal";
 import logoWatermark from "@/assets/images/procluster_logo_1779485281399.png";
 import { storage } from "./lib/storage";
@@ -373,6 +373,9 @@ export default function ClusterChart({
   }, [pushUndo]);
   const [isOverlayLegendCollapsed, setIsOverlayLegendCollapsed] = useState<boolean>(() => {
     return storage.get("chart_overlay_legend_collapsed") === "true";
+  });
+  const [isDrawingPanelCollapsed, setIsDrawingPanelCollapsed] = useState<boolean>(() => {
+    return storage.get("procluster_drawing_panel_collapsed") === "true";
   });
 
   const [volumeSettingsDrawingId, setVolumeSettingsDrawingId] = useState<number | null>(null);
@@ -5878,7 +5881,30 @@ export default function ClusterChart({
           hasDrawings={drawings.length > 0}
           isLight={isLight}
           language={language}
+          isDrawingPanelCollapsed={isDrawingPanelCollapsed}
+          onCollapse={() => { setIsDrawingPanelCollapsed(true); storage.set("procluster_drawing_panel_collapsed", "true"); }}
         />
+
+        {/* Floating Expand Badge for collapsed drawings panel */}
+        {isDrawingPanelCollapsed && (
+          <div
+            onClick={() => { setIsDrawingPanelCollapsed(false); storage.set("procluster_drawing_panel_collapsed", "false"); }}
+            className={`absolute left-0 top-[35%] -translate-y-1/2 z-[40] flex flex-col items-center gap-1 px-1 py-2 sm:py-2.5 rounded-r-lg border-y border-r shadow-2xl backdrop-blur-md cursor-pointer group hover:scale-[1.03] active:scale-95 transition-all select-none ${
+              isLight
+                ? "bg-slate-200/95 hover:bg-slate-200 border-slate-300 text-slate-700 hover:text-slate-900 shadow-slate-300/40"
+                : "bg-slate-950/90 hover:bg-slate-900 border-white/5 text-slate-300 hover:text-white shadow-black/60"
+            }`}
+            title={language === "RU" ? "Развернуть панель инструментов" : "Expand drawing tools panel"}
+          >
+            <ChevronRight className="w-3 h-3 text-amber-500 group-hover:translate-x-0.5 transition-transform shrink-0" />
+            <span
+              className="text-[7.5px] sm:text-[8px] font-mono font-black uppercase tracking-widest my-0.5"
+              style={{ writingMode: "vertical-lr" }}
+            >
+              {language === "RU" ? "РИСОВАНИЕ" : "DRAWINGS"}
+            </span>
+          </div>
+        )}
 
         {/* Main SVG/Zoom Panel */}
         <div

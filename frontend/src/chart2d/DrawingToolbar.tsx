@@ -27,6 +27,7 @@ import {
   Lock,
   LockOpen,
   Trash2,
+  ChevronLeft,
 } from "lucide-react";
 
 // Module-level literal — allocated once, not on every render of the toolbar.
@@ -57,6 +58,8 @@ interface DrawingToolbarProps {
   hasDrawings: boolean;
   isLight: boolean;
   language: "RU" | "EN" | "KZ";
+  isDrawingPanelCollapsed: boolean;
+  onCollapse: () => void;
 }
 
 function DrawingToolbarImpl({
@@ -70,9 +73,15 @@ function DrawingToolbarImpl({
   hasDrawings,
   isLight,
   language,
+  isDrawingPanelCollapsed,
+  onCollapse,
 }: DrawingToolbarProps) {
   return (
-    <div className={`w-11 flex-none flex flex-col items-center py-3 border-r select-none transition-all duration-300 relative z-30 ${
+    <div className={`flex-none flex flex-col items-center select-none transition-all duration-300 relative z-30 ${
+      isDrawingPanelCollapsed
+        ? "w-0 overflow-hidden border-r-0 py-0"
+        : "w-11 py-3 border-r"
+    } ${
       isLight
         ? "bg-white border-slate-200/80 text-slate-600 shadow-sm"
         : "bg-[#06080f]/90 border-white/5 text-slate-300 backdrop-blur-md"
@@ -149,6 +158,19 @@ function DrawingToolbarImpl({
 
       {/* Separator */}
       <div className={`w-6 h-px my-1 ${isLight ? "bg-slate-200" : "bg-white/10"}`} />
+
+      {/* Collapse the whole toolbar — sits above visibility (Eye). Slides the panel
+          to w-0; the floating "DRAWINGS" badge (in ClusterChart) expands it back. */}
+      <button
+        onClick={onCollapse}
+        className={`p-1 sm:p-2 mb-0.5 rounded transition-all duration-150 relative group cursor-pointer shrink-0 ${isLight ? "hover:bg-slate-300/60 text-slate-500 hover:text-slate-900" : "hover:bg-white/5 text-slate-400 hover:text-white"}`}
+        title={language === "RU" ? "Свернуть панель" : "Collapse panel"}
+      >
+        <ChevronLeft className="w-[15px] sm:w-[20px] h-[15px] sm:h-[20px]" />
+        <div className="absolute left-full ml-2 top-1.2 font-sans font-semibold text-[10px] px-2 py-1 rounded bg-slate-950 text-slate-100 border border-white/10 hidden group-hover:block whitespace-nowrap z-50 pointer-events-none shadow-xl">
+          {language === "RU" ? "Свернуть панель инструментов" : "Collapse tools panel"}
+        </div>
+      </button>
 
       {/* Show/Hide drawings */}
       <button

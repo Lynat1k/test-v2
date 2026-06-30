@@ -3,6 +3,21 @@
 > Claude обновляет этот файл в КОНЦЕ каждой задачи. Новые записи — сверху.
 > Формат записи строго по шаблону. Это память между чатами.
 
+### [2026-07-01] feat(frontend): сворачивание панели объектов рисования (кнопка-стрелка + бейдж разворота)
+Панель инструментов рисования (левая боковая, Canvas2D) теперь сворачивается. Эталон вида/размещения — design-src/src/components/ClusterChart.tsx (PROCLUSTER3, только чтение). Поддержаны десктоп и мобила.
+- **`frontend/src/chart2d/DrawingToolbar.tsx`**:
+  - Новые пропсы `isDrawingPanelCollapsed: boolean` и `onCollapse: () => void`; импорт `ChevronLeft` (lucide).
+  - Корневой div: при свёрнутой → `w-0 overflow-hidden border-r-0 py-0`, иначе `w-11 py-3 border-r`; сохранён `transition-all duration-300` (плавный слайд).
+  - Кнопка-стрелка сворачивания (`ChevronLeft`) — НАД кнопкой Eye, сразу после сепаратора (низ панели: ⟨свернуть⟩ → Eye → Lock → Trash), стиль из эталона, подсказка RU «Свернуть панель инструментов» / EN «Collapse tools panel».
+- **`frontend/src/chart2d/ClusterChart.tsx`**:
+  - State `isDrawingPanelCollapsed` с персистом в localStorage `procluster_drawing_panel_collapsed` (по образцу `isOverlayLegendCollapsed`); импорт `ChevronRight`.
+  - На `<DrawingToolbar>` проброшены `isDrawingPanelCollapsed` и `onCollapse` (ставит true + пишет в storage).
+  - Бейдж разворота добавлен ВНУТРЬ рабочей области графика (контейнер `flex-1 flex relative overflow-hidden`, уже relative): `absolute left-0 top-[35%] z-[40]`, вертикальный текст «РИСОВАНИЕ»/«DRAWINGS» + amber `ChevronRight`, по клику разворачивает (false + storage). Рендерится только при свёрнутой.
+
+**Verification:** `npx tsc --noEmit` ✓ (TSC_EXIT=0), `npx vite build` ✓ (built in 645ms, BUILD_EXIT=0; только предсуществующее предупреждение о размере чанка >500kB). Playwright, десктоп 1440×860 И мобила 390×844: стрелка → панель уходит в `w-0`, бейдж «РИСОВАНИЕ» у левого края (~35% высоты); клик/тап по бейджу → панель возвращается (проверено: badgeVisible=false, collapseBtnVisible=true, localStorage=false). Скрины: desktop-initial/collapsed/badge-zoom, mobile-expanded/collapsed. Консольная 401 (auth/refresh, гость) к задаче не относится.
+
+**TODO:** нет.
+
 ### [2026-06-29] indicators(delta): убран свечной режим, режим «минимизировать», фикс сжатия, цвета
 
 - **Контекст**: Дельта-индикатор (подвальная панель) имел режим «свечи» — он масштабировал тело/тени по
