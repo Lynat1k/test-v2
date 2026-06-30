@@ -124,7 +124,6 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/v1/auth/logout", h.handleLogout)
 	mux.HandleFunc("POST /api/v1/auth/refresh", h.handleRefresh)
 	mux.HandleFunc("GET /api/v1/auth/verify-email", h.handleVerifyEmail)
-	mux.HandleFunc("POST /api/v1/auth/resend-verification", RequireAuth(h.cfg)(http.HandlerFunc(h.handleResendVerification)).ServeHTTP)
 	mux.HandleFunc("POST /api/v1/auth/recovery", h.handleRecovery)
 	mux.HandleFunc("GET /api/v1/user/settings", RequireAuth(h.cfg)(http.HandlerFunc(h.handleGetSettings)).ServeHTTP)
 	mux.HandleFunc("PUT /api/v1/user/settings", RequireAuth(h.cfg)(http.HandlerFunc(h.handlePutSettings)).ServeHTTP)
@@ -240,11 +239,8 @@ func (h *Handler) sendVerificationEmail(ctx context.Context, user *User) {
 		return
 	}
 
-	base := strings.TrimRight(h.cfg.AppBaseURL, "/")
-	verifyURL := fmt.Sprintf("%s/verify-email?token=%s", base, ev.ID)
-	if err := h.emailSender.SendVerification(ctx, user.Email, verifyURL); err != nil {
-		log.Printf("[auth] send verification to %s: %v", user.Email, err)
-	}
+	verifyURL := fmt.Sprintf("/api/v1/auth/verify-email?token=%s", ev.ID)
+	h.emailSender.SendVerification(ctx, user.Email, verifyURL)
 }
 
 // --- POST /api/v1/auth/login ---
@@ -445,33 +441,6 @@ func (h *Handler) handleVerifyEmail(w http.ResponseWriter, r *http.Request) {
 
 	writeJSON(w, http.StatusOK, authResponse{OK: true})
 	log.Printf("[auth] email verified for user %s", ev.UserID)
-}
-
-// --- POST /api/v1/auth/resend-verification ---
-
-func (h *Handler) handleResendVerification(w http.ResponseWriter, r *http.Request) {
-	userID := r.Context().Value(UserIDKey).(string)
-
-	if allowed, retryAfter := h.rl.CheckResendVerification(r.Context(), userID); !allowed {
-		w.Header().Set("Retry-After", strconv.Itoa(int(retryAfter.Seconds())+1))
-		writeError(w, http.StatusTooManyRequests, "RATE_LIMITED", "too many requests, try again later")
-		return
-	}
-
-	user, err := GetUserByID(r.Context(), h.db, userID)
-	if err != nil {
-		log.Printf("[auth] resend-verification get user: %v", err)
-		writeError(w, http.StatusInternalServerError, "INTERNAL", "internal error")
-		return
-	}
-	if user.EmailVerified {
-		writeJSON(w, http.StatusOK, authResponse{OK: true})
-		return
-	}
-
-	h.sendVerificationEmail(r.Context(), user)
-	writeJSON(w, http.StatusOK, authResponse{OK: true})
-	log.Printf("[auth] resent verification for user %s", userID)
 }
 
 // --- POST /api/v1/auth/recovery ---

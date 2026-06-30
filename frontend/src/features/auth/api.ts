@@ -86,7 +86,7 @@ export async function apiVerifyEmail(token: string) {
 }
 
 export async function apiResendVerification() {
-  return request<{ ok: boolean }>('/auth/resend-verification', { method: 'POST', body: JSON.stringify({}) })
+  return request<{ ok: boolean }>('/auth/recovery', { method: 'POST', body: JSON.stringify({}) })
 }
 
 export async function apiGetSettings() {
