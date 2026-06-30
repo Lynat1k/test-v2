@@ -5494,21 +5494,35 @@ export default function ClusterChart({
       const bidColorFill = applyOpacity(domColorBid, domOpacity);
       const askColorFill = applyOpacity(domColorAsk, domOpacity);
 
+      // Aggregate raw DOM levels into the same price buckets as the cluster chart compression,
+      // so 1 histogram bar = 1 cluster price step (effectiveStep). Same floor formula as clusters.
+      const aggregate = (rows: { price: number; amount: number }[], step: number): { price: number; amount: number }[] => {
+        if (!(step > 0)) return rows;
+        const m = new Map<number, number>();
+        for (const r of rows) {
+          const b = Math.floor(r.price / step) * step;
+          m.set(b, (m.get(b) || 0) + r.amount);
+        }
+        return Array.from(m.entries()).map(([price, amount]) => ({ price, amount }));
+      };
+      const aggBids = aggregate(orderBook.bids, effectiveStep);
+      const aggAsks = aggregate(orderBook.asks, effectiveStep);
+
       // Determine maximum amount to scale the bars
       let maxAmount = 1;
-      orderBook.bids.forEach(b => { if (b.amount > maxAmount) maxAmount = b.amount; });
-      orderBook.asks.forEach(a => { if (a.amount > maxAmount) maxAmount = a.amount; });
+      aggBids.forEach(b => { if (b.amount > maxAmount) maxAmount = b.amount; });
+      aggAsks.forEach(a => { if (a.amount > maxAmount) maxAmount = a.amount; });
 
       const scaleMaxWidth = domWidthMode === "auto" ? 100 : domMaxWidth;
       const chartRightX = viewportWidth;
 
-      // Price step in pixels
-      const oneTickHeight = Math.abs(priceToY(activePair.price) - priceToY(activePair.price + activePair.priceStep));
+      // Price step in pixels — use the cluster step so bar height matches a cluster row
+      const oneTickHeight = Math.abs(priceToY(activePair.price) - priceToY(activePair.price + effectiveStep));
       const barH = Math.max(1.5, Math.min(18, oneTickHeight - 0.5));
 
-      // Draw Ask limit order levels
-      orderBook.asks.forEach(item => {
-        const y = priceToY(item.price);
+      // Draw Ask limit order levels (bucket price is the lower edge → center on bucket middle)
+      aggAsks.forEach(item => {
+        const y = priceToY(item.price + effectiveStep / 2);
         if (y >= margin.top && y <= margin.top + chartHeight) {
           const barWidth = (item.amount / maxAmount) * scaleMaxWidth;
           
@@ -5525,9 +5539,9 @@ export default function ClusterChart({
         }
       });
 
-      // Draw Bid limit order levels
-      orderBook.bids.forEach(item => {
-        const y = priceToY(item.price);
+      // Draw Bid limit order levels (bucket price is the lower edge → center on bucket middle)
+      aggBids.forEach(item => {
+        const y = priceToY(item.price + effectiveStep / 2);
         if (y >= margin.top && y <= margin.top + chartHeight) {
           const barWidth = (item.amount / maxAmount) * scaleMaxWidth;
 
