@@ -346,9 +346,9 @@ function AppShell() {
             </button>
           </div>
         </div>
-      </header>
 
-      {/* Mobile settings panel */}
+      {/* Mobile settings panel — overlay anchored to <header> (absolute), drops over
+          the chart instead of pushing it down */}
       <AnimatePresence>
         {isMobileSettingsOpen && (
           <motion.div
@@ -356,7 +356,7 @@ function AppShell() {
             animate={{ opacity: 1, height: 'auto' }}
             exit={{ opacity: 0, height: 0 }}
             transition={{ type: 'spring', stiffness: 300, damping: 28 }}
-            className={`lg:hidden border-b z-40 relative backdrop-blur-xl overflow-hidden select-none shadow-2xl transition-all duration-300 ${
+            className={`lg:hidden border-b z-40 absolute top-full left-0 right-0 backdrop-blur-xl overflow-hidden select-none shadow-2xl transition-all duration-300 ${
               isLight
                 ? 'bg-white/95 border-slate-300 text-slate-900'
                 : 'bg-slate-950/95 border-slate-900/60 text-slate-100'
@@ -600,6 +600,7 @@ function AppShell() {
           </motion.div>
         )}
       </AnimatePresence>
+      </header>
 
       {/* Main content */}
       <div className="flex-1 overflow-hidden flex flex-col pt-0 pl-0 pr-0 pb-1 sm:pb-2 gap-1.5 sm:gap-2">
