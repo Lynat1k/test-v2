@@ -13,6 +13,19 @@ export interface FetchBatchOptions {
   parallelLimit: number;
 }
 
+/**
+ * Sliding-window eviction for the timestamp-keyed cluster caches. Drops the oldest
+ * entries (lowest timestamps) once the map exceeds `cap`. No-op while size <= cap, so
+ * ordinary scrolling within the window never pays the sort. Evicted far-history entries
+ * are re-fetched on demand (cache miss → fetch) / re-applied on the next visible-range pass.
+ */
+export function pruneOldest(map: Map<number, unknown>, cap: number): void {
+  if (map.size <= cap) return;
+  const keys = Array.from(map.keys()).sort((a, b) => a - b); // by timestamp, oldest first
+  const removeCount = map.size - cap;
+  for (let i = 0; i < removeCount; i++) map.delete(keys[i]!);
+}
+
 export async function fetchClustersBatchImpl(
   opts: FetchBatchOptions,
 ): Promise<Map<number, ApiClusterRow[]>> {

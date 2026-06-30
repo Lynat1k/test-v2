@@ -4,7 +4,7 @@ import { ChartLoader } from "@/components/ChartLoader";
 import { adapter, apiRowsToCells, mergeLiveUpdate, aggregateLevels, computeValueArea } from "./adapter";
 import type { ClusterCandle, OrderBook } from "./types";
 import type { ApiCandle, ApiClusterRow } from "./adapter";
-import { fetchClustersBatchImpl } from "./clusterCache";
+import { fetchClustersBatchImpl, pruneOldest } from "./clusterCache";
 import type { ClustersChunkResponse } from "./clusterCache";
 import { useLiveChart } from "./useLiveChart";
 import type { LiveChartState } from "./useLiveChart";
@@ -14,6 +14,11 @@ const NOOP = () => {};
 
 const BATCH_SIZE = 100;
 const PARALLEL_LIMIT = 3;
+// Sliding-window cap for the timestamp-keyed cluster caches (clusterCacheRef +
+// appliedLevelsRef). Above max TF_LIMIT (1500) with headroom so ordinary back-scroll
+// stays cached; far history beyond the window is re-fetched on demand. Both maps share
+// the same cap and are pruned at the same points so their windows stay in sync.
+const CLUSTER_CACHE_CAP = 5000;
 
 const TF_LIMIT: Record<string, number> = {
   "1m": 1500,
@@ -225,7 +230,7 @@ export default function ClusterChartAdapter({
   }, [symbol, market, timeframe, compression]);
 
   const fetchClustersBatch = useCallback(async (timestamps: number[]): Promise<Map<number, ApiClusterRow[]>> => {
-    return fetchClustersBatchImpl({
+    const result = await fetchClustersBatchImpl({
       timestamps,
       cache: clusterCacheRef.current,
       batchSize: BATCH_SIZE,
@@ -246,6 +251,8 @@ export default function ClusterChartAdapter({
         return { ok: true, ts };
       },
     });
+    pruneOldest(clusterCacheRef.current, CLUSTER_CACHE_CAP);
+    return result;
   }, [symbol, market, timeframe, priceStep]);
 
   const handleNeedHistory = useCallback(async (oldestTimestamp: number) => {
@@ -277,6 +284,7 @@ export default function ClusterChartAdapter({
       for (const [ts, levels] of clusterMap.entries()) {
         appliedLevelsRef.current.set(ts, levels);
       }
+      pruneOldest(appliedLevelsRef.current, CLUSTER_CACHE_CAP);
       const adapted = adapter(apiCandles, clusterMap);
 
       // Compute addedCount BEFORE setCandles (synchronous, before React batches the update)
@@ -319,19 +327,23 @@ export default function ClusterChartAdapter({
         }
       }
       if (!anyChanged) return;
-      setCandles(prev => prev.map(c => {
-        const levels = clusterMap.get(c.timestamp);
-        if (levels === undefined) return c;
-        if (appliedLevelsRef.current.get(c.timestamp) === levels) return c;
-        appliedLevelsRef.current.set(c.timestamp, levels);
-        const cells = apiRowsToCells(levels);
-        const pocCell = cells.find(cell => cell.isPoc);
-        return {
-          ...c,
-          cells,
-          pocPrice: pocCell ? pocCell.price : (c.open + c.close) / 2,
-        } as ClusterCandle;
-      }));
+      setCandles(prev => {
+        const next = prev.map(c => {
+          const levels = clusterMap.get(c.timestamp);
+          if (levels === undefined) return c;
+          if (appliedLevelsRef.current.get(c.timestamp) === levels) return c;
+          appliedLevelsRef.current.set(c.timestamp, levels);
+          const cells = apiRowsToCells(levels);
+          const pocCell = cells.find(cell => cell.isPoc);
+          return {
+            ...c,
+            cells,
+            pocPrice: pocCell ? pocCell.price : (c.open + c.close) / 2,
+          } as ClusterCandle;
+        });
+        pruneOldest(appliedLevelsRef.current, CLUSTER_CACHE_CAP);
+        return next;
+      });
     });
   }, [fetchClustersBatch]);
 
@@ -375,6 +387,7 @@ export default function ClusterChartAdapter({
           for (const [ts, levels] of clusterMap.entries()) {
             appliedLevelsRef.current.set(ts, levels);
           }
+          pruneOldest(appliedLevelsRef.current, CLUSTER_CACHE_CAP);
           const adapted = adapter(apiCandles, clusterMap);
           setCandles(adapted);
         }
