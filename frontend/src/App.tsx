@@ -13,7 +13,6 @@ import { DrawingDefaultsProvider } from '@/contexts/DrawingDefaultsContext'
 import { LoginModal } from '@/features/auth/LoginModal'
 import { RegisterModal } from '@/features/auth/RegisterModal'
 import { VerifyEmailBanner } from '@/features/auth/VerifyEmailBanner'
-import { VerifyEmailPage } from '@/features/auth/VerifyEmailPage'
 import { ChartContainer } from '@/components/ChartContainer'
 import { ChartPanel } from '@/components/ChartPanel'
 import { ChartContainer2 } from '@/chart2d/ChartContainer2'
@@ -38,6 +37,7 @@ const AdminPanel = lazy(() => import('@/components/AdminPanel').then(m => ({ def
 const UserProfile = lazy(() => import('@/components/UserProfile').then(m => ({ default: m.UserProfile })))
 const IndicatorsModal = lazy(() => import('@/components/IndicatorsModal'))
 const RoadmapModal = lazy(() => import('@/components/RoadmapModal'))
+const VerifyEmailPage = lazy(() => import('@/features/auth/VerifyEmailPage').then(m => ({ default: m.VerifyEmailPage })))
 
 type View = 'terminal' | 'admin' | 'profile'
 
@@ -940,14 +940,16 @@ function AppShell() {
 }
 
 export default function App() {
-  const isVerifyEmailRoute = typeof window !== 'undefined' && window.location.pathname === '/verify-email'
+  const isVerifyEmailRoute = typeof window !== 'undefined' && window.location.hash.startsWith('#/verify-email')
 
   if (isVerifyEmailRoute) {
     return (
       <ThemeProvider>
         <I18nProvider>
           <AuthProvider>
-            <VerifyEmailPage />
+            <Suspense fallback={null}>
+              <VerifyEmailPage />
+            </Suspense>
           </AuthProvider>
         </I18nProvider>
       </ThemeProvider>

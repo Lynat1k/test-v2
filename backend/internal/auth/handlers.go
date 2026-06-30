@@ -241,7 +241,7 @@ func (h *Handler) sendVerificationEmail(ctx context.Context, user *User) {
 	}
 
 	base := strings.TrimRight(h.cfg.AppBaseURL, "/")
-	verifyURL := fmt.Sprintf("%s/verify-email?token=%s", base, ev.ID)
+	verifyURL := fmt.Sprintf("%s/#/verify-email?token=%s", base, ev.ID)
 	if err := h.emailSender.SendVerification(ctx, user.Email, verifyURL); err != nil {
 		log.Printf("[auth] send verification to %s: %v", user.Email, err)
 	}

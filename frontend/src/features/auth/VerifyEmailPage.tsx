@@ -19,7 +19,9 @@ export function VerifyEmailPage() {
   const [resendState, setResendState] = useState<'idle' | 'sending' | 'sent' | 'error'>('idle')
 
   useEffect(() => {
-    const params = new URLSearchParams(window.location.search)
+    const hash = window.location.hash // "#/verify-email?token=xxx"
+    const qIndex = hash.indexOf('?')
+    const params = new URLSearchParams(qIndex >= 0 ? hash.slice(qIndex + 1) : '')
     const token = params.get('token') ?? ''
     if (!token) {
       setStatus('error')
@@ -41,6 +43,7 @@ export function VerifyEmailPage() {
   }, [])
 
   const handleContinue = useCallback(() => {
+    window.location.hash = ''
     window.location.href = '/'
   }, [])
 
