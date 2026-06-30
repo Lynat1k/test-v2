@@ -22,6 +22,13 @@ type AuthConfig struct {
 	GoogleClientID       string
 	GoogleClientSecret   string
 
+	SMTPHost     string
+	SMTPPort     int
+	SMTPUsername string
+	SMTPPassword string
+	SMTPFrom     string
+	AppBaseURL   string
+
 	RateLimitWindow      time.Duration
 	RateLimitLoginMax    int
 	RateLimitRegisterMax int
@@ -58,6 +65,13 @@ func LoadAuthConfig() AuthConfig {
 		GoogleOAuthEnabled:   getEnv("GOOGLE_OAUTH_ENABLED", "false") == "true",
 		GoogleClientID:       os.Getenv("GOOGLE_CLIENT_ID"),
 		GoogleClientSecret:   os.Getenv("GOOGLE_CLIENT_SECRET"),
+
+		SMTPHost:     os.Getenv("SMTP_HOST"),
+		SMTPPort:     parseIntEnv("SMTP_PORT", 587),
+		SMTPUsername: os.Getenv("SMTP_USERNAME"),
+		SMTPPassword: os.Getenv("SMTP_PASSWORD"),
+		SMTPFrom:     os.Getenv("SMTP_FROM"),
+		AppBaseURL:   getEnv("APP_BASE_URL", "http://localhost:5173"),
 
 		RateLimitWindow:      parseDuration("5m", 5*time.Minute),
 		RateLimitLoginMax:    parseIntEnv("RATE_LIMIT_LOGIN_MAX", 10),

@@ -66,6 +66,15 @@ func (a *AuthRateLimiter) CheckRecovery(ctx context.Context, email string) (allo
 	return true, 0
 }
 
+// CheckResendVerification: same budget as recovery (3/window by default), keyed by user.
+func (a *AuthRateLimiter) CheckResendVerification(ctx context.Context, userID string) (allowed bool, retryAfter time.Duration) {
+	key := "rl:resend-verify:" + userID
+	if !a.slidingWindowKey(ctx, key, a.cfg.RateLimitRecoveryMax, a.cfg.RateLimitWindow) {
+		return false, a.windowTTL(ctx, key)
+	}
+	return true, 0
+}
+
 // RecordLoginFailure increments the failure counter for a user.
 // Returns (isLocked, remainingDelay).
 func (a *AuthRateLimiter) RecordLoginFailure(ctx context.Context, userID string) (isLocked bool, remainingDelay time.Duration) {
