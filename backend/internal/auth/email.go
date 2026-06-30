@@ -3,6 +3,7 @@ package auth
 import (
 	"context"
 	"crypto/tls"
+	_ "embed"
 	"encoding/base64"
 	"fmt"
 	"html"
@@ -12,6 +13,15 @@ import (
 	"strings"
 	"time"
 )
+
+//go:embed logo.png
+var logoPNG []byte
+
+// logoDataURL — лого PROCLUSTER, вшитое в бинарь (//go:embed) и закодированное
+// как data:image/png;base64,… для <img src> в письме. Считается один раз при
+// инициализации пакета. Так письмо самодостаточно: НИКАКИХ файлов во frontend/
+// public (они ломали Vite-манифест на проде) и внешних URL логотипа.
+var logoDataURL = "data:image/png;base64," + base64.StdEncoding.EncodeToString(logoPNG)
 
 type EmailSender interface {
 	SendVerification(ctx context.Context, to, verifyURL string) error
@@ -116,24 +126,114 @@ func (s *SMTPEmailSender) send(addr, from, to string, msg []byte) error {
 	return nil
 }
 
+// verifyEmailHTMLTemplate — брендированное письмо подтверждения email в стиле
+// PROCLUSTER. Email-safe: table-layout, inline-стили, bulletproof VML-кнопка для
+// Outlook, preheader, web-safe шрифты. Логотип встроен data-URL'ом (см.
+// logoDataURL) — внешних картинок и файлов во frontend/ нет. Плейсхолдеры
+// {{LOGO_DATA_URL}} и {{VERIFY_URL}} подставляются через strings.ReplaceAll
+// (VERIFY_URL уже прошёл html.EscapeString). НЕ использовать fmt — в CSS есть '%'.
+const verifyEmailHTMLTemplate = `<!doctype html>
+<html lang="ru" xmlns="http://www.w3.org/1999/xhtml" xmlns:v="urn:schemas-microsoft-com:vml" xmlns:o="urn:schemas-microsoft-com:office:office">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta http-equiv="X-UA-Compatible" content="IE=edge">
+<title>PROCLUSTER — подтверждение email</title>
+<!--[if mso]>
+<noscript><xml><o:OfficeDocumentSettings><o:PixelsPerInch>96</o:PixelsPerInch></o:OfficeDocumentSettings></xml></noscript>
+<![endif]-->
+<style>
+  body,table,td,a{-webkit-text-size-adjust:100%;-ms-text-size-adjust:100%;}
+  table,td{mso-table-lspace:0pt;mso-table-rspace:0pt;}
+  img{-ms-interpolation-mode:bicubic;border:0;height:auto;line-height:100%;outline:none;text-decoration:none;}
+  table{border-collapse:collapse!important;}
+  body{margin:0!important;padding:0!important;width:100%!important;height:100%!important;background:#0b0f17;}
+  a{color:#fbbf24;text-decoration:none;}
+  @media only screen and (max-width:600px){
+    .pc-container{width:100%!important;}
+    .pc-card{padding:30px 22px!important;}
+  }
+</style>
+</head>
+<body style="margin:0;padding:0;background:#0b0f17;">
+<div style="display:none;max-height:0;overflow:hidden;mso-hide:all;font-size:1px;line-height:1px;color:#0b0f17;opacity:0;">Подтвердите email, чтобы начать пользоваться PROCLUSTER&#8203;&#847;&#847;&#847;&#847;&#847;&#847;&#847;&#847;&#847;&#847;&#847;&#847;&#847;&#847;&#847;&#847;&#847;&#847;&#847;&#847;</div>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#0b0f17;">
+  <tr>
+    <td align="center" style="padding:32px 12px;">
+      <table role="presentation" class="pc-container" width="600" cellpadding="0" cellspacing="0" border="0" style="width:600px;max-width:600px;margin:0 auto;">
+        <tr>
+          <td align="center" style="padding:6px 0 26px 0;">
+            <img src="{{LOGO_DATA_URL}}" width="150" alt="PROCLUSTER" style="display:block;width:150px;max-width:150px;height:auto;border:0;outline:none;text-decoration:none;">
+          </td>
+        </tr>
+        <tr>
+          <td class="pc-card" style="background:#111827;border:1px solid #1f2937;border-radius:16px;padding:38px 40px;">
+            <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+              <tr>
+                <td style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;font-size:24px;line-height:1.3;font-weight:700;color:#ffffff;padding:0 0 14px 0;">Подтвердите email</td>
+              </tr>
+              <tr>
+                <td style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;font-size:15px;line-height:1.6;color:#9ca3af;padding:0 0 28px 0;">Спасибо за регистрацию в PROCLUSTER. Чтобы активировать аккаунт, нажмите кнопку ниже.</td>
+              </tr>
+              <tr>
+                <td style="padding:0 0 26px 0;">
+                  <!--[if mso]>
+                  <v:roundrect xmlns:v="urn:schemas-microsoft-com:vml" xmlns:w="urn:schemas-microsoft-com:office:word" href="{{VERIFY_URL}}" style="height:50px;v-text-anchor:middle;width:236px;" arcsize="20%" stroke="f" fillcolor="#f59e0b">
+                  <w:anchorlock/>
+                  <center style="color:#111827;font-family:'Segoe UI',Arial,sans-serif;font-size:16px;font-weight:bold;">Подтвердить email</center>
+                  </v:roundrect>
+                  <![endif]-->
+                  <!--[if !mso]><!-->
+                  <a href="{{VERIFY_URL}}" style="display:inline-block;background:#f59e0b;color:#111827;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;font-size:16px;font-weight:700;line-height:1.2;text-decoration:none;padding:14px 28px;border-radius:10px;">Подтвердить email</a>
+                  <!--<![endif]-->
+                </td>
+              </tr>
+              <tr>
+                <td style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;font-size:13px;line-height:1.5;color:#6b7280;padding:0 0 6px 0;">Если кнопка не работает, скопируйте ссылку в браузер:</td>
+              </tr>
+              <tr>
+                <td style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;font-size:13px;line-height:1.6;color:#9ca3af;word-break:break-all;padding:0 0 28px 0;"><a href="{{VERIFY_URL}}" style="color:#fbbf24;text-decoration:underline;word-break:break-all;">{{VERIFY_URL}}</a></td>
+              </tr>
+              <tr>
+                <td style="border-top:1px solid #1f2937;font-size:0;line-height:0;height:1px;">&nbsp;</td>
+              </tr>
+              <tr>
+                <td style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;font-size:12px;line-height:1.6;color:#6b7280;padding:22px 0 0 0;">Срок действия ссылки — 24 часа. Если вы не регистрировались — просто проигнорируйте это письмо.</td>
+              </tr>
+            </table>
+          </td>
+        </tr>
+        <tr>
+          <td align="center" style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;font-size:12px;line-height:1.7;color:#6b7280;padding:26px 16px 6px 16px;">
+            © 2026 PROCLUSTER<br>
+            <a href="https://chart.procluster.online" style="color:#9ca3af;text-decoration:underline;">chart.procluster.online</a>
+          </td>
+        </tr>
+      </table>
+    </td>
+  </tr>
+</table>
+</body>
+</html>`
+
 func buildVerificationMessage(from, to, verifyURL string) []byte {
 	boundary := "pc_boundary_" + strconv.FormatInt(time.Now().UnixNano(), 36)
 	subject := "PROCLUSTER — подтверждение email"
 
-	plain := "Здравствуйте!\r\n\r\n" +
-		"Подтвердите ваш email, перейдя по ссылке:\r\n" +
+	plain := "PROCLUSTER\r\n\r\n" +
+		"Подтвердите email\r\n\r\n" +
+		"Спасибо за регистрацию в PROCLUSTER. Чтобы активировать аккаунт,\r\n" +
+		"перейдите по ссылке:\r\n\r\n" +
 		verifyURL + "\r\n\r\n" +
-		"Если вы не регистрировались — проигнорируйте это письмо.\r\n"
+		"Срок действия ссылки — 24 часа.\r\n" +
+		"Если вы не регистрировались — просто проигнорируйте это письмо.\r\n\r\n" +
+		"© 2026 PROCLUSTER\r\n" +
+		"chart.procluster.online\r\n"
 
 	safeURL := html.EscapeString(verifyURL)
-	htmlBody := `<!doctype html><html><body style="margin:0;padding:24px;background:#0b1220;font-family:-apple-system,Segoe UI,Roboto,sans-serif;color:#e5e7eb">
-<div style="max-width:480px;margin:0 auto;background:#111827;border:1px solid #1f2937;border-radius:16px;padding:28px">
-<h2 style="margin:0 0 12px 0;color:#fff;font-size:18px">Подтвердите email</h2>
-<p style="margin:0 0 18px 0;color:#9ca3af;font-size:14px;line-height:1.5">Нажмите кнопку, чтобы подтвердить ваш адрес.</p>
-<p style="margin:0 0 18px 0"><a href="` + safeURL + `" style="display:inline-block;background:#f59e0b;color:#111827;text-decoration:none;padding:10px 18px;border-radius:10px;font-weight:700;font-size:14px">Подтвердить email</a></p>
-<p style="margin:0 0 6px 0;color:#6b7280;font-size:12px">Если кнопка не работает — откройте ссылку:</p>
-<p style="margin:0;color:#9ca3af;font-size:12px;word-break:break-all"><a href="` + safeURL + `" style="color:#fbbf24">` + safeURL + `</a></p>
-</div></body></html>`
+	htmlBody := verifyEmailHTMLTemplate
+	htmlBody = strings.ReplaceAll(htmlBody, "{{LOGO_DATA_URL}}", logoDataURL)
+	htmlBody = strings.ReplaceAll(htmlBody, "{{VERIFY_URL}}", safeURL)
 
 	var b strings.Builder
 	b.WriteString("From: " + from + "\r\n")
