@@ -326,6 +326,35 @@ export default function ClusterChart({
   const [areDrawingsVisible, setAreDrawingsVisible] = useState<boolean>(() => {
     try { return storage.get("procluster_drawings_visible") !== "false" } catch { return true }
   });
+
+  // Undo (Ctrl+Z) for the drawings list. drawingsRef mirrors the latest drawings
+  // so pushUndo() can snapshot synchronously without threading `drawings` through
+  // deps. drawingInProgressRef does the same for the keydown Esc handler.
+  const drawingsRef = useRef(drawings);
+  useEffect(() => { drawingsRef.current = drawings; }, [drawings]);
+  const drawingInProgressRef = useRef(drawingInProgress);
+  useEffect(() => { drawingInProgressRef.current = drawingInProgress; }, [drawingInProgress]);
+  const undoStackRef = useRef<any[][]>([]);
+  const pushUndo = useCallback(() => {
+    undoStackRef.current.push(structuredClone(drawingsRef.current));
+    if (undoStackRef.current.length > 50) undoStackRef.current.shift();
+  }, []);
+
+  // Lock objects: blocks move / resize / delete of existing drawings. Drawing new
+  // ones stays allowed. Persisted like areDrawingsVisible. A ref mirror lets the
+  // stable clear-all / keydown handlers read it without dep churn.
+  const [drawingsLocked, setDrawingsLocked] = useState<boolean>(() => {
+    try { return storage.get("procluster_drawings_locked") === "true" } catch { return false }
+  });
+  useEffect(() => {
+    try { storage.set("procluster_drawings_locked", String(drawingsLocked)); } catch {}
+  }, [drawingsLocked]);
+  const drawingsLockedRef = useRef(drawingsLocked);
+  useEffect(() => { drawingsLockedRef.current = drawingsLocked; }, [drawingsLocked]);
+  const onToggleLock = useCallback(() => {
+    setDrawingsLocked(prev => !prev);
+  }, []);
+
   // Branch A step 1: stable callbacks for the memoized DrawingToolbar — functional
   // setState updaters mean these never need to be recreated, so React.memo never
   // breaks on reference identity.
@@ -337,9 +366,11 @@ export default function ClusterChart({
     });
   }, []);
   const onClearAllDrawings = useCallback(() => {
+    if (drawingsLockedRef.current) return;
+    pushUndo();
     setDrawings([]);
     setSelectedDrawingId(null);
-  }, []);
+  }, [pushUndo]);
   const [isOverlayLegendCollapsed, setIsOverlayLegendCollapsed] = useState<boolean>(() => {
     return storage.get("chart_overlay_legend_collapsed") === "true";
   });
@@ -555,8 +586,27 @@ export default function ClusterChart({
         return;
       }
 
-      if ((e.key === "Delete" || e.key === "Backspace") && selectedDrawingId !== null) {
+      // Esc: cancel an in-progress drawing (2-click mode leaves it pending).
+      if (e.key === "Escape" && drawingInProgressRef.current) {
+        setDrawingInProgress(null);
+        setActiveDrawingTool(null);
+        return;
+      }
+
+      // Ctrl/Cmd+Z: undo the last change to the drawings list.
+      if ((e.ctrlKey || e.metaKey) && e.code === "KeyZ") {
         e.preventDefault();
+        const snap = undoStackRef.current.pop();
+        if (snap) {
+          setDrawings(snap);
+          setSelectedDrawingId(null);
+        }
+        return;
+      }
+
+      if ((e.key === "Delete" || e.key === "Backspace") && selectedDrawingId !== null && !drawingsLockedRef.current) {
+        e.preventDefault();
+        pushUndo();
         setDrawings(prev => prev.filter(d => d.id !== selectedDrawingId));
         setSelectedDrawingId(null);
       }
@@ -566,7 +616,7 @@ export default function ClusterChart({
     return () => {
       window.removeEventListener("keydown", handleKeyDown);
     };
-  }, [selectedDrawingId]);
+  }, [selectedDrawingId, pushUndo]);
 
   const formatTimezoneString = (timestamp: number, isHovered: boolean) => {
     const date = new Date(timestamp);
@@ -1692,22 +1742,57 @@ export default function ClusterChart({
           const scrollRelativeX = clickX + visibleScrollLeft;
           const price = yToPrice(clickY);
 
-          if (drawingInProgress && drawingInProgress.type === "channel" && drawingInProgress.stage === 2) {
-            // COMPLETE THE CHANNEL DRAWING!
-            const cursorTs = xToTs(scrollRelativeX);
-            const sTs = drawingInProgress.startTs;
-            const eTs = drawingInProgress.endTs;
-            const baselinePriceAtX = drawingInProgress.startPrice + (drawingInProgress.endPrice - drawingInProgress.startPrice) *
-              (eTs === sTs ? 0 : (cursorTs - sTs) / (eTs - sTs));
-            const finalOffsetPrice = price - baselinePriceAtX;
-            
-            const finalDrawing = {
-              ...drawingInProgress,
-              offsetPrice: finalOffsetPrice,
-              stage: undefined
-            };
-            
-            setDrawings(prev => [...prev, finalDrawing]);
+          // FEATURE 1: 2-click drawing — the second click finalizes (or advances)
+          // the in-progress object. mousemove already drives the live preview, so
+          // finalization no longer waits for mouseup.
+          if (drawingInProgress) {
+            if (drawingInProgress.type === "channel" && drawingInProgress.stage === 2) {
+              // COMPLETE THE CHANNEL DRAWING!
+              const cursorTs = xToTs(scrollRelativeX);
+              const sTs = drawingInProgress.startTs;
+              const eTs = drawingInProgress.endTs;
+              const baselinePriceAtX = drawingInProgress.startPrice + (drawingInProgress.endPrice - drawingInProgress.startPrice) *
+                (eTs === sTs ? 0 : (cursorTs - sTs) / (eTs - sTs));
+              const finalOffsetPrice = price - baselinePriceAtX;
+
+              const finalDrawing = {
+                ...drawingInProgress,
+                offsetPrice: finalOffsetPrice,
+                stage: undefined
+              };
+
+              pushUndo();
+              setDrawings(prev => [...prev, finalDrawing]);
+              setDrawingInProgress(null);
+              setActiveDrawingTool(null);
+              return;
+            }
+
+            if (drawingInProgress.type === "channel" && drawingInProgress.stage === 1) {
+              // Second click sets the baseline end and moves to stage 2 (offset drag).
+              const endTsAtClick = xToTs(scrollRelativeX);
+              setDrawingInProgress(prev => prev ? { ...prev, endTs: endTsAtClick, endPrice: price, stage: 2 } : null);
+              return;
+            }
+
+            if (drawingInProgress.type === "text") {
+              setTextInputModal({
+                id: drawingInProgress.id,
+                startTs: drawingInProgress.startTs,
+                startPrice: drawingInProgress.startPrice,
+                endTs: xToTs(scrollRelativeX),
+                endPrice: price,
+              });
+              setTextInputValue("");
+              setDrawingInProgress(null);
+              setActiveDrawingTool(null);
+              return;
+            }
+
+            // All other shapes: finalize with this click as the end anchor.
+            // Inherited settings are already baked into drawingInProgress at creation.
+            pushUndo();
+            setDrawings(prev => [...prev, { ...drawingInProgress, endTs: xToTs(scrollRelativeX), endPrice: price }]);
             setDrawingInProgress(null);
             setActiveDrawingTool(null);
             return;
@@ -1725,6 +1810,7 @@ export default function ClusterChart({
               endPrice: price,
               text: "",
             };
+            pushUndo();
             setDrawings(prev => [...prev, newDrawing]);
             setActiveDrawingTool(null); // Reset drawing tool after placement
           } else {
@@ -1757,7 +1843,7 @@ export default function ClusterChart({
     }
 
     // If not drawing, check if click hit a drawing or handle to drag/select it
-    if (!activeDrawingTool && areDrawingsVisible && canvasRef.current) {
+    if (!activeDrawingTool && areDrawingsVisible && !drawingsLocked && canvasRef.current) {
       const rect = canvasRef.current.getBoundingClientRect();
       const clickX = e.clientX - rect.left;
       const clickY = e.clientY - rect.top;
@@ -1911,6 +1997,8 @@ export default function ClusterChart({
           setSelectedDrawingId(foundDrawingId);
           const d = drawings.find(item => item.id === foundDrawingId);
           if (d) {
+            // One undo snapshot per move/resize gesture, taken before the drag begins.
+            pushUndo();
             setDrawingDragState({
               id: foundDrawingId,
               type: foundHandleIdx !== null ? "handle" : "move",
@@ -2138,43 +2226,8 @@ export default function ClusterChart({
   };
 
   const handleMouseUpOrLeave = () => {
-    if (drawingInProgress) {
-      if (drawingInProgress.type === "channel" && drawingInProgress.stage === 1) {
-        // Transition to stage 2!
-        setDrawingInProgress(prev => {
-          if (!prev) return null;
-          return {
-            ...prev,
-            stage: 2
-          };
-        });
-        return;
-      }
-
-      if (drawingInProgress.type === "text") {
-        setTextInputModal({
-          id: drawingInProgress.id,
-          startTs: drawingInProgress.startTs,
-          startPrice: drawingInProgress.startPrice,
-          endTs: drawingInProgress.endTs,
-          endPrice: drawingInProgress.endPrice,
-        });
-        setTextInputValue("");
-      } else {
-        // Phase 14 Step 1: bake inherited settings into the new drawing at creation time
-        let inherited: Record<string, unknown> = {};
-        if (drawingInProgress.type === "volume") {
-          inherited = { volColor: volProfileGlobalSettings.volColor, pocColor: volProfileGlobalSettings.pocColor, opacity: volProfileGlobalSettings.opacity, extendPoc: volProfileGlobalSettings.extendPoc };
-        } else if (drawingInProgress.type === "long" || drawingInProgress.type === "short") {
-          inherited = { deposit: positionGlobalSettings.deposit, risk: positionGlobalSettings.risk, riskType: positionGlobalSettings.riskType, colorTarget: positionGlobalSettings.colorTarget, colorStop: positionGlobalSettings.colorStop, opacity: positionGlobalSettings.opacity, fontSize: positionGlobalSettings.fontSize, makerFee: positionGlobalSettings.makerFee, takerFee: positionGlobalSettings.takerFee, entryFeeType: positionGlobalSettings.entryFeeType, exitFeeType: positionGlobalSettings.exitFeeType };
-        }
-        setDrawings(prev => [...prev, { ...drawingInProgress, ...inherited }]);
-      }
-      setDrawingInProgress(null);
-      setActiveDrawingTool(null); // Reset tool after drawing
-      return;
-    }
-
+    // FEATURE 1: mouseup no longer finalizes drawings — the second mousedown does
+    // (see handleMouseDown). Here we only end a drag gesture / reset the pan.
     if (drawingDragState) {
       setDrawingDragState(null);
       return;
@@ -5820,6 +5873,8 @@ export default function ClusterChart({
           areDrawingsVisible={areDrawingsVisible}
           onToggleDrawingsVisibility={onToggleDrawingsVisibility}
           onClearAllDrawings={onClearAllDrawings}
+          drawingsLocked={drawingsLocked}
+          onToggleLock={onToggleLock}
           hasDrawings={drawings.length > 0}
           isLight={isLight}
           language={language}
@@ -7368,6 +7423,7 @@ export default function ClusterChart({
               <button
                 onClick={() => {
                   if (textInputValue.trim()) {
+                    pushUndo();
                     setDrawings(prev => [
                       ...prev,
                       {

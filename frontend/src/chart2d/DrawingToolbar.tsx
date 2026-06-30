@@ -24,6 +24,8 @@ import {
   TrendingDown,
   Eye,
   EyeOff,
+  Lock,
+  LockOpen,
   Trash2,
 } from "lucide-react";
 
@@ -48,6 +50,8 @@ interface DrawingToolbarProps {
   areDrawingsVisible: boolean;
   onToggleDrawingsVisibility: () => void;
   onClearAllDrawings: () => void;
+  drawingsLocked: boolean;
+  onToggleLock: () => void;
   // Pass a boolean instead of the drawings array — otherwise every setDrawings
   // would change the reference and defeat React.memo.
   hasDrawings: boolean;
@@ -61,6 +65,8 @@ function DrawingToolbarImpl({
   areDrawingsVisible,
   onToggleDrawingsVisibility,
   onClearAllDrawings,
+  drawingsLocked,
+  onToggleLock,
   hasDrawings,
   isLight,
   language,
@@ -166,8 +172,32 @@ function DrawingToolbarImpl({
         </div>
       </button>
 
-      {/* Delete drawings option at the bottom */}
-      {hasDrawings && (
+      {/* Lock / unlock object editing — mirrors the visibility toggle: amber when
+          active (locked). Blocks move/resize/delete; drawing new objects stays on. */}
+      <button
+        onClick={onToggleLock}
+        className={`p-2 rounded-lg transition-all duration-150 relative group cursor-pointer ${
+          drawingsLocked
+            ? "bg-amber-500/10 text-amber-500 border border-amber-500/25"
+            : isLight
+              ? "hover:bg-slate-100 text-slate-600 hover:text-slate-900 border border-transparent"
+              : "hover:bg-white/5 text-slate-400 hover:text-white border border-transparent"
+        }`}
+        title={language === "RU" ? "Заблокировать объекты" : "Lock drawings"}
+      >
+        {drawingsLocked ? (
+          <Lock className="w-4 h-4" />
+        ) : (
+          <LockOpen className="w-4 h-4" />
+        )}
+        <div className={`absolute left-full ml-2 top-1.2 font-sans font-semibold text-[10px] px-2 py-1 rounded bg-slate-950 text-slate-100 border border-white/10 hidden group-hover:block whitespace-nowrap z-50 pointer-events-none shadow-xl`}>
+          {language === "RU" ? "Заблокировать объекты" : "Lock drawings"}
+        </div>
+      </button>
+
+      {/* Delete drawings option at the bottom — hidden while locked so clear-all
+          can't bypass the lock. */}
+      {hasDrawings && !drawingsLocked && (
         <button
           onClick={onClearAllDrawings}
           className={`p-2 rounded-lg transition-all duration-150 relative group cursor-pointer ${
