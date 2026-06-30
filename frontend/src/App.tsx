@@ -13,6 +13,7 @@ import { DrawingDefaultsProvider } from '@/contexts/DrawingDefaultsContext'
 import { LoginModal } from '@/features/auth/LoginModal'
 import { RegisterModal } from '@/features/auth/RegisterModal'
 import { VerifyEmailBanner } from '@/features/auth/VerifyEmailBanner'
+import { VerifyEmailPage } from '@/features/auth/VerifyEmailPage'
 import { ChartContainer } from '@/components/ChartContainer'
 import { ChartPanel } from '@/components/ChartPanel'
 import { ChartContainer2 } from '@/chart2d/ChartContainer2'
@@ -939,6 +940,20 @@ function AppShell() {
 }
 
 export default function App() {
+  const isVerifyEmailRoute = typeof window !== 'undefined' && window.location.pathname === '/verify-email'
+
+  if (isVerifyEmailRoute) {
+    return (
+      <ThemeProvider>
+        <I18nProvider>
+          <AuthProvider>
+            <VerifyEmailPage />
+          </AuthProvider>
+        </I18nProvider>
+      </ThemeProvider>
+    )
+  }
+
   return (
     <ThemeProvider>
       <I18nProvider>
