@@ -45,6 +45,14 @@ export function DOMSidebar({ collapsed, fngCollapsed, onToggleFng }: DOMSidebarP
     ? levels
     : aggregateDOMLevels(levels, activeStep)
 
+  // Render window: only draw levels within ±3% of the last price. This trims the
+  // number of rendered rows (the raw `levels` from useDOM and the backend-driven
+  // bid/ask ratio are untouched). Before the first price arrives, render everything
+  // so the ladder is not blank.
+  const windowedLevels = lastPrice > 0
+    ? displayLevels.filter(l => l.priceLevel >= lastPrice * 0.97 && l.priceLevel <= lastPrice * 1.03)
+    : displayLevels
+
   const [dropdownOpen, setDropdownOpen] = useState(false)
   const dropdownRef = useRef<HTMLDivElement>(null)
 
@@ -134,7 +142,7 @@ export function DOMSidebar({ collapsed, fngCollapsed, onToggleFng }: DOMSidebarP
           </div>
 
           <div className="flex-1 min-h-0">
-            <OrderBookTable levels={displayLevels} lastPrice={lastPrice} />
+            <OrderBookTable levels={windowedLevels} lastPrice={lastPrice} />
           </div>
         </div>
       )}
