@@ -3,6 +3,14 @@
 > Claude обновляет этот файл в КОНЦЕ каждой задачи. Новые записи — сверху.
 > Формат записи строго по шаблону. Это память между чатами.
 
+### [2026-07-01] fix(frontend): фетч OI — расширен на Buy/Sell Zone (вес Net OI без индикатора)
+Вес Net OI в Buy/Sell Zone не работал без включённого индикатора Net OI: фетч OI гейтился только по `netOiActive` → `netOiData` пуст → `netScore=null` → компонент выпадал. Теперь OI грузится и когда активен Buy/Sell Zone.
+- **`frontend/src/chart2d/ClusterChart.tsx`** (useEffect фетча OI, ~стр. 3499) — условие `if (!netOiActive || !isFuturesMarket)` → `if ((!netOiActive && !buySellZoneActive) || !isFuturesMarket)`; в deps добавлен `buySellZoneActive`. Больше ничего не тронуто.
+
+**Verification:** `npx tsc --noEmit` ✓ (TSC_OK), `npx vite build` ✓ (только предсуществующее предупреждение >500kB). Живой визуал — пользователь: выключить индикатор Net OI, оставить только Buy/Sell Zone на BTCUSDT futures (история OI загружена) → вес Net OI 0 vs 1 влияет на линию.
+
+**TODO:** нет.
+
 ### [2026-07-01] fix(frontend): netScore в Buy/Sell Zone — z-score вместо абсолютного ratio
 Прошлая формула `netScore = 50·(1+(ns−nl)/(|nl|+|ns|))` из абсолютных накопленных `nlPct/nsPct` у активов с постоянным перекосом (NS всегда > NL по уровню) давала почти константу → при весе Net OI = 1 линия равномерно уезжала, локальной связи не было. Теперь считается как остальные позиционные компоненты — через `zToScale` (снимает постоянный сдвиг, оставляет локальное отклонение от нормы).
 - **`frontend/src/chart2d/ClusterChart.tsx`** (мемо `buySellZonePoints`) — рядом с `lsrArr` построен разрежённый ряд `netDomArr = nlPct − nsPct` из `bsZoneNetPoints` (высокое = лонги перевешивают; null где нет OI). Блок `netScore` заменён на `const netZ = zToScale(netDomArr, bsZoneLsZlen, i); netScore = netZ == null ? null : 100 − netZ;` — зеркалит `lsScore`. Старая формула с `sum`/`ratio` удалена (мёртвого кода нет). `bsZoneNetPoints` (полная история) не тронут — питает `netDomArr`. Влитие в среднее и deps без изменений (`bsZoneLsZlen`/`bsZoneNetPoints` уже были).

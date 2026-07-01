@@ -3497,7 +3497,7 @@ export default function ClusterChart({
   const netOiActive = !!activeIndicators.netOpenInterest;
 
   useEffect(() => {
-    if (!netOiActive || !isFuturesMarket) {
+    if ((!netOiActive && !buySellZoneActive) || !isFuturesMarket) {
       setNetOiData([]);
       return;
     }
@@ -3508,7 +3508,7 @@ export default function ClusterChart({
       .then((pts) => { if (!cancelled) setNetOiData(pts); })
       .catch(() => { if (!cancelled) setNetOiData([]); });
     return () => { cancelled = true; };
-  }, [netOiActive, isFuturesMarket, activePair.symbol, timeframe, candleMinTs, candleMaxTs, accessToken]);
+  }, [netOiActive, buySellZoneActive, isFuturesMarket, activePair.symbol, timeframe, candleMinTs, candleMaxTs, accessToken]);
 
   const netOiOiMap = useMemo(() => {
     const m = new Map<number, OpenInterestPoint>();
