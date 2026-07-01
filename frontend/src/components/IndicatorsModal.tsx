@@ -2005,6 +2005,18 @@ export default function IndicatorsModal({ isOpen, onClose, symbol = "", market =
                                 className={`rounded-xl px-3 py-2 text-xs outline-none transition-all duration-300 border ${isLight ? "bg-white border-slate-200 text-slate-800 focus:ring-1 focus:ring-blue-400" : "bg-[#0b0f19] border border-white/10 text-slate-200 focus:ring-1 focus:ring-yellow-500/40 hover:border-white/20"}`}
                               />
                             </label>
+                            <label className="flex flex-col gap-1.5 font-sans text-xs">
+                              <span className={`font-bold ${isLight ? "text-slate-700" : "text-slate-300"}`}>Net OI</span>
+                              <input
+                                type="number"
+                                step="0.05"
+                                min="0"
+                                max="1"
+                                value={selectedIndicator.settings.bsZoneWNET ?? 0.2}
+                                onChange={(e) => { const v = parseFloat(e.target.value); updateSettings({ bsZoneWNET: Number.isFinite(v) ? v : 0 }); }}
+                                className={`rounded-xl px-3 py-2 text-xs outline-none transition-all duration-300 border ${isLight ? "bg-white border-slate-200 text-slate-800 focus:ring-1 focus:ring-blue-400" : "bg-[#0b0f19] border border-white/10 text-slate-200 focus:ring-1 focus:ring-yellow-500/40 hover:border-white/20"}`}
+                              />
+                            </label>
                           </div>
 
                           {/* Bid/Ask depth band */}

@@ -164,6 +164,7 @@ export interface IndicatorSettings {
   bsZoneWRSI?: number;
   bsZoneWMACD?: number;
   bsZoneWBAR?: number;
+  bsZoneWNET?: number;
   bsZoneBand?: "1" | "3" | "5";
   bsZoneRsiLen?: number;
   bsZoneMacdZlen?: number;

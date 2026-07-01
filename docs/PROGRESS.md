@@ -3,6 +3,26 @@
 > Claude обновляет этот файл в КОНЦЕ каждой задачи. Новые записи — сверху.
 > Формат записи строго по шаблону. Это память между чатами.
 
+### [2026-07-01] fix(frontend): netScore в Buy/Sell Zone — z-score вместо абсолютного ratio
+Прошлая формула `netScore = 50·(1+(ns−nl)/(|nl|+|ns|))` из абсолютных накопленных `nlPct/nsPct` у активов с постоянным перекосом (NS всегда > NL по уровню) давала почти константу → при весе Net OI = 1 линия равномерно уезжала, локальной связи не было. Теперь считается как остальные позиционные компоненты — через `zToScale` (снимает постоянный сдвиг, оставляет локальное отклонение от нормы).
+- **`frontend/src/chart2d/ClusterChart.tsx`** (мемо `buySellZonePoints`) — рядом с `lsrArr` построен разрежённый ряд `netDomArr = nlPct − nsPct` из `bsZoneNetPoints` (высокое = лонги перевешивают; null где нет OI). Блок `netScore` заменён на `const netZ = zToScale(netDomArr, bsZoneLsZlen, i); netScore = netZ == null ? null : 100 − netZ;` — зеркалит `lsScore`. Старая формула с `sum`/`ratio` удалена (мёртвого кода нет). `bsZoneNetPoints` (полная история) не тронут — питает `netDomArr`. Влитие в среднее и deps без изменений (`bsZoneLsZlen`/`bsZoneNetPoints` уже были).
+
+**Verification:** `npx tsc --noEmit` ✓, `npx vite build` ✓ (только предсуществующее предупреждение >500kB). Живой визуал — пользователь: BTCUSDT futures + история OI, вес 0 → как раньше; вес 1 → линия НЕ уезжает равномерно, реагирует локально (перевес лонгов выше нормы → вниз, шортов → вверх).
+
+**TODO:** нет.
+
+### [2026-07-01] feat(frontend): Net OI — 5-й направленный вес в Buy/Sell Zone
+В подвальный композит Buy/Sell Zone (0..100) добавлен пятый компонент `netScore` из Net OI Long/Short. Net-серия считается по ПОЛНОЙ истории (scroll-stable), а не по видимому окну панельного `netOiPoints` — иначе линия дёргалась бы при скролле. Направление согласовано с lsScore: перевес Net Short → netScore>50 → вверх (зона продаж), Net Long → <50 → вниз (зона покупок). Веса LS/RSI/MACD/Bar по дефолту не трогали, знаменатель сам перебалансирует; бары без OI → netScore=null → компонент исключается. Формула `netOpenInterest.ts` и знак дельты НЕ менялись. Только futures. Бэкенд не трогался.
+- **`frontend/src/chart2d/indicators/buySellZone.ts`** — в `BuySellZoneSettings` добавлен `bsZoneWNET?: number`, в `defaultSettings` `bsZoneWNET: 0.2`, `details` дополнены про пятый компонент.
+- **`frontend/src/chart2d/types.ts`** — `bsZoneWNET?: number` в `IndicatorSettings` (иначе модалка не типизируется).
+- **`frontend/src/chart2d/ClusterChart.tsx`** — чтение `bsZoneWNET` (дефолт 0.2); новый мемо `bsZoneNetPoints = computeNetOiPoints(candles, oiClose=netOiOiMap, netOiFlowType, netOiSmoothing, 0, n-1)` по полной истории (тот же OI-аккессор/flow/smoothing, что панельный Net OI); в `buySellZonePoints` на свечу `netScore = clamp(50·(1+(ns−nl)/(|nl|+|ns|)), 0, 100)`, влит в среднее `num += bsZoneWNET·netScore; den += bsZoneWNET`; `bsZoneNetPoints`+`bsZoneWNET` добавлены в deps.
+- **`frontend/src/components/IndicatorsModal.tsx`** — пятый вход веса «Net OI» (0..1, шаг 0.05) рядом с LS/RSI/MACD/Bid-Ask. Подпись — литерал, как у остальных четырёх (они не через i18n).
+- **`frontend/src/chart2d/indicators/descriptions.ts`** — details RU/EN/KZ дополнены строкой про пятый компонент Net OI.
+
+**Verification:** `npx tsc --noEmit` ✓ (TSC_OK), `npx vite build` ✓ (built in 966ms, только предсуществующее предупреждение >500kB). Live-визуал делает пользователь: BTCUSDT futures + загруженная история OI → ползунок «Net OI» на 0 = линия как раньше; выше → на росте Net Short линия сильнее вверх, Net Long — вниз; скролл композит не дёргает; на споте пусто (futures-only).
+
+**TODO:** нет.
+
 ### [2026-07-01] fix(frontend): Net OI Long/Short — возврат к visible-window модели, смягчённый дефолт сглаживания
 Последние итерации (скользящее окно + ползунок «Окно», min/max нормировка, фикс-база) — тупики, откачены. Возврат к verifiable visible-window модели: копление по видимому диапазону (rebase на левом крае), нормировка % от ТЕКУЩЕГО OI бара, усиление smoothing. Смягчение расхождения через дефолт `netOiSmoothing=0.5` (уже был), больше ничего в UX не трогали. Ползунок «Окно» уже удалён в прошлой итерации — оставлено в этом состоянии. Бэкенд/OI-индикатор/знак дельты/цвета/выключение серий/market-limit своп/smoothing-усиление не трогали.
 - **`frontend/src/chart2d/indicators/netOpenInterest.ts`** — `computeNetOiPoints(candles, oiClose, flowType, smoothing, startIdx, endIdx)`. Убраны фикс-база (`base`), min/max нормировка, кольцевой буфер/скользящее окно. Идём по всем свечам; накапливаем только в `[lo=max(0,startIdx)..hi=min(N-1,endIdx)]`. Вне окна → точка null. На первом видимом баре с OI `prevOi=null → dOI=0` (rebase c 0). Пер бар с OI в окне: `V>0` → доли потока с `p=1/smoothing` + market/limit своп → знаковые вклады (`dOI≥0` набор, `dOI<0` кресто-своп) в `nlCum/nsCum`. Нормировка `nlPct=nlCum/oiNow·100`, `nsPct=nsCum/oiNow·100` (текущий OI бара, не фикс-база). Серии независимые, не зеркальные, не схлопываются. Бары без OI → null (накопители/prevOi не трогаем). Doc обновлён.

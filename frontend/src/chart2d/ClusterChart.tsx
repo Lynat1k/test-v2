@@ -288,6 +288,7 @@ export default function ClusterChart({
   const bsZoneWRSI = typeof bsZoneSettings.bsZoneWRSI === "number" ? bsZoneSettings.bsZoneWRSI : 0.25;
   const bsZoneWMACD = typeof bsZoneSettings.bsZoneWMACD === "number" ? bsZoneSettings.bsZoneWMACD : 0.2;
   const bsZoneWBAR = typeof bsZoneSettings.bsZoneWBAR === "number" ? bsZoneSettings.bsZoneWBAR : 0.2;
+  const bsZoneWNET = typeof bsZoneSettings.bsZoneWNET === "number" ? bsZoneSettings.bsZoneWNET : 0.2;
   const bsZoneBand: "1" | "3" | "5" = bsZoneSettings.bsZoneBand === "1" ? "1" : bsZoneSettings.bsZoneBand === "3" ? "3" : "5";
   const bsZoneRKey: "r1" | "r3" | "r5" = bsZoneBand === "1" ? "r1" : bsZoneBand === "3" ? "r3" : "r5";
   const bsZoneRsiLen = typeof bsZoneSettings.bsZoneRsiLen === "number" ? bsZoneSettings.bsZoneRsiLen : 14;
@@ -3584,7 +3585,25 @@ export default function ClusterChart({
   //   rsiScore = RSI(close, rsiLen)
   //   macdScore= zToScale(macdHist(close), macdZlen)
   //   barScore = 50·(1 − r)  (перевес бидов тянет вниз, к buy-зоне) where r = bid/ask ratio band (−1..+1), linear
+  //   netScore = 50·(1 + (ns−nl)/(|nl|+|ns|))  (Net Short dominates → up/sell, Net Long → down/buy)
   // value=null when zero components are available → the drawn line breaks there.
+
+  // Net OI series over the FULL history (0..n−1), NOT the visible-window `netOiPoints`,
+  // so the composite is scroll-stable (window rebase would make the line jump on scroll).
+  // Same flow/smoothing settings as the Net OI indicator → limit/market and smoothing match.
+  const bsZoneNetPoints = useMemo(() => {
+    const n = candles.length;
+    if (!buySellZoneActive || !isFuturesMarket || n === 0) return null;
+    return computeNetOiPoints(
+      candles,
+      (ts) => { const p = netOiOiMap.get(ts); return p ? p.c : null; },
+      netOiFlowType,
+      netOiSmoothing,
+      0,
+      n - 1,
+    );
+  }, [candles, buySellZoneActive, isFuturesMarket, netOiOiMap, netOiFlowType, netOiSmoothing]);
+
   const buySellZonePoints = useMemo(() => {
     const n = candles.length;
     if (!buySellZoneActive || !isFuturesMarket || n === 0) {
@@ -3598,6 +3617,12 @@ export default function ClusterChart({
       const r = longShortRatioMap.get(c.timestamp);
       return typeof r === "number" ? r : null;
     });
+    // Sparse net-long-dominance (nlPct − nsPct), high = longs dominate. Fed through
+    // zToScale below like lsrArr → strips the constant asset-level skew (NS always
+    // above NL etc.), keeps only local deviation. null where the bar has no OI.
+    const netDomArr: (number | null)[] = bsZoneNetPoints
+      ? bsZoneNetPoints.map((p) => (p && p.nlPct != null && p.nsPct != null ? p.nlPct - p.nsPct : null))
+      : candles.map(() => null);
 
     return candles.map((c, i) => {
       const cx = margin.left + i * (candleWidth + candleSpacing) + candleWidth / 2;
@@ -3614,17 +3639,25 @@ export default function ClusterChart({
         barScore = 50 * (1 - r);
       }
 
+      // Net OI: z-score of net-long-dominance, inverted like lsScore. Longs above the
+      // norm → high netZ → low netScore → pulls DOWN (buy); shorts → UP (sell). Using
+      // z-score (not the raw ratio) removes the constant skew so the weight reacts
+      // locally instead of shifting the whole line. Bars without OI → null → dropped.
+      const netZ = zToScale(netDomArr, bsZoneLsZlen, i);
+      const netScore: number | null = netZ == null ? null : 100 - netZ;
+
       let num = 0;
       let den = 0;
       if (lsScore != null && Number.isFinite(lsScore)) { num += bsZoneWLS * lsScore; den += bsZoneWLS; }
       if (rsiScore != null && Number.isFinite(rsiScore)) { num += bsZoneWRSI * rsiScore; den += bsZoneWRSI; }
       if (macdScore != null && Number.isFinite(macdScore)) { num += bsZoneWMACD * macdScore; den += bsZoneWMACD; }
       if (barScore != null && Number.isFinite(barScore)) { num += bsZoneWBAR * barScore; den += bsZoneWBAR; }
+      if (netScore != null && Number.isFinite(netScore)) { num += bsZoneWNET * netScore; den += bsZoneWNET; }
 
       const value: number | null = den > 0 ? Math.max(0, Math.min(100, num / den)) : null;
       return { cx, value };
     });
-  }, [candles, buySellZoneActive, isFuturesMarket, longShortRatioMap, bidAskRatioMap, bsZoneRKey, bsZoneRsiLen, bsZoneMacdZlen, bsZoneLsZlen, bsZoneWLS, bsZoneWRSI, bsZoneWMACD, bsZoneWBAR, candleWidth, candleSpacing, margin.left]);
+  }, [candles, buySellZoneActive, isFuturesMarket, longShortRatioMap, bidAskRatioMap, bsZoneNetPoints, bsZoneRKey, bsZoneRsiLen, bsZoneMacdZlen, bsZoneLsZlen, bsZoneWLS, bsZoneWRSI, bsZoneWMACD, bsZoneWBAR, bsZoneWNET, candleWidth, candleSpacing, margin.left]);
 
   // Buy/Sell Zone vertical zoom around the centre (50). scale=1 → fixed [0,100],
   // value 0 at the bottom of the panel, 100 at the top. Mirrors rsiYInPanel.
