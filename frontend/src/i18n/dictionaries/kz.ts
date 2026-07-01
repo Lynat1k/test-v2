@@ -124,6 +124,10 @@ const kz = {
     unlimited: 'Шексіз',
     allHistory: 'Барлық тарих',
   },
+  plans: {
+    modalTitle: 'Көбірек мүмкіндік ашыңыз',
+    modalSubtitle: 'Жабық терминал функцияларын ашу үшін тарифті таңдаңыз.',
+  },
   indicators: {
     volume: 'Көлем',
     volumeOnChart: 'Графиктегі көлем',

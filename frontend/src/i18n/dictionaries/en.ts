@@ -124,6 +124,10 @@ const en = {
     unlimited: 'Unlimited',
     allHistory: 'All history',
   },
+  plans: {
+    modalTitle: 'Unlock more power',
+    modalSubtitle: 'Pick a plan to unlock the terminal features your current tier keeps locked.',
+  },
   indicators: {
     volume: 'Volume',
     volumeOnChart: 'Volume on Chart',

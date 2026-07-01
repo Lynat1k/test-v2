@@ -8,6 +8,7 @@ import { motion, AnimatePresence } from "motion/react"
 import { MODULAR_INDICATORS } from "@/chart2d/indicators"
 import { INDICATOR_DESCRIPTIONS } from "@/chart2d/indicators/descriptions"
 import { useUserLimits } from "@/contexts/LimitsContext"
+import { useUpgradeModal } from "@/contexts/UpgradeModalContext"
 import type { IndicatorPreset, IndicatorsSource, StoredIndicator } from "@/features/indicators/types"
 import { useIndicatorsStorage } from "@/features/indicators/IndicatorsStorageContext"
 import { useAuthContext } from "@/features/auth/AuthContext"
@@ -61,6 +62,7 @@ interface IndicatorsModalProps {
 
 export default function IndicatorsModal({ isOpen, onClose, symbol = "", market = "futures", timeframe = "", indicators, source, focusIndicatorId, onApplyIndicators, onToggleVisibility, onPropagateIndicator, onPreviewIndicators, onCancelPreview, adminDefaultsTf, adminDefaultsAllTf, onRefreshAdminDefaults }: IndicatorsModalProps) {
   const { limits } = useUserLimits()
+  const { openPlans } = useUpgradeModal()
   const maxIndicators = limits.maxIndicators >= 100 ? Infinity : limits.maxIndicators
   // Indicator ids hidden for the current tier (server is source of truth via
   // /user/limits). Such indicators must not appear in the catalog at all.
@@ -414,19 +416,19 @@ export default function IndicatorsModal({ isOpen, onClose, symbol = "", market =
 
   const toggleActive = (id: string, e?: React.MouseEvent) => {
     if (e) e.stopPropagation()
-    setDraft((prev) => {
-      const target = prev.find((ind) => ind.id === id)
-      if (!target) return prev
-      const turningOn = !target.isActive
-      if (turningOn) {
-        const activeCount = prev.filter((ind) => ind.isActive).length
-        if (activeCount >= maxIndicators) {
-          notify(t('indicators.modal.limitReached').replace('{max}', String(maxIndicators)), { kind: 'warn' })
-          return prev
-        }
+    const target = draft.find((ind) => ind.id === id)
+    if (!target) return
+    const turningOn = !target.isActive
+    if (turningOn) {
+      const activeCount = draft.filter((ind) => ind.isActive).length
+      if (activeCount >= maxIndicators) {
+        // Tier cap hit: surface the upgrade modal instead of a toast. The
+        // indicator is NOT added (we return before mutating draft).
+        openPlans()
+        return
       }
-      return prev.map((ind) => (ind.id === id ? { ...ind, isActive: !ind.isActive } : ind))
-    })
+    }
+    setDraft((prev) => prev.map((ind) => (ind.id === id ? { ...ind, isActive: !ind.isActive } : ind)))
   }
 
   const deactivateIndicator = (id: string, e: React.MouseEvent) => {

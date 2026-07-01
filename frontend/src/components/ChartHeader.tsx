@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 import { useTranslation } from '@/i18n'
 import { useUserLimits } from '@/contexts/LimitsContext'
+import { useUpgradeModal } from '@/contexts/UpgradeModalContext'
 import {
   useChartControls,
   AVAILABLE_TICKERS,
@@ -46,6 +47,7 @@ export function ChartHeader({ showAnomalies = true, onToggleAnomalies }: ChartHe
   const { theme } = useTheme()
   const isLight = theme === 'light'
   const { limits } = useUserLimits()
+  const { openPlans } = useUpgradeModal()
   const {
     activeSlot, getSlot,
     setSymbol, setMarket, setTimeframe, setCandleMode, setPalette: setControlsPalette,
@@ -231,12 +233,11 @@ export function ChartHeader({ showAnomalies = true, onToggleAnomalies }: ChartHe
       <div className="shrink-0">
         <span className={`text-[10px] uppercase font-mono tracking-widest font-bold block mb-0.5 ${isLight ? 'text-slate-500' : 'text-slate-400/80'}`}>{t('chart.anomalies')}</span>
         <button
-          onClick={limits.anomaliesEnabled ? onToggleAnomalies : undefined}
-          disabled={!limits.anomaliesEnabled}
+          onClick={limits.anomaliesEnabled ? onToggleAnomalies : openPlans}
           title={!limits.anomaliesEnabled ? t('chart.compressionLocked') : undefined}
           className={`flex items-center gap-1.5 px-2 py-1 rounded-lg text-[10px] font-bold transition-all h-[30px] select-none border ${
             !limits.anomaliesEnabled
-              ? 'opacity-40 cursor-not-allowed text-slate-600 border-white/5'
+              ? 'opacity-40 cursor-pointer text-slate-600 border-white/5'
               : showAnomalies
                 ? 'bg-emerald-500/10 border-emerald-500/25 text-emerald-400 cursor-pointer'
                 : 'text-slate-400 hover:text-slate-200 border-white/5 cursor-pointer'
@@ -434,17 +435,19 @@ export function ChartHeader({ showAnomalies = true, onToggleAnomalies }: ChartHe
                       key={level}
                       title={isDisabled ? t('chart.compressionLocked') : undefined}
                       onClick={() => {
-                        if (!isDisabled) {
-                          setCompression(idx + 1)
+                        if (isDisabled) {
                           setCompressionDropdownOpen(false)
+                          openPlans()
+                          return
                         }
+                        setCompression(idx + 1)
+                        setCompressionDropdownOpen(false)
                       }}
-                      disabled={isDisabled}
                       className={`w-full flex items-center justify-between px-3 py-1.5 rounded-lg text-xs font-bold text-left transition ${
                         compression === idx + 1
                           ? 'bg-amber-500/15 text-amber-400'
                           : isDisabled
-                            ? isLight ? 'text-slate-400 cursor-not-allowed' : 'text-slate-600 cursor-not-allowed'
+                            ? isLight ? 'text-slate-400 cursor-pointer' : 'text-slate-600 cursor-pointer'
                             : isLight
                               ? 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 cursor-pointer'
                               : 'text-slate-300 hover:bg-white/5 hover:text-white cursor-pointer'

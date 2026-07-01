@@ -9,6 +9,7 @@ import { UserSettingsProvider } from '@/contexts/UserSettingsContext'
 import { AuthProvider, useAuthContext } from '@/features/auth/AuthContext'
 import { LimitsProvider, useUserLimits } from '@/contexts/LimitsContext'
 import { TiersProvider } from '@/contexts/TiersContext'
+import { UpgradeModalProvider, useUpgradeModal } from '@/contexts/UpgradeModalContext'
 import { DrawingDefaultsProvider } from '@/contexts/DrawingDefaultsContext'
 import { LoginModal } from '@/features/auth/LoginModal'
 import { RegisterModal } from '@/features/auth/RegisterModal'
@@ -185,6 +186,7 @@ function AppShell() {
   // WS push for tier changes this is the cheapest way to keep the UI honest
   // after a downgrade — one extra GET /user/limits per ticker switch.
   const { limits, refresh: refreshLimits } = useUserLimits()
+  const { openPlans } = useUpgradeModal()
   useEffect(() => {
     void refreshLimits()
   }, [activeSlotData.symbol, activeSlotData.market, refreshLimits])
@@ -585,12 +587,11 @@ function AppShell() {
                           {language === 'RU' ? 'Аномалии' : language === 'KZ' ? 'Ауытқулар' : 'Anomalies'}
                         </span>
                         <button
-                          onClick={limits.anomaliesEnabled ? () => setShowAnomalies(!showAnomalies) : undefined}
-                          disabled={!limits.anomaliesEnabled}
+                          onClick={limits.anomaliesEnabled ? () => setShowAnomalies(!showAnomalies) : openPlans}
                           title={!limits.anomaliesEnabled ? t('chart.compressionLocked') : undefined}
                           className={`flex items-center justify-center gap-1.5 px-3 py-1 rounded-lg text-xs h-[30px] border transition-all select-none ${
                             !limits.anomaliesEnabled
-                              ? 'opacity-40 cursor-not-allowed text-slate-600 border-white/5'
+                              ? 'opacity-40 cursor-pointer text-slate-600 border-white/5'
                               : showAnomalies
                                 ? isLight
                                   ? 'bg-emerald-50 border-emerald-300 text-emerald-700 font-extrabold shadow-sm cursor-pointer'
@@ -996,6 +997,7 @@ export default function App() {
         <TiersProvider>
         <AuthProvider>
           <LimitsProvider>
+            <UpgradeModalProvider>
             <DrawingDefaultsProvider>
             <UserSettingsProvider>
             <CandlePaletteProvider>
@@ -1009,6 +1011,7 @@ export default function App() {
             </CandlePaletteProvider>
             </UserSettingsProvider>
             </DrawingDefaultsProvider>
+            </UpgradeModalProvider>
           </LimitsProvider>
         </AuthProvider>
         </TiersProvider>

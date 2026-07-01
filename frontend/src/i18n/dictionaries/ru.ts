@@ -124,6 +124,10 @@ const ru = {
     unlimited: 'Безлимитно',
     allHistory: 'Вся история',
   },
+  plans: {
+    modalTitle: 'Откройте больше возможностей',
+    modalSubtitle: 'Выберите тариф, чтобы разблокировать закрытые функции терминала.',
+  },
   indicators: {
     volume: 'Объём',
     volumeOnChart: 'Вертикальные объемы на графике',

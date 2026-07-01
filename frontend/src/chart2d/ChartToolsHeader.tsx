@@ -4,6 +4,7 @@ import {
   ZoomIn, ZoomOut, Globe, ChevronDown, Check, Settings, Move,
 } from "lucide-react";
 import type { CryptoPair, Indicator } from "./types";
+import { useUpgradeModal } from "@/contexts/UpgradeModalContext";
 
 interface ChartToolsHeaderProps {
   activePair: CryptoPair;
@@ -70,6 +71,7 @@ function ChartToolsHeaderImpl({
   onVerticalZoom,
   onResetZoom,
 }: ChartToolsHeaderProps) {
+  const { openPlans } = useUpgradeModal();
   const [showWorkspaceMenu, setShowWorkspaceMenu] = useState(false);
   const workspaceDropdownRef = useRef<HTMLDivElement>(null);
   const settingsBtnRef = useRef<HTMLButtonElement>(null);
@@ -294,15 +296,18 @@ function ChartToolsHeaderImpl({
                     return (
                       <button
                         key={item.id}
-                        disabled={isLocked}
                         onClick={() => {
-                          if (isLocked) return;
+                          if (isLocked) {
+                            setShowWorkspaceMenu(false);
+                            openPlans();
+                            return;
+                          }
                           onWorkspaceLayoutChange(item.id as any);
                           setShowWorkspaceMenu(false);
                         }}
                         className={`flex items-center justify-between px-2 py-1 sm:py-1.5 rounded-lg text-left transition-all w-full ${
                           isLocked
-                            ? "opacity-50 cursor-not-allowed text-slate-500"
+                            ? "opacity-50 cursor-pointer text-slate-500"
                             : isSelected
                             ? isLight
                               ? "bg-blue-50 text-blue-800 font-extrabold border border-blue-200 shadow-sm"
