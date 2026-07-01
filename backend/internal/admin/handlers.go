@@ -613,8 +613,8 @@ func (h *AdminHandler) handleCoverageGaps(w http.ResponseWriter, r *http.Request
 		writeError(w, http.StatusBadRequest, "INVALID_MARKET", "market must be 'futures' or 'spot'")
 		return
 	}
-	if dataType != "clusters" && dataType != "bookDepth" && dataType != "longShortRatio" {
-		writeError(w, http.StatusBadRequest, "INVALID_DATATYPE", "dataType must be 'clusters', 'bookDepth' or 'longShortRatio'")
+	if dataType != "clusters" && dataType != "bookDepth" && dataType != "longShortRatio" && dataType != "openInterest" {
+		writeError(w, http.StatusBadRequest, "INVALID_DATATYPE", "dataType must be 'clusters', 'bookDepth', 'longShortRatio' or 'openInterest'")
 		return
 	}
 

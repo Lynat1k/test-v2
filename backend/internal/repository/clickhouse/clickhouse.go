@@ -757,7 +757,8 @@ type GapRange struct {
 }
 
 // GetHistoryCoverage агрегирует реальное покрытие данных в ClickHouse по
-// 4 источникам (clusters_futures/spot, bookdepth_ratio, long_short_ratio).
+// 5 источникам (clusters_futures/spot, bookdepth_ratio, long_short_ratio,
+// open_interest).
 // Имена таблиц и полей времени — константы из кода (не пользовательский ввод),
 // поэтому конкатенация в запрос безопасна. Пустая таблица просто не вернёт
 // строк. Ошибка отдельного источника логируется и не валит остальные.
@@ -774,6 +775,7 @@ func (r *ClickhouseRepository) GetHistoryCoverage(ctx context.Context) ([]Histor
 		{table: "clusters_spot", timeCol: "candle_open", dataType: "clusters", market: "spot"},
 		{table: "bookdepth_ratio", timeCol: "snapshot_ts", dataType: "bookDepth", hasMarket: true},
 		{table: "long_short_ratio", timeCol: "ts", dataType: "longShortRatio", hasMarket: true},
+		{table: "open_interest", timeCol: "ts", dataType: "openInterest", hasMarket: true},
 	}
 
 	var result []HistoryCoverageRow
@@ -871,6 +873,11 @@ func (r *ClickhouseRepository) GetCoverageGaps(ctx context.Context, dataType, sy
 		queryArgs = []any{symbol, market}
 	case "longShortRatio":
 		table = "long_short_ratio"
+		timeCol = "ts"
+		where = "symbol = ? AND market = ?"
+		queryArgs = []any{symbol, market}
+	case "openInterest":
+		table = "open_interest"
 		timeCol = "ts"
 		where = "symbol = ? AND market = ?"
 		queryArgs = []any{symbol, market}
