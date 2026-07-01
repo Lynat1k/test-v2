@@ -152,6 +152,14 @@ export interface IndicatorSettings {
   openInterestDisplayMode?: "line" | "candles";
   openInterestLineColor?: string;
 
+  netOiShowLong?: boolean;
+  netOiShowShort?: boolean;
+  netOiDisplayMode?: "line" | "candles";
+  netOiFlowType?: "market" | "limit";
+  netOiSmoothing?: number;
+  netOiLongColor?: string;
+  netOiShortColor?: string;
+
   bsZoneWLS?: number;
   bsZoneWRSI?: number;
   bsZoneWMACD?: number;

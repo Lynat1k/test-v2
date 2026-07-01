@@ -203,6 +203,18 @@ export const INDICATOR_DESCRIPTIONS: Record<string, LocalizedDescription> = {
       KZ: "Дереккөз — Binance openInterestHist статистикасы (5 мин кезең), мәні келісімшарттарда. «Сызық» режимі бакет жабылуы бойынша тұтас сызық салады, «Шамдар» режимі — OHLC шамдары (close≥open болғанда жасыл, close<open болғанда қызыл). Деректер бэкендтегі тарихтан алынады.",
     },
   },
+  netOpenInterest: {
+    desc: {
+      RU: "Оценка позиционирования по открытому интересу: две серии — Net Long (NL) и Net Short (NS) в % от текущего OI. Прирост OI распределяется между лонгами и шортами по доле покупок/продаж в потоке сделок. Только futures.",
+      EN: "Positioning estimate from open interest: two series — Net Long (NL) and Net Short (NS) as % of current OI. OI growth is split between longs and shorts by the buy/sell share of the trade flow. Futures only.",
+      KZ: "Ашық қызығушылық бойынша позициялау бағасы: екі серия — Net Long (NL) және Net Short (NS) ағымдағы OI-дан % түрінде. OI өсімі сауда ағынындағы сатып алу/сату үлесі бойынша лонгтар мен шорттар арасында бөлінеді. Тек futures.",
+    },
+    details: {
+      RU: "Изменение OI между барами (dOI) делится между лонгами и шортами пропорционально долям покупок и продаж: режим Market — по тейкеру (candle.delta), Limit — по мейкеру (доли меняются местами). Приращения копятся нарастающим итогом от начала загруженной истории и нормируются на текущий OI. Режим «Линия» рисует две линии NL/NS, «Свечи» — свечи по каждой серии (open = предыдущее значение, close = текущее). Считается на фронте, ряд OI берётся из истории на бэкенде.",
+      EN: "The OI change between bars (dOI) is split between longs and shorts by the buy/sell shares: Market mode uses the taker side (candle.delta), Limit mode uses the maker side (shares swapped). Increments accumulate on a running total from the start of loaded history and are normalized to the current OI. 'Line' mode draws two NL/NS lines, 'Candles' mode — candles per series (open = previous value, close = current). Computed on the frontend; the OI series comes from history on the backend.",
+      KZ: "Барлар арасындағы OI өзгерісі (dOI) сатып алу/сату үлестері бойынша лонгтар мен шорттар арасында бөлінеді: Market режимі тейкер жағын (candle.delta), Limit режимі мейкер жағын (үлестер алмасады) пайдаланады. Өсімдер жүктелген тарихтың басынан жинақталып, ағымдағы OI-ға қалыпқа келтіріледі. «Сызық» режимі NL/NS екі сызығын, «Шамдар» режимі әр серия бойынша шамдарды салады (open = алдыңғы мән, close = ағымдағы). Фронтта есептеледі, OI қатары бэкендтегі тарихтан алынады.",
+    },
+  },
   buySellZone: {
     desc: {
       RU: "Композитный осциллятор 0..100, объединяющий long/short ratio (инверсия), RSI, импульс MACD и баланс стакана bid/ask в единый индекс перевеса покупателей/продавцов. Только futures.",

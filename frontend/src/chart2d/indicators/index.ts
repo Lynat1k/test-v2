@@ -9,6 +9,7 @@ import { rsiIndicator } from "./rsi";
 import { bidAskRatioIndicator } from "./bidAskRatio";
 import { longShortRatioIndicator } from "./longShortRatio";
 import { openInterestIndicator } from "./openInterest";
+import { netOpenInterestIndicator } from "./netOpenInterest";
 import { buySellZoneIndicator } from "./buySellZone";
 import { dynamicLevelsIndicator } from "./dynamicLevels";
 
@@ -23,6 +24,7 @@ export * from "./rsi";
 export * from "./bidAskRatio";
 export * from "./longShortRatio";
 export * from "./openInterest";
+export * from "./netOpenInterest";
 export * from "./buySellZone";
 export * from "./dynamicLevels";
 
@@ -37,6 +39,7 @@ export const MODULAR_INDICATORS: IndicatorModule[] = [
   bidAskRatioIndicator,
   longShortRatioIndicator,
   openInterestIndicator,
+  netOpenInterestIndicator,
   buySellZoneIndicator,
   dynamicLevelsIndicator
 ];

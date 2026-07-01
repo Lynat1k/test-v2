@@ -1845,6 +1845,109 @@ export default function IndicatorsModal({ isOpen, onClose, symbol = "", market =
                         </div>
                       )}
 
+                      {selectedIndicator.id === "netOpenInterest" && (
+                        <div className={`flex flex-col gap-4 font-sans text-xs p-4.5 rounded-2xl border transition-all duration-300 ${isLight ? "bg-slate-100/40 border-slate-200/85" : "bg-slate-950/20 border-white/5"}`}>
+                          <span className="text-[10px] text-slate-500 uppercase tracking-widest font-black font-mono">
+                            {t('indicators.set.netParams')}
+                          </span>
+
+                          <label className={`flex items-center gap-2.5 p-1 rounded cursor-pointer ${isLight ? "hover:bg-slate-100" : "hover:bg-white/5"}`}>
+                            <input
+                              type="checkbox"
+                              checked={selectedIndicator.settings.netOiShowLong !== false}
+                              onChange={(e) => updateSettings({ netOiShowLong: e.target.checked })}
+                              className={`rounded w-4 h-4 ${isLight ? "border-slate-350 bg-white text-blue-600" : "border-white/10 bg-slate-900 text-blue-500"}`}
+                            />
+                            <span className={`font-bold ${isLight ? "text-slate-700" : "text-slate-200"}`}>{t('indicators.set.netShowLong')}</span>
+                          </label>
+
+                          <label className={`flex items-center gap-2.5 p-1 rounded cursor-pointer ${isLight ? "hover:bg-slate-100" : "hover:bg-white/5"}`}>
+                            <input
+                              type="checkbox"
+                              checked={selectedIndicator.settings.netOiShowShort !== false}
+                              onChange={(e) => updateSettings({ netOiShowShort: e.target.checked })}
+                              className={`rounded w-4 h-4 ${isLight ? "border-slate-350 bg-white text-blue-600" : "border-white/10 bg-slate-900 text-blue-500"}`}
+                            />
+                            <span className={`font-bold ${isLight ? "text-slate-700" : "text-slate-200"}`}>{t('indicators.set.netShowShort')}</span>
+                          </label>
+
+                          <div className="flex flex-col gap-1.5 border-t border-dashed border-slate-700/20 pt-3">
+                            <span className={`font-bold ${isLight ? "text-slate-700" : "text-slate-300"}`}>{t('indicators.set.mode')}</span>
+                            <select
+                              value={selectedIndicator.settings.netOiDisplayMode ?? "candles"}
+                              onChange={(e) => updateSettings({ netOiDisplayMode: e.target.value as "line" | "candles" })}
+                              className={`rounded-xl px-3 py-2 text-xs outline-none transition-all duration-300 border ${isLight ? "bg-white border-slate-200 text-slate-800 focus:ring-1 focus:ring-blue-400" : "bg-[#0b0f19] border border-white/10 text-slate-200 focus:ring-1 focus:ring-yellow-500/40 hover:border-white/20"}`}
+                            >
+                              <option value="line">{t('indicators.set.oiLine')}</option>
+                              <option value="candles">{t('indicators.set.oiCandles')}</option>
+                            </select>
+                          </div>
+
+                          <div className="flex flex-col gap-1.5">
+                            <span className={`font-bold ${isLight ? "text-slate-700" : "text-slate-300"}`}>{t('indicators.set.netFlow')}</span>
+                            <select
+                              value={selectedIndicator.settings.netOiFlowType ?? "limit"}
+                              onChange={(e) => updateSettings({ netOiFlowType: e.target.value as "market" | "limit" })}
+                              className={`rounded-xl px-3 py-2 text-xs outline-none transition-all duration-300 border ${isLight ? "bg-white border-slate-200 text-slate-800 focus:ring-1 focus:ring-blue-400" : "bg-[#0b0f19] border border-white/10 text-slate-200 focus:ring-1 focus:ring-yellow-500/40 hover:border-white/20"}`}
+                            >
+                              <option value="market">{t('indicators.set.netFlowMarket')}</option>
+                              <option value="limit">{t('indicators.set.netFlowLimit')}</option>
+                            </select>
+                          </div>
+
+                          <div className="flex flex-col gap-2">
+                            <div className="flex justify-between font-bold">
+                              <span className={isLight ? "text-slate-700" : "text-slate-300"}>{t('indicators.set.netSmoothing')}</span>
+                              <span className={`font-mono font-bold ${isLight ? "text-blue-700" : "text-yellow-500"}`}>
+                                {(selectedIndicator.settings.netOiSmoothing ?? 0.5).toFixed(2)}
+                              </span>
+                            </div>
+                            <input
+                              type="range"
+                              min="0.05"
+                              max="1"
+                              step="0.05"
+                              value={selectedIndicator.settings.netOiSmoothing ?? 0.5}
+                              onChange={(e) => updateSettings({ netOiSmoothing: parseFloat(e.target.value) })}
+                              className={`w-full accent-blue-600 rounded-lg h-1 ${isLight ? "bg-slate-250" : "bg-slate-800"}`}
+                            />
+                            <span className={`text-[10px] ${isLight ? "text-slate-500/80" : "text-slate-400/80"}`}>
+                              {t('indicators.set.netSmoothingHint')}
+                            </span>
+                          </div>
+
+                          <div className="flex flex-col gap-1.5 border-t border-dashed border-slate-700/20 pt-3">
+                            <span className={`font-bold ${isLight ? "text-slate-700" : "text-slate-300"}`}>{t('indicators.set.netLongColor')}</span>
+                            <div className="flex items-center gap-2">
+                              <input
+                                type="color"
+                                value={selectedIndicator.settings.netOiLongColor ?? "#26a69a"}
+                                onChange={(e) => updateSettings({ netOiLongColor: e.target.value })}
+                                className="w-7 h-7 rounded cursor-pointer border-0 p-0 overflow-hidden bg-transparent shrink-0"
+                              />
+                              <span className="text-[10px] font-mono text-slate-400 truncate w-14">
+                                {selectedIndicator.settings.netOiLongColor ?? "#26a69a"}
+                              </span>
+                            </div>
+                          </div>
+
+                          <div className="flex flex-col gap-1.5">
+                            <span className={`font-bold ${isLight ? "text-slate-700" : "text-slate-300"}`}>{t('indicators.set.netShortColor')}</span>
+                            <div className="flex items-center gap-2">
+                              <input
+                                type="color"
+                                value={selectedIndicator.settings.netOiShortColor ?? "#ef5350"}
+                                onChange={(e) => updateSettings({ netOiShortColor: e.target.value })}
+                                className="w-7 h-7 rounded cursor-pointer border-0 p-0 overflow-hidden bg-transparent shrink-0"
+                              />
+                              <span className="text-[10px] font-mono text-slate-400 truncate w-14">
+                                {selectedIndicator.settings.netOiShortColor ?? "#ef5350"}
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+
                       {selectedIndicator.id === "buySellZone" && (
                         <div className={`flex flex-col gap-4 font-sans text-xs p-4.5 rounded-2xl border transition-all duration-300 ${isLight ? "bg-slate-100/40 border-slate-200/85" : "bg-slate-950/20 border-white/5"}`}>
                           <span className="text-[10px] text-slate-500 uppercase tracking-widest font-black font-mono">
