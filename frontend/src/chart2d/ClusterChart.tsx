@@ -982,15 +982,30 @@ export default function ClusterChart({
     prependScrollRef.current = (addedCount: number) => {
       const container = containerRef.current;
       if (!container) return;
-      const beforeScrollLeft = container.scrollLeft;
-      void container.scrollWidth;
       const cw = candleWidthRef.current;
       const spacing = Math.max(1, cw < 30 ? Math.floor(cw * 0.35) : 12);
       const addedWidth = addedCount * (cw + spacing);
+      // Grow the scroll spacer to its post-prepend width BEFORE moving scrollLeft,
+      // mirroring the ctrl-wheel zoom path (see handleWheel). Without this the spacer
+      // is still the pre-commit (narrower) width, the browser clamps scrollLeft to the
+      // old max, this live compensation silently fails, and the stale-anchor
+      // useLayoutEffect fallback wins — that is the viewport jump on high-latency
+      // history loads (jump distance = how far the user scrolled during the fetch).
+      const spacer = container.querySelector("#procluster-chart-spacer") as HTMLElement | null;
+      if (spacer) {
+        const curW = parseFloat(spacer.style.width) || spacer.offsetWidth;
+        spacer.style.width = `${curW + addedWidth}px`;
+        void spacer.offsetWidth;
+      }
+      const beforeScrollLeft = container.scrollLeft;
       container.scrollLeft = beforeScrollLeft + addedWidth;
       // S3: sync ref + state + lastSynced — anti-jump needs the state to match
       // the DOM scrollLeft immediately, no throttle.
       setVisibleScrollLeftSync(container.scrollLeft);
+      // Mark the prepend window: freeze drawing on the old array until setCandles commits.
+      // Read the current committed array from the ref (this closure's `candles` is stale —
+      // the effect only re-binds on [prependScrollRef]).
+      prependPendingArrayRef.current = committedCandlesRef.current;
       // Suppress LayoutEffect if within tolerance (5px masks fractional rounding, real clamping is >>50px)
       if (Math.abs(container.scrollLeft - (beforeScrollLeft + addedWidth)) <= 5) {
         prependCompensatedRef.current = true;
@@ -1007,6 +1022,12 @@ export default function ClusterChart({
   const visibleTimestampsTimerRef = useRef<ReturnType<typeof setTimeout>>();
   const pendingScrollAnchorRef = useRef<{ ts: number; offset: number } | null>(null);
   const prependCompensatedRef = useRef(false);
+  // Atomic-prepend guard: the last committed candles array (mirror, updated in the draw
+  // effect) and the "old" array captured while a prepend's scrollLeft shift is applied but
+  // setCandles has not committed yet. While these match, the draw is skipped so it never
+  // paints the stale array at the already-advanced scrollLeft (the 1-frame content lurch).
+  const committedCandlesRef = useRef<ClusterCandle[]>([]);
+  const prependPendingArrayRef = useRef<ClusterCandle[] | null>(null);
   const frozenPriceBoundsRef = useRef<{ maxPriceRaw: number; minPriceRaw: number; priceRange: number; basePriceCenter: number } | null>(null);
 
   // S2: single rAF planner for the main canvas draw.
@@ -4140,6 +4161,16 @@ export default function ClusterChart({
       if ((userRole ?? "").toLowerCase() === "admin") setFpsDisplay(fpsRef.current);
     }
     // ────────────────────────────────────────────────────────────────────────
+    // Atomic prepend: while the imperative compensation has already advanced scrollLeft
+    // but setCandles hasn't committed, drawRef still closes over the OLD candles array —
+    // painting it at the new scrollLeft slides all content by addedWidth for 1-2 frames.
+    // Skip drawing (keep the last good frame; the sticky canvas doesn't move with scroll)
+    // until a new array is committed. Any newly committed array (prepend, pair/TF change,
+    // live tick) opens the gate — no permanent freeze.
+    if (prependPendingArrayRef.current) {
+      if (candles === prependPendingArrayRef.current) return;
+      prependPendingArrayRef.current = null;
+    }
     if (candles.length === 0) return;
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -6130,6 +6161,9 @@ export default function ClusterChart({
     // S1: crosshair lines moved to overlay canvas (drawOverlay).
     // Main draw no longer depends on crosshair / hoveredCell.
     };
+    // Mirror the committed candles array so prependScrollRef (whose closure is stale) can
+    // capture the pre-prepend array for the atomic-prepend draw gate above.
+    committedCandlesRef.current = candles;
     // S2: ask the planner for one paint this frame; coalesces sibling commits.
     scheduleDraw();
   }, [
@@ -6485,6 +6519,25 @@ export default function ClusterChart({
             visibleScrollLeftRef.current = sl;
             scheduleDraw();
             requestScrollStateSync(sl);
+            // History prefetch off the LIVE scroll position, not the debounced state.
+            // The state-driven effect below only sees the position ~100 ms after the
+            // scroll stops, so a continuous/inertial scroll to the historic edge often
+            // never triggered it. idxF<100 has NO >=0 lower bound on purpose: at the
+            // hard-left edge idxF is negative (margin.left offset) and the old >=0 guard
+            // silently dropped the load. Anchor is captured from the live position too.
+            if (onNeedHistory && candles.length > 0 && hasInitializedZoomRef.current === activePair.symbol) {
+              const cws = candleWidth + candleSpacing;
+              const idxF = Math.floor((sl - margin.left) / cws);
+              const oldest = candles[0].timestamp;
+              if (idxF < 100 && oldest !== lastRequestedOldestRef.current) {
+                if (!pendingScrollAnchorRef.current) {
+                  const idx = Math.max(0, Math.min(idxF, candles.length - 1));
+                  pendingScrollAnchorRef.current = { ts: candles[idx]!.timestamp, offset: (sl - margin.left) - idx * cws };
+                }
+                lastRequestedOldestRef.current = oldest;
+                onNeedHistory(oldest);
+              }
+            }
             const cw = e.currentTarget.clientWidth;
             if (cw !== visibleClientWidth) setVisibleClientWidth(cw);
           }}
