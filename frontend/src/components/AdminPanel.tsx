@@ -538,6 +538,8 @@ function dataTypeBadge(dt: string, isLight: boolean): { label: string; cls: stri
       return { label: 'Стакан', cls: `${DATA_TYPE_BADGE_BASE} bg-violet-500/15 ${isLight ? 'text-violet-600 border-violet-500/40' : 'text-violet-400 border-violet-500/30'}` }
     case 'longShortRatio':
       return { label: 'L/S Ratio', cls: `${DATA_TYPE_BADGE_BASE} bg-amber-500/15 ${isLight ? 'text-amber-600 border-amber-500/40' : 'text-amber-400 border-amber-500/30'}` }
+    case 'openInterest':
+      return { label: 'Open Interest', cls: `${DATA_TYPE_BADGE_BASE} bg-cyan-500/15 ${isLight ? 'text-cyan-600 border-cyan-500/40' : 'text-cyan-400 border-cyan-500/30'}` }
     default:
       return { label: dt, cls: `${DATA_TYPE_BADGE_BASE} bg-slate-500/15 ${isLight ? 'text-slate-600 border-slate-500/40' : 'text-slate-400 border-slate-500/30'}` }
   }
@@ -1077,11 +1079,12 @@ function HistoryBlock({ isLight }: { isLight: boolean }) {
             { value: 'clusters', label: 'Кластера' },
             { value: 'bookDepth', label: 'Глубина стакана' },
             { value: 'longShortRatio', label: 'Long/Short Ratio' },
+            { value: 'openInterest', label: 'Open Interest' },
           ]}
           onChange={(v) => {
             setDataType(v)
             // bookDepth & metrics dumps exist only for futures — pin the market.
-            if (v === 'bookDepth' || v === 'longShortRatio') setMarket('futures')
+            if (v === 'bookDepth' || v === 'longShortRatio' || v === 'openInterest') setMarket('futures')
           }}
           isLight={isLight}
           className="w-full"
@@ -1091,7 +1094,7 @@ function HistoryBlock({ isLight }: { isLight: boolean }) {
           <StyledSelect
             value={market}
             options={
-              dataType === 'bookDepth' || dataType === 'longShortRatio'
+              dataType === 'bookDepth' || dataType === 'longShortRatio' || dataType === 'openInterest'
                 ? [{ value: 'futures', label: t('admin.database.futures') }]
                 : [
                     { value: 'futures', label: t('admin.database.futures') },

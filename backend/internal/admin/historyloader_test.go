@@ -450,6 +450,10 @@ func (m *mockClickHouse) InsertLongShortRatioBatch(ctx context.Context, rows []m
 	return nil
 }
 
+func (m *mockClickHouse) InsertOpenInterestBatch(ctx context.Context, rows []model.OpenInterest) error {
+	return nil
+}
+
 func (m *mockClickHouse) InsertClusterBatch(ctx context.Context, rows []model.ClusterRow, table string) error {
 	m.insertCalls = append(m.insertCalls, insertCall{rows, table})
 	return m.insertErr

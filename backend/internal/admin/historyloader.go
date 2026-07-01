@@ -47,6 +47,7 @@ type HistoryClickHouse interface {
 	InsertClusterBatch(ctx context.Context, rows []model.ClusterRow, table string) error
 	InsertBookDepthRatioBatch(ctx context.Context, rows []model.BookDepthRatio) error
 	InsertLongShortRatioBatch(ctx context.Context, rows []model.LongShortRatio) error
+	InsertOpenInterestBatch(ctx context.Context, rows []model.OpenInterest) error
 }
 
 type JobRegistry struct {
@@ -291,6 +292,12 @@ func (r *JobRegistry) downloadWorker(ctx context.Context, chRepo HistoryClickHou
 	// longShortRatio history: daily metrics dumps, no trade aggregation.
 	if job.DataType == "longShortRatio" {
 		r.downloadWorkerLongShort(ctx, chRepo, job)
+		return
+	}
+
+	// openInterest history: same daily metrics dumps, no trade aggregation.
+	if job.DataType == "openInterest" {
+		r.downloadWorkerOpenInterest(ctx, chRepo, job)
 		return
 	}
 
@@ -871,6 +878,231 @@ func parseMetricsLongShortCSV(reader io.Reader, symbol string) ([]model.LongShor
 			Market: "futures",
 			TS:     ts,
 			Ratio:  ratio,
+		})
+	}
+
+	sort.Slice(rows, func(i, j int) bool { return rows[i].TS.Before(rows[j].TS) })
+	return rows, skipped, nil
+}
+
+// downloadWorkerOpenInterest backfills open_interest from daily metrics archives
+// (same dumps as long/short — they carry sum_open_interest / sum_open_interest_value).
+// Steps per day: downloading → parsing → inserting (no aggregation). Idempotency is
+// provided by the ReplacingMergeTree engine — re-running a range overwrites rows by
+// (symbol, market, ts), so no pre-delete is needed.
+func (r *JobRegistry) downloadWorkerOpenInterest(ctx context.Context, chRepo HistoryClickHouse, job *DownloadJob) {
+	startDate, err := time.Parse("2006-01-02", job.StartDate)
+	if err != nil {
+		r.failJob(job, fmt.Sprintf("invalid start date: %v", err))
+		return
+	}
+	endDate, err := time.Parse("2006-01-02", job.EndDate)
+	if err != nil {
+		r.failJob(job, fmt.Sprintf("invalid end date: %v", err))
+		return
+	}
+
+	totalDays := int(endDate.Sub(startDate).Hours()/24) + 1
+	successfulDays := 0
+	skippedDays := 0
+
+	tmpDir, err := os.MkdirTemp("", "procluster-oi-*")
+	if err != nil {
+		r.failJob(job, fmt.Sprintf("create temp dir: %v", err))
+		return
+	}
+	defer os.RemoveAll(tmpDir)
+
+	for dayIdx := 0; dayIdx < totalDays; dayIdx++ {
+		select {
+		case <-ctx.Done():
+			r.failJob(job, "context cancelled")
+			return
+		default:
+		}
+
+		date := startDate.AddDate(0, 0, dayIdx)
+		if date.After(endDate) {
+			break
+		}
+		dateStr := date.Format("2006-01-02")
+
+		// Step 1: downloading (3 steps per day → dayIdx*3)
+		job.Status = "downloading"
+		job.Progress = float64(dayIdx*3) / float64(totalDays*3) * 100
+		r.UpdateJob(job)
+
+		url := buildMetricsURL(job.Symbol, date)
+		zipPath := tmpDir + "/" + job.Symbol + "-metrics-" + dateStr + ".zip"
+		if err := r.downloadFileWithRetries(ctx, url, zipPath, dayIdx+1, totalDays, dateStr, job); err != nil {
+			skippedDays++
+			continue
+		}
+
+		// Step 2: parsing
+		job.Status = "parsing"
+		job.StepDetail = fmt.Sprintf("Day %d/%d: parsing metrics...", dayIdx+1, totalDays)
+		job.Progress = float64(dayIdx*3+1) / float64(totalDays*3) * 100
+		r.UpdateJob(job)
+
+		rows, skippedLines, err := unzipAndParseMetricsOpenInterest(zipPath, job.Symbol)
+		os.Remove(zipPath)
+		if err != nil {
+			log.Printf("[download] %s: metrics parse error (skipping): %v", dateStr, err)
+			skippedDays++
+			continue
+		}
+		if skippedLines > 0 {
+			log.Printf("[download] %s: metrics %d rows skipped (empty/bad open interest)", dateStr, skippedLines)
+		}
+		if len(rows) == 0 {
+			log.Printf("[download] %s: metrics produced 0 rows, skipping", dateStr)
+			skippedDays++
+			continue
+		}
+		log.Printf("[download] %s: metrics parsed %d open interest rows", dateStr, len(rows))
+
+		// Step 3: inserting (ReplacingMergeTree → idempotent, no delete)
+		job.Status = "inserting"
+		job.StepDetail = fmt.Sprintf("Day %d/%d: inserting %d rows into open_interest...", dayIdx+1, totalDays, len(rows))
+		job.Progress = float64(dayIdx*3+2) / float64(totalDays*3) * 100
+		r.UpdateJob(job)
+
+		if err := chRepo.InsertOpenInterestBatch(ctx, rows); err != nil {
+			log.Printf("[download] %s: open interest insert error: %v", dateStr, err)
+			r.failJob(job, fmt.Sprintf("insert open interest for %s: %v", dateStr, err))
+			return
+		}
+		log.Printf("[download] %s: inserted %d rows into open_interest", dateStr, len(rows))
+		job.TotalTicks += int64(len(rows))
+		successfulDays++
+	}
+
+	now := time.Now().UTC()
+	job.CompletedAt = &now
+	job.Progress = 100
+	switch {
+	case successfulDays == 0 && job.TotalTicks == 0:
+		job.Status = "failed"
+		job.Error = "failed to download any days: all days skipped or produced 0 open interest rows"
+		job.StepDetail = fmt.Sprintf("0/%d days downloaded, %d skipped", totalDays, skippedDays)
+	case skippedDays > 0:
+		job.Status = "completed"
+		job.StepDetail = fmt.Sprintf("completed: %d/%d days, %d skipped", successfulDays, totalDays, skippedDays)
+		if job.Error == "" {
+			job.Error = fmt.Sprintf("%d days were skipped (download or parse errors)", skippedDays)
+		}
+	default:
+		job.Status = "completed"
+		job.StepDetail = fmt.Sprintf("All %d days processed successfully", totalDays)
+		job.Error = ""
+	}
+	r.UpdateJob(job)
+}
+
+func unzipAndParseMetricsOpenInterest(zipPath, symbol string) ([]model.OpenInterest, int, error) {
+	fi, err := os.Stat(zipPath)
+	if err != nil {
+		return nil, 0, fmt.Errorf("stat zip: %w", err)
+	}
+
+	zr, err := zip.NewReader(mustOpenFile(zipPath), fi.Size())
+	if err != nil {
+		return nil, 0, fmt.Errorf("open zip: %w", err)
+	}
+	if len(zr.File) == 0 {
+		return nil, 0, fmt.Errorf("zip archive is empty")
+	}
+
+	rc, err := zr.File[0].Open()
+	if err != nil {
+		return nil, 0, fmt.Errorf("open csv in zip: %w", err)
+	}
+	defer rc.Close()
+
+	return parseOpenInterestCSV(rc, symbol)
+}
+
+// parseOpenInterestCSV parses a daily metrics CSV (header + ~288 rows). Column indices
+// are resolved by NAME from the header (create_time, sum_open_interest,
+// sum_open_interest_value) because column order may change across periods. create_time
+// is epoch ms/s or "YYYY-MM-DD HH:MM:SS" UTC. Rows with an empty/unparseable/≤0 open
+// interest value are skipped; the second return value is the skip count.
+func parseOpenInterestCSV(reader io.Reader, symbol string) ([]model.OpenInterest, int, error) {
+	cr := csv.NewReader(reader)
+	cr.LazyQuotes = true
+	cr.FieldsPerRecord = -1
+
+	header, err := cr.Read()
+	if err != nil {
+		return nil, 0, fmt.Errorf("read metrics header: %w", err)
+	}
+
+	tsIdx, oiIdx, oiValIdx := -1, -1, -1
+	for i, col := range header {
+		switch strings.ToLower(strings.TrimSpace(col)) {
+		case "create_time":
+			tsIdx = i
+		case "sum_open_interest":
+			oiIdx = i
+		case "sum_open_interest_value":
+			oiValIdx = i
+		}
+	}
+	if tsIdx < 0 || oiIdx < 0 || oiValIdx < 0 {
+		return nil, 0, fmt.Errorf("metrics CSV missing required columns (create_time idx=%d, sum_open_interest idx=%d, sum_open_interest_value idx=%d)", tsIdx, oiIdx, oiValIdx)
+	}
+
+	maxIdx := tsIdx
+	if oiIdx > maxIdx {
+		maxIdx = oiIdx
+	}
+	if oiValIdx > maxIdx {
+		maxIdx = oiValIdx
+	}
+
+	var rows []model.OpenInterest
+	skipped := 0
+	lineNum := 1 // header already consumed
+	for {
+		rec, err := cr.Read()
+		if err == io.EOF {
+			break
+		}
+		lineNum++
+		if err != nil {
+			log.Printf("[metrics csv] line %d: read error: %v, skipping", lineNum, err)
+			skipped++
+			continue
+		}
+		if len(rec) <= maxIdx {
+			skipped++
+			continue
+		}
+
+		ts, perr := parseBookDepthTimestamp(strings.TrimSpace(rec[tsIdx]))
+		if perr != nil {
+			skipped++
+			continue
+		}
+
+		oi, ferr := strconv.ParseFloat(strings.TrimSpace(rec[oiIdx]), 64)
+		if ferr != nil || oi <= 0 {
+			skipped++
+			continue
+		}
+		oiVal, ferr := strconv.ParseFloat(strings.TrimSpace(rec[oiValIdx]), 64)
+		if ferr != nil || oiVal <= 0 {
+			skipped++
+			continue
+		}
+
+		rows = append(rows, model.OpenInterest{
+			Symbol:               symbol,
+			Market:               "futures",
+			TS:                   ts,
+			SumOpenInterest:      oi,
+			SumOpenInterestValue: oiVal,
 		})
 	}
 
