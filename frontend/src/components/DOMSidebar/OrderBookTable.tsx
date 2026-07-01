@@ -88,17 +88,17 @@ export function OrderBookTable({ levels, lastPrice }: OrderBookTableProps) {
           return (
             <div
               key={`ask-${level.priceLevel}`}
-              className="grid grid-cols-[1fr_1.2fr] gap-3 font-mono text-[10.5px] relative h-[18px] items-center px-2 transition-colors"
+              className="grid grid-cols-[1fr_1.2fr] gap-3 font-mono text-[10.5px] relative h-[18px] items-center px-2"
             >
               <div
-                className="absolute left-0 top-0 bottom-0 pointer-events-none transition-all duration-300"
+                className="absolute left-0 top-0 bottom-0 pointer-events-none"
                 style={{
                   width: `${Math.min(100, ratio * 100)}%`,
                   backgroundColor: `rgba(244, 63, 94, ${bgOpacity})`,
                 }}
               />
               <div
-                className={`text-right pr-2 z-10 font-bold tracking-tight transition-all duration-200 ${
+                className={`text-right pr-2 z-10 font-bold tracking-tight ${
                   isWall
                     ? 'text-rose-400 font-extrabold text-[11px] drop-shadow-[0_0_3px_rgba(244,63,94,0.4)]'
                     : 'text-rose-500/90'
@@ -107,7 +107,7 @@ export function OrderBookTable({ levels, lastPrice }: OrderBookTableProps) {
                 {Math.round(level.askSize).toLocaleString()}
               </div>
               <div
-                className={`text-left pl-1 z-10 font-bold transition-all duration-200 ${
+                className={`text-left pl-1 z-10 font-bold ${
                   isWall
                     ? isLight ? 'font-extrabold text-slate-800' : 'font-extrabold text-slate-200'
                     : isLight ? 'text-slate-600' : 'text-slate-400 hover:text-slate-100'
@@ -141,17 +141,17 @@ export function OrderBookTable({ levels, lastPrice }: OrderBookTableProps) {
           return (
             <div
               key={`bid-${level.priceLevel}`}
-              className="grid grid-cols-[1fr_1.2fr] gap-3 font-mono text-[10.5px] relative h-[18px] items-center px-2 transition-colors"
+              className="grid grid-cols-[1fr_1.2fr] gap-3 font-mono text-[10.5px] relative h-[18px] items-center px-2"
             >
               <div
-                className="absolute left-0 top-0 bottom-0 pointer-events-none transition-all duration-300"
+                className="absolute left-0 top-0 bottom-0 pointer-events-none"
                 style={{
                   width: `${Math.min(100, ratio * 100)}%`,
                   backgroundColor: `rgba(16, 185, 129, ${bgOpacity})`,
                 }}
               />
               <div
-                className={`text-right pr-2 z-10 font-bold tracking-tight transition-all duration-200 ${
+                className={`text-right pr-2 z-10 font-bold tracking-tight ${
                   isWall
                     ? 'text-emerald-400 font-extrabold text-[11px] drop-shadow-[0_0_3px_rgba(16,185,129,0.4)]'
                     : 'text-emerald-500/90'
@@ -160,7 +160,7 @@ export function OrderBookTable({ levels, lastPrice }: OrderBookTableProps) {
                 {Math.round(level.bidSize).toLocaleString()}
               </div>
               <div
-                className={`text-left pl-1 z-10 font-bold transition-all duration-200 ${
+                className={`text-left pl-1 z-10 font-bold ${
                   isWall
                     ? isLight ? 'font-extrabold text-slate-800' : 'font-extrabold text-slate-200'
                     : isLight ? 'text-slate-600' : 'text-slate-400 hover:text-slate-100'
