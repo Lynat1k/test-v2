@@ -21,6 +21,7 @@ import { apiGetDrawings, apiPutDrawings } from "@/features/drawings/api";
 import { useAuthContext } from "@/features/auth/AuthContext";
 import { fetchBookDepthRatio, type BookDepthRatioPoint } from "@/features/bookdepth/api";
 import { fetchLongShortRatio, type LongShortRatioPoint } from "@/features/longshort/api";
+import { fetchOpenInterest, type OpenInterestPoint } from "@/features/openinterest/api";
 
 // Abbreviates a magnitude (>=1000) to "к/м" (RU/KZ) or "k/m" (EN), rounded to 1 decimal,
 // trailing ".0" trimmed: 2000→"2к", 2629→"2.6к", 25720→"25.7к", 1101565→"1.1м".
@@ -77,7 +78,7 @@ const parseHexColor = (hex: string): string => {
 
 // Footer ("Подвальный") panels that can be reordered with the arrows on their plate.
 // Overlays/global indicators are NOT included here.
-const REORDERABLE_PANEL_IDS = ["delta", "cvd", "rsi", "bidAskRatio", "longShortRatio", "buySellZone"] as const;
+const REORDERABLE_PANEL_IDS = ["delta", "cvd", "rsi", "bidAskRatio", "longShortRatio", "openInterest", "buySellZone"] as const;
 
 // --- Price-scale tick helpers (TradingView-style "nice" round levels) ---
 // niceStep: pick a round step (1/2/5 * 10^n) so labels land ~targetPx apart.
@@ -163,6 +164,7 @@ export default function ClusterChart({
     depthOfMarket: false,
     bidAskRatio: false,
     longShortRatio: false,
+    openInterest: false,
     buySellZone: false
   },
   marketType = "SPOT",
@@ -260,6 +262,12 @@ export default function ClusterChart({
   const longShortRatioSettings = indicatorSettings?.longShortRatio || {};
   const longShortRatioLineColor = longShortRatioSettings.longShortRatioLineColor || "#a855f7";
   const longShortRatioDisplayMode: "ratio" | "longPct" = longShortRatioSettings.longShortRatioDisplayMode === "longPct" ? "longPct" : "ratio";
+
+  // Open Interest indicator settings (footer panel, line OR candles, auto-scale;
+  // data fetched from the backend — see openInterestData effect below)
+  const openInterestSettings = indicatorSettings?.openInterest || {};
+  const openInterestLineColor = openInterestSettings.openInterestLineColor || "#f59e0b";
+  const openInterestDisplayMode: "line" | "candles" = openInterestSettings.openInterestDisplayMode === "candles" ? "candles" : "line";
 
   // Buy/Sell Zone — composite 0..100 footer oscillator. Combines RSI/MACD (from
   // candles) with long/short ratio and bid/ask depth (from the backend). futures-only.
@@ -730,6 +738,10 @@ export default function ClusterChart({
     const saved = storage.get("procluster_longshortratio_panel_height");
     return saved ? parseInt(saved, 10) : 120;
   });
+  const [openInterestPanelHeight, setOpenInterestPanelHeight] = useState<number>(() => {
+    const saved = storage.get("procluster_openinterest_panel_height");
+    return saved ? parseInt(saved, 10) : 120;
+  });
   const [buySellZonePanelHeight, setBuySellZonePanelHeight] = useState<number>(() => {
     const saved = storage.get("procluster_buysellzone_panel_height");
     return saved ? parseInt(saved, 10) : 120;
@@ -754,6 +766,10 @@ export default function ClusterChart({
   useEffect(() => {
     storage.set("procluster_longshortratio_panel_height", longShortRatioPanelHeight.toString());
   }, [longShortRatioPanelHeight]);
+
+  useEffect(() => {
+    storage.set("procluster_openinterest_panel_height", openInterestPanelHeight.toString());
+  }, [openInterestPanelHeight]);
 
   useEffect(() => {
     storage.set("procluster_buysellzone_panel_height", buySellZonePanelHeight.toString());
@@ -793,14 +809,14 @@ export default function ClusterChart({
     });
   }, [activeIndicators]);
 
-  const [resizingPanel, setResizingPanel] = useState<"delta" | "cvd" | "rsi" | "bidAskRatio" | "longShortRatio" | "buySellZone" | null>(null);
+  const [resizingPanel, setResizingPanel] = useState<"delta" | "cvd" | "rsi" | "bidAskRatio" | "longShortRatio" | "openInterest" | "buySellZone" | null>(null);
 
   // 0 → footer panels stack with no empty strip; the divider sits exactly on the
   // shared border, content of both neighbours is flush to it (thin "breathing" is
   // the 2% value-inset inside each Y-helper). Layout formulas below use this var.
   const panelGap = 0;
   const getPanelHeight = (id: string): number =>
-    id === "delta" ? deltaPanelHeight : id === "cvd" ? cvdPanelHeight : id === "rsi" ? rsiPanelHeight : id === "bidAskRatio" ? bidAskRatioPanelHeight : id === "longShortRatio" ? longShortRatioPanelHeight : id === "buySellZone" ? buySellZonePanelHeight : 0;
+    id === "delta" ? deltaPanelHeight : id === "cvd" ? cvdPanelHeight : id === "rsi" ? rsiPanelHeight : id === "bidAskRatio" ? bidAskRatioPanelHeight : id === "longShortRatio" ? longShortRatioPanelHeight : id === "openInterest" ? openInterestPanelHeight : id === "buySellZone" ? buySellZonePanelHeight : 0;
 
   // Active footer panels in render order (top -> bottom).
   const activePanels = panelOrder.filter(id => activeIndicators[id]);
@@ -834,6 +850,7 @@ export default function ClusterChart({
   const rsiTopY = panelTopY["rsi"] ?? 0;
   const bidAskRatioTopY = panelTopY["bidAskRatio"] ?? 0;
   const longShortRatioTopY = panelTopY["longShortRatio"] ?? 0;
+  const openInterestTopY = panelTopY["openInterest"] ?? 0;
   const buySellZoneTopY = panelTopY["buySellZone"] ?? 0;
 
   const totalSvgHeight = margin.top + chartHeight + panelsHeightTotal + margin.bottom;
@@ -888,6 +905,7 @@ export default function ClusterChart({
   const rsiValueSpanRef = useRef<HTMLSpanElement>(null);
   const bidAskRatioValueSpanRef = useRef<HTMLSpanElement>(null);
   const longShortRatioValueSpanRef = useRef<HTMLSpanElement>(null);
+  const openInterestValueSpanRef = useRef<HTMLSpanElement>(null);
   const buySellZoneValueSpanRef = useRef<HTMLSpanElement>(null);
   const clusterTooltipRef = useRef<HTMLDivElement>(null);
   const clusterTooltipTitleWrapRef = useRef<HTMLSpanElement>(null);
@@ -1179,6 +1197,11 @@ export default function ClusterChart({
   const startLongShortRatioScaleYRef = useRef<number>(0);
   const startLongShortRatioScaleRef = useRef<number>(1.0);
 
+  const [openInterestScale, setOpenInterestScale] = useState<number>(1.0);
+  const [isDraggingOpenInterestScale, setIsDraggingOpenInterestScale] = useState(false);
+  const startOpenInterestScaleYRef = useRef<number>(0);
+  const startOpenInterestScaleRef = useRef<number>(1.0);
+
   const [buySellZoneScale, setBuySellZoneScale] = useState<number>(1.0);
   const [isDraggingBuySellZoneScale, setIsDraggingBuySellZoneScale] = useState(false);
   const startBuySellZoneScaleYRef = useRef<number>(0);
@@ -1192,19 +1215,21 @@ export default function ClusterChart({
   const [rsiOffset, setRsiOffset] = useState(0);
   const [bidAskRatioOffset, setBidAskRatioOffset] = useState(0);
   const [longShortRatioOffset, setLongShortRatioOffset] = useState(0);
+  const [openInterestOffset, setOpenInterestOffset] = useState(0);
   const [buySellZoneOffset, setBuySellZoneOffset] = useState(0);
   // Which panel (if any) is being body-dragged, and its offset at mousedown.
   const activePanelDragIdRef = useRef<string | null>(null);
   const panelDragStartOffsetRef = useRef<number>(0);
 
   const getPanelOffset = (id: string): number =>
-    id === "delta" ? deltaOffset : id === "cvd" ? cvdOffset : id === "rsi" ? rsiOffset : id === "bidAskRatio" ? bidAskRatioOffset : id === "longShortRatio" ? longShortRatioOffset : id === "buySellZone" ? buySellZoneOffset : 0;
+    id === "delta" ? deltaOffset : id === "cvd" ? cvdOffset : id === "rsi" ? rsiOffset : id === "bidAskRatio" ? bidAskRatioOffset : id === "longShortRatio" ? longShortRatioOffset : id === "openInterest" ? openInterestOffset : id === "buySellZone" ? buySellZoneOffset : 0;
   const setPanelOffset = (id: string, v: number) => {
     if (id === "delta") setDeltaOffset(v);
     else if (id === "cvd") setCvdOffset(v);
     else if (id === "rsi") setRsiOffset(v);
     else if (id === "bidAskRatio") setBidAskRatioOffset(v);
     else if (id === "longShortRatio") setLongShortRatioOffset(v);
+    else if (id === "openInterest") setOpenInterestOffset(v);
     else if (id === "buySellZone") setBuySellZoneOffset(v);
   };
   const resetPanelScale = (id: string) => {
@@ -1213,6 +1238,7 @@ export default function ClusterChart({
     else if (id === "rsi") setRsiScale(1.0);
     else if (id === "bidAskRatio") setBidAskRatioScale(1.0);
     else if (id === "longShortRatio") setLongShortRatioScale(1.0);
+    else if (id === "openInterest") setOpenInterestScale(1.0);
     else if (id === "buySellZone") setBuySellZoneScale(1.0);
   };
 
@@ -1236,6 +1262,7 @@ export default function ClusterChart({
   const isDraggingRsiScaleRefTouch = useRef<boolean>(false);
   const isDraggingBidAskRatioScaleRefTouch = useRef<boolean>(false);
   const isDraggingLongShortRatioScaleRefTouch = useRef<boolean>(false);
+  const isDraggingOpenInterestScaleRefTouch = useRef<boolean>(false);
   const isDraggingBuySellZoneScaleRefTouch = useRef<boolean>(false);
   const touchStartRef = useRef<{
     x: number;
@@ -3341,6 +3368,94 @@ export default function ClusterChart({
     return panelH - ((val - zoomedLsrMin) / zoomedLsrRange) * (panelH * 0.96) - (panelH * 0.02) + longShortRatioOffset;
   };
 
+  // --- Open Interest (footer panel) — data comes from the BACKEND as OHLC of
+  // sum_open_interest (contracts). Fetch when active AND market is futures.
+  // Auto-scales on the visible range (like CVD). Line mode uses close; candle
+  // mode uses o/h/l/c. No neutral reference (OI is an absolute level, not a ratio).
+  const [openInterestData, setOpenInterestData] = useState<OpenInterestPoint[]>([]);
+  const openInterestActive = !!activeIndicators.openInterest;
+
+  useEffect(() => {
+    if (!openInterestActive || !isFuturesMarket) {
+      setOpenInterestData([]);
+      return;
+    }
+    if (!candleMinTs || !candleMaxTs || !timeframe) return;
+    let cancelled = false;
+    // Normalize symbol to storage form (no slash) — ClickHouse keeps "BTCUSDT".
+    const oiSymbol = activePair.symbol.toUpperCase().replace("/", "");
+    fetchOpenInterest(oiSymbol, "futures", timeframe, candleMinTs, candleMaxTs + 60_000, accessToken)
+      .then((pts) => { if (!cancelled) setOpenInterestData(pts); })
+      .catch(() => { if (!cancelled) setOpenInterestData([]); });
+    return () => { cancelled = true; };
+  }, [openInterestActive, isFuturesMarket, activePair.symbol, timeframe, candleMinTs, candleMaxTs, accessToken]);
+
+  const openInterestMap = useMemo(() => {
+    const m = new Map<number, OpenInterestPoint>();
+    for (const p of openInterestData) m.set(p.t, p);
+    return m;
+  }, [openInterestData]);
+
+  // Coordinate mapping (center-of-candle X) + OHLC matched by candle_open.
+  // c=null where no point exists (line skips to next; candle not drawn).
+  const openInterestPoints = useMemo(() => {
+    return candles.map((c, i) => {
+      const cx = margin.left + i * (candleWidth + candleSpacing) + candleWidth / 2;
+      const pt = openInterestMap.get(c.timestamp);
+      return {
+        cx,
+        o: pt ? pt.o : null,
+        h: pt ? pt.h : null,
+        l: pt ? pt.l : null,
+        c: pt ? pt.c : null,
+      };
+    });
+  }, [candles, openInterestMap, candleWidth, candleSpacing, margin.left]);
+
+  // Visible min/max for auto-scale (like CVD). candles → low/high, line → close.
+  const { oiMinVal, oiMaxVal, oiRange } = useMemo(() => {
+    const defaults = { oiMinVal: 0, oiMaxVal: 1, oiRange: 1 };
+    if (openInterestPoints.length === 0) return defaults;
+    const viewportWidth = visibleClientWidth || 800;
+    const startIdx = Math.max(0, Math.floor((visibleScrollLeft - margin.left - candleWidth) / (candleWidth + candleSpacing)));
+    const endIdx = Math.min(openInterestPoints.length - 1, Math.ceil((visibleScrollLeft + viewportWidth - margin.left) / (candleWidth + candleSpacing)));
+    let minV = Infinity;
+    let maxV = -Infinity;
+    const scan = (from: number, to: number) => {
+      for (let i = from; i <= to; i++) {
+        const p = openInterestPoints[i];
+        if (!p || p.c === null) continue;
+        const lo = openInterestDisplayMode === "candles" ? (p.l as number) : (p.c as number);
+        const hi = openInterestDisplayMode === "candles" ? (p.h as number) : (p.c as number);
+        if (lo < minV) minV = lo;
+        if (hi > maxV) maxV = hi;
+      }
+    };
+    scan(startIdx, endIdx);
+    if (minV === Infinity || maxV === -Infinity) scan(0, openInterestPoints.length - 1);
+    if (minV === Infinity || maxV === -Infinity) return defaults;
+    const range = Math.max(1, maxV - minV);
+    return { oiMinVal: minV, oiMaxVal: maxV, oiRange: range };
+  }, [openInterestPoints, visibleScrollLeft, visibleClientWidth, candleWidth, candleSpacing, openInterestDisplayMode]);
+
+  const zoomedOiRange = useMemo(() => oiRange / Math.max(0.01, openInterestScale), [oiRange, openInterestScale]);
+  const oiCenterVal = useMemo(() => (oiMaxVal + oiMinVal) / 2, [oiMaxVal, oiMinVal]);
+  const zoomedOiMax = useMemo(() => oiCenterVal + zoomedOiRange * 0.5, [oiCenterVal, zoomedOiRange]);
+  const zoomedOiMin = useMemo(() => oiCenterVal - zoomedOiRange * 0.5, [oiCenterVal, zoomedOiRange]);
+
+  const getOiY = (val: number, panelH: number) => {
+    return panelH - ((val - zoomedOiMin) / zoomedOiRange) * (panelH * 0.96) - (panelH * 0.02) + openInterestOffset;
+  };
+
+  // Compact label for large contract counts (e.g. 83.2k, 1.05M).
+  const fmtOi = (v: number) => {
+    const a = Math.abs(v);
+    if (a >= 1e9) return (v / 1e9).toFixed(2) + "B";
+    if (a >= 1e6) return (v / 1e6).toFixed(2) + "M";
+    if (a >= 1e3) return (v / 1e3).toFixed(1) + "k";
+    return v.toFixed(0);
+  };
+
   // --- Buy/Sell Zone (footer panel) — composite 0..100 oscillator.
   // Per candle: each available component is normalised to 0..100 and a weighted
   // mean is taken over ONLY the available ones (weight denominator renormalises).
@@ -3557,6 +3672,10 @@ export default function ClusterChart({
         const lsrBottomY = longShortRatioTopY + longShortRatioPanelHeight;
         const newHeight = Math.max(50, Math.min(350, lsrBottomY - relativeY));
         setLongShortRatioPanelHeight(newHeight);
+      } else if (resizingPanel === "openInterest") {
+        const oiBottomY = openInterestTopY + openInterestPanelHeight;
+        const newHeight = Math.max(50, Math.min(350, oiBottomY - relativeY));
+        setOpenInterestPanelHeight(newHeight);
       } else if (resizingPanel === "buySellZone") {
         const bsBottomY = buySellZoneTopY + buySellZonePanelHeight;
         const newHeight = Math.max(50, Math.min(350, bsBottomY - relativeY));
@@ -3574,7 +3693,7 @@ export default function ClusterChart({
       window.removeEventListener("mousemove", handleWindowMouseMove);
       window.removeEventListener("mouseup", handleWindowMouseUp);
     };
-  }, [resizingPanel, deltaTopY, deltaPanelHeight, cvdTopY, cvdPanelHeight, rsiTopY, rsiPanelHeight, bidAskRatioTopY, bidAskRatioPanelHeight, longShortRatioTopY, longShortRatioPanelHeight, buySellZoneTopY, buySellZonePanelHeight]);
+  }, [resizingPanel, deltaTopY, deltaPanelHeight, cvdTopY, cvdPanelHeight, rsiTopY, rsiPanelHeight, bidAskRatioTopY, bidAskRatioPanelHeight, longShortRatioTopY, longShortRatioPanelHeight, openInterestTopY, openInterestPanelHeight, buySellZoneTopY, buySellZonePanelHeight]);
 
   // Window-level mouse drag-zoom tracker for vertical price scale dragging
   useEffect(() => {
@@ -3720,6 +3839,30 @@ export default function ClusterChart({
       window.removeEventListener("mouseup", handleWindowMouseUp);
     };
   }, [isDraggingLongShortRatioScale]);
+
+  // Window-level mouse drag-zoom tracker for vertical Open Interest scale dragging
+  useEffect(() => {
+    if (!isDraggingOpenInterestScale) return;
+
+    const handleWindowMouseMove = (e: MouseEvent) => {
+      const deltaY = startOpenInterestScaleYRef.current - e.clientY;
+      const multiplier = Math.exp(deltaY / 200);
+      const nextScale = startOpenInterestScaleRef.current * multiplier;
+      const clampedScale = Math.min(200.0, Math.max(0.01, nextScale));
+      setOpenInterestScale(clampedScale);
+    };
+
+    const handleWindowMouseUp = () => {
+      setIsDraggingOpenInterestScale(false);
+    };
+
+    window.addEventListener("mousemove", handleWindowMouseMove);
+    window.addEventListener("mouseup", handleWindowMouseUp);
+    return () => {
+      window.removeEventListener("mousemove", handleWindowMouseMove);
+      window.removeEventListener("mouseup", handleWindowMouseUp);
+    };
+  }, [isDraggingOpenInterestScale]);
 
   // Window-level mouse drag-zoom tracker for vertical Buy/Sell Zone scale dragging
   useEffect(() => {
@@ -5226,6 +5369,92 @@ export default function ClusterChart({
     }
 
     // -------------------------------------------------------------------------
+    // Open Interest subchart (footer panel) — LINE or CANDLES, auto-scaled on the
+    // visible range. Data is fetched from the backend (openInterestPoints — OHLC of
+    // sum_open_interest in contracts). On a non-futures market the panel shows a
+    // "Только futures" label. Line mode connects close values continuously across
+    // gaps; candle mode draws OHLC candles (green close≥open, red close<open).
+    // -------------------------------------------------------------------------
+    if (activeIndicators.openInterest) {
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(margin.left, openInterestTopY, scrollWidth - margin.left + 50, openInterestPanelHeight);
+      ctx.clip();
+      ctx.translate(0, openInterestTopY);
+
+      const panelH = openInterestPanelHeight;
+
+      if (!isFuturesMarket) {
+        ctx.fillStyle = isLight ? "rgba(100, 116, 139, 0.9)" : "rgba(148, 163, 184, 0.9)";
+        ctx.font = "bold 12px 'Inter', sans-serif";
+        ctx.textAlign = "center";
+        ctx.fillText("Только futures", margin.left + (scrollWidth - margin.left) / 2, panelH / 2 - 2);
+        ctx.textAlign = "left";
+      } else {
+        const oiStartIdx = Math.max(0, startIdx - 1);
+        const oiEndIdx = Math.min(openInterestPoints.length - 1, endIdx + 1);
+
+        if (openInterestDisplayMode === "candles") {
+          // OHLC candles (green when close≥open, red otherwise) — mirrors CVD candles.
+          for (let idx = oiStartIdx; idx <= oiEndIdx; idx++) {
+            const p = openInterestPoints[idx];
+            if (!p || p.o === null || p.c === null || p.h === null || p.l === null) continue;
+            const x = p.cx - candleWidth / 2;
+            const yOpen = getOiY(p.o, panelH);
+            const yClose = getOiY(p.c, panelH);
+            const yHigh = getOiY(p.h, panelH);
+            const yLow = getOiY(p.l, panelH);
+            const isBullish = p.c >= p.o;
+
+            // Wick
+            ctx.beginPath();
+            ctx.strokeStyle = isBullish ? "#10b981" : (isLight ? "#ef4444" : "#f43f5e");
+            ctx.lineWidth = 1.0;
+            ctx.moveTo(p.cx, yLow);
+            ctx.lineTo(p.cx, yHigh);
+            ctx.stroke();
+
+            // Body
+            ctx.fillStyle = isBullish
+              ? (isLight ? "rgba(16, 185, 129, 0.75)" : "rgba(16, 185, 129, 0.85)")
+              : (isLight ? "rgba(239, 68, 68, 0.75)" : "rgba(244, 63, 94, 0.85)");
+            ctx.strokeStyle = isBullish ? (isLight ? "#059669" : "#10b981") : (isLight ? "#dc2626" : "#f43f5e");
+            ctx.lineWidth = 1.0;
+            const rectY = Math.min(yOpen, yClose);
+            const rectH = Math.max(1.5, Math.abs(yClose - yOpen));
+            ctx.fillRect(x + 1, rectY, candleWidth - 2, rectH);
+            ctx.strokeRect(x + 1, rectY, candleWidth - 2, rectH);
+          }
+        } else {
+          // Continuous line over close values; gaps skipped without breaking the path.
+          ctx.beginPath();
+          let oiPathStarted = false;
+          for (let idx = oiStartIdx; idx <= oiEndIdx; idx++) {
+            const p = openInterestPoints[idx];
+            if (!p || p.c === null) continue;
+            const cy = getOiY(p.c, panelH);
+            if (!oiPathStarted) {
+              ctx.moveTo(p.cx, cy);
+              oiPathStarted = true;
+            } else {
+              ctx.lineTo(p.cx, cy);
+            }
+          }
+          ctx.shadowColor = openInterestLineColor;
+          ctx.shadowBlur = 6;
+          ctx.strokeStyle = openInterestLineColor;
+          ctx.lineWidth = 2.0;
+          ctx.lineCap = "round";
+          ctx.lineJoin = "round";
+          ctx.stroke();
+          ctx.shadowBlur = 0;
+        }
+      }
+
+      ctx.restore();
+    }
+
+    // -------------------------------------------------------------------------
     // Buy/Sell Zone subchart (footer panel) — composite 0..100 LINE with a grey
     // balance corridor and dynamic overheat fills (red above balUp, green below
     // balDown). Fixed 0..100 scale (zoomable around 50). futures-only.
@@ -5656,6 +5885,15 @@ export default function ClusterChart({
     zoomedLsrMax,
     zoomedLsrRange,
     lsrCenterVal,
+    openInterestScale,
+    openInterestOffset,
+    openInterestPoints,
+    openInterestLineColor,
+    openInterestDisplayMode,
+    zoomedOiMin,
+    zoomedOiMax,
+    zoomedOiRange,
+    oiCenterVal,
     buySellZonePoints,
     buySellZoneScale,
     buySellZoneOffset,
@@ -6050,6 +6288,10 @@ export default function ClusterChart({
             setIsDraggingLongShortRatioScale(true);
             startLongShortRatioScaleYRef.current = e.clientY;
             startLongShortRatioScaleRef.current = longShortRatioScale;
+          } else if (inPanelZone("openInterest")) {
+            setIsDraggingOpenInterestScale(true);
+            startOpenInterestScaleYRef.current = e.clientY;
+            startOpenInterestScaleRef.current = openInterestScale;
           } else if (inPanelZone("buySellZone")) {
             setIsDraggingBuySellZoneScale(true);
             startBuySellZoneScaleYRef.current = e.clientY;
@@ -6089,6 +6331,10 @@ export default function ClusterChart({
             isDraggingLongShortRatioScaleRefTouch.current = true;
             startLongShortRatioScaleYRef.current = t.clientY;
             startLongShortRatioScaleRef.current = longShortRatioScale;
+          } else if (inPanelZoneTouch("openInterest")) {
+            isDraggingOpenInterestScaleRefTouch.current = true;
+            startOpenInterestScaleYRef.current = t.clientY;
+            startOpenInterestScaleRef.current = openInterestScale;
           } else if (inPanelZoneTouch("buySellZone")) {
             isDraggingBuySellZoneScaleRefTouch.current = true;
             startBuySellZoneScaleYRef.current = t.clientY;
@@ -6134,6 +6380,11 @@ export default function ClusterChart({
             const multiplier = Math.exp(deltaY / 200);
             const nextScale = Math.min(2000.0, Math.max(0.1, startLongShortRatioScaleRef.current * multiplier));
             setLongShortRatioScale(nextScale);
+          } else if (isDraggingOpenInterestScaleRefTouch.current) {
+            const deltaY = startOpenInterestScaleYRef.current - t.clientY;
+            const multiplier = Math.exp(deltaY / 200);
+            const nextScale = Math.min(2000.0, Math.max(0.1, startOpenInterestScaleRef.current * multiplier));
+            setOpenInterestScale(nextScale);
           } else if (isDraggingBuySellZoneScaleRefTouch.current) {
             const deltaY = startBuySellZoneScaleYRef.current - t.clientY;
             const multiplier = Math.exp(deltaY / 200);
@@ -6148,6 +6399,7 @@ export default function ClusterChart({
           isDraggingRsiScaleRefTouch.current = false;
           isDraggingBidAskRatioScaleRefTouch.current = false;
           isDraggingLongShortRatioScaleRefTouch.current = false;
+          isDraggingOpenInterestScaleRefTouch.current = false;
           isDraggingBuySellZoneScaleRefTouch.current = false;
         }}
         onTouchCancel={() => {
@@ -6157,6 +6409,7 @@ export default function ClusterChart({
           isDraggingRsiScaleRefTouch.current = false;
           isDraggingBidAskRatioScaleRefTouch.current = false;
           isDraggingLongShortRatioScaleRefTouch.current = false;
+          isDraggingOpenInterestScaleRefTouch.current = false;
           isDraggingBuySellZoneScaleRefTouch.current = false;
         }}
         className={`flex-none border-l select-none transition-all duration-300 relative flex flex-col justify-between cursor-ns-resize ${
@@ -6590,6 +6843,45 @@ export default function ClusterChart({
                 </g>
               )}
 
+              {/* Open Interest subchart Y-axis labels — right scale, follow zoom (contracts) */}
+              {activeIndicators.openInterest && isFuturesMarket && (
+                <g key="openinterest-panel-ticks">
+                  {/* Top = zoomed max (line colour) */}
+                  <text
+                    x={labelX}
+                    y={openInterestTopY + openInterestPanelHeight * 0.02 + 4 + openInterestOffset}
+                    fill={openInterestLineColor}
+                    fontSize={isMobile ? "8" : "9"}
+                    fontFamily="'Inter', -apple-system, sans-serif"
+                    fontWeight="bold"
+                  >
+                    {fmtOi(zoomedOiMax)}
+                  </text>
+                  {/* Centre = visible centre value (grey) */}
+                  <text
+                    x={labelX}
+                    y={openInterestTopY + openInterestPanelHeight / 2 + 4 + openInterestOffset}
+                    fill={isLight ? "#475569" : "#94a3b8"}
+                    fontSize={isMobile ? "8" : "9"}
+                    fontFamily="'Inter', -apple-system, sans-serif"
+                    fontWeight="bold"
+                  >
+                    {fmtOi(oiCenterVal)}
+                  </text>
+                  {/* Bottom = zoomed min (line colour) */}
+                  <text
+                    x={labelX}
+                    y={openInterestTopY + openInterestPanelHeight * 0.98 + 4 + openInterestOffset}
+                    fill={openInterestLineColor}
+                    fontSize={isMobile ? "8" : "9"}
+                    fontFamily="'Inter', -apple-system, sans-serif"
+                    fontWeight="bold"
+                  >
+                    {fmtOi(zoomedOiMin)}
+                  </text>
+                </g>
+              )}
+
               {/* Buy/Sell Zone subchart Y-axis labels — fixed 0..100, follow zoom (centre 50) */}
               {activeIndicators.buySellZone && (
                 <g key="buysellzone-panel-ticks">
@@ -6705,6 +6997,7 @@ export default function ClusterChart({
           id === "rsi"   ? { label: "(PROCLUSTER) RSI",   dotColor: rsiLineColor as string | null, valueRef: rsiValueSpanRef } :
           id === "bidAskRatio" ? { label: "(PROCLUSTER) Bid & Ask Ratio", dotColor: bidAskRatioBullColor as string | null, valueRef: bidAskRatioValueSpanRef } :
           id === "longShortRatio" ? { label: "(PROCLUSTER) Long/Short Ratio", dotColor: longShortRatioLineColor as string | null, valueRef: longShortRatioValueSpanRef } :
+          id === "openInterest" ? { label: "(PROCLUSTER) Open Interest", dotColor: openInterestLineColor as string | null, valueRef: openInterestValueSpanRef } :
           id === "buySellZone" ? { label: "(PROCLUSTER) Buy/Sell Zone", dotColor: bsZoneLineColor as string | null, valueRef: buySellZoneValueSpanRef } :
           null;
         if (!meta) return null;
@@ -6852,6 +7145,25 @@ export default function ClusterChart({
             transform: "translateY(-4px)"
           }}
           title="Drag to resize Bid & Ask Ratio Panel"
+        >
+          {/* Subtle colored horizontal line that lights up when hovered */}
+          <div className="w-24 h-[3px] rounded-full bg-yellow-500/0 group-hover:bg-yellow-500/85 transition-all duration-200 shadow-md shadow-yellow-500/40" />
+        </div>
+      )}
+
+      {activeIndicators.openInterest && (
+        <div
+          onMouseDown={(e) => {
+            e.preventDefault();
+            setResizingPanel("openInterest");
+          }}
+          className={`absolute left-0 right-0 z-40 cursor-ns-resize flex items-center justify-center group`}
+          style={{
+            top: `${openInterestTopY}px`,
+            height: "8px",
+            transform: "translateY(-4px)"
+          }}
+          title="Drag to resize Open Interest Panel"
         >
           {/* Subtle colored horizontal line that lights up when hovered */}
           <div className="w-24 h-[3px] rounded-full bg-yellow-500/0 group-hover:bg-yellow-500/85 transition-all duration-200 shadow-md shadow-yellow-500/40" />

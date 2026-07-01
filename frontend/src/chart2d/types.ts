@@ -149,6 +149,9 @@ export interface IndicatorSettings {
   longShortRatioLineColor?: string;
   longShortRatioDisplayMode?: "ratio" | "longPct";
 
+  openInterestDisplayMode?: "line" | "candles";
+  openInterestLineColor?: string;
+
   bsZoneWLS?: number;
   bsZoneWRSI?: number;
   bsZoneWMACD?: number;

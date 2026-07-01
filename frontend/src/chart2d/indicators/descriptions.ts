@@ -191,6 +191,18 @@ export const INDICATOR_DESCRIPTIONS: Record<string, LocalizedDescription> = {
       KZ: "Дереккөз — Binance globalLongShortAccountRatio статистикасы (5 мин кезең). «Ratio» режимі арақатынастың өзін көрсетеді (бейтарап = 1.0), «Long %» режимі — лонг есептік жазбалардың үлесі = ratio/(ratio+1)·100 (бейтарап = 50%). Деректер бэкендтегі тарихтан алынады.",
     },
   },
+  openInterest: {
+    desc: {
+      RU: "Открытый интерес фьючерсов — суммарное число открытых контрактов по всем незакрытым позициям. Рост OI подтверждает силу тренда, падение — закрытие позиций. Только futures.",
+      EN: "Futures open interest — the total number of open contracts across all unclosed positions. Rising OI confirms trend strength, falling OI means positions are being closed. Futures only.",
+      KZ: "Фьючерстердің ашық қызығушылығы — барлық жабылмаған позициялар бойынша ашық келісімшарттардың жалпы саны. OI өсуі трендтің күшін растайды, төмендеуі — позициялардың жабылуы. Тек futures.",
+    },
+    details: {
+      RU: "Источник — статистика Binance openInterestHist (период 5 мин), значение в контрактах. Режим «Линия» рисует сплошную линию по закрытию бакета, режим «Свечи» — OHLC-свечи (зелёная при close≥open, красная при close<open). Данные берутся из истории на бэкенде.",
+      EN: "Source — Binance openInterestHist statistics (5-min period), value in contracts. 'Line' mode draws a continuous line over the bucket close, 'Candles' mode — OHLC candles (green when close≥open, red when close<open). Data comes from history on the backend.",
+      KZ: "Дереккөз — Binance openInterestHist статистикасы (5 мин кезең), мәні келісімшарттарда. «Сызық» режимі бакет жабылуы бойынша тұтас сызық салады, «Шамдар» режимі — OHLC шамдары (close≥open болғанда жасыл, close<open болғанда қызыл). Деректер бэкендтегі тарихтан алынады.",
+    },
+  },
   buySellZone: {
     desc: {
       RU: "Композитный осциллятор 0..100, объединяющий long/short ratio (инверсия), RSI, импульс MACD и баланс стакана bid/ask в единый индекс перевеса покупателей/продавцов. Только futures.",
