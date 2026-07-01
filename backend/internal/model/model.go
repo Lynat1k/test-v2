@@ -93,3 +93,15 @@ type LongShortRatio struct {
 	TS     time.Time
 	Ratio  float64
 }
+
+// OpenInterest — открытый интерес фьючерсов на 5-минутной сетке. Только futures
+// (у спота нет OI). Храним оба числа: SumOpenInterest в контрактах и
+// SumOpenInterestValue в USD. Мгновенная величина (уровень, не аддитивна).
+// Источник для индикатора Open Interest.
+type OpenInterest struct {
+	Symbol               string
+	Market               string
+	TS                   time.Time
+	SumOpenInterest      float64
+	SumOpenInterestValue float64
+}

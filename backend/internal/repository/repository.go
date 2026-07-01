@@ -15,6 +15,8 @@ type MarketRepository interface {
 	GetBookDepthRatio(ctx context.Context, symbol, market string, from, to time.Time) ([]model.BookDepthRatio, error)
 	InsertLongShortRatioBatch(ctx context.Context, rows []model.LongShortRatio) error
 	GetLongShortRatio(ctx context.Context, symbol, market string, from, to time.Time) ([]model.LongShortRatio, error)
+	InsertOpenInterestBatch(ctx context.Context, rows []model.OpenInterest) error
+	GetOpenInterest(ctx context.Context, symbol, market string, from, to time.Time) ([]model.OpenInterest, error)
 	GetLatestCandles(ctx context.Context, symbol, timeframe, market string, limit int, before *int64) ([]model.Candle, error)
 	GetClusters(ctx context.Context, symbol, timeframe string, candleOpen int64) ([]model.ClusterRow, error)
 	GetClustersBatch(ctx context.Context, symbol, timeframe, market string, candleOpens []int64, priceStep float64) (map[int64][]model.ClusterRow, error)

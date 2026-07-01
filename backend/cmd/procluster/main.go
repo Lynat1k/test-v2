@@ -23,6 +23,7 @@ import (
 	"github.com/procluster/procluster/internal/ingest"
 	"github.com/procluster/procluster/internal/longshort"
 	"github.com/procluster/procluster/internal/model"
+	"github.com/procluster/procluster/internal/openinterest"
 	"github.com/procluster/procluster/internal/repository/clickhouse"
 )
 
@@ -257,6 +258,10 @@ func main() {
 	lsrPoller := longshort.NewPoller(repo, symbolConfigs)
 	go lsrPoller.Run(ctx)
 	log.Println("[longshort] started")
+
+	oiPoller := openinterest.NewPoller(repo, symbolConfigs)
+	go oiPoller.Run(ctx)
+	log.Println("[openinterest] started")
 
 	go fngFetcher.Run(ctx)
 	log.Println("[fng-fetcher] started")

@@ -303,6 +303,80 @@ func (r *ClickhouseRepository) GetLongShortRatio(ctx context.Context, symbol, ma
 	return result, rows.Err()
 }
 
+// InsertOpenInterestBatch вставляет батч точек открытого интереса фьючерсов.
+// Идемпотентно через ReplacingMergeTree (ключ symbol+market+ts). Decimal(18,1)
+// требует округления — используем decimal.NewFromFloat как в LongShortRatio.
+func (r *ClickhouseRepository) InsertOpenInterestBatch(ctx context.Context, rows []model.OpenInterest) error {
+	if len(rows) == 0 {
+		return nil
+	}
+
+	batch, err := r.conn.PrepareBatch(ctx, "INSERT INTO open_interest")
+	if err != nil {
+		return fmt.Errorf("prepare open_interest batch: %w", err)
+	}
+
+	for _, row := range rows {
+		if err := batch.Append(
+			row.Symbol,
+			row.Market,
+			row.TS,
+			decimal.NewFromFloat(row.SumOpenInterest),
+			decimal.NewFromFloat(row.SumOpenInterestValue),
+		); err != nil {
+			return fmt.Errorf("append open_interest row: %w", err)
+		}
+	}
+
+	if err := batch.Send(); err != nil {
+		return fmt.Errorf("send open_interest batch: %w", err)
+	}
+
+	return nil
+}
+
+// GetOpenInterest читает точки открытого интереса за период [from, to],
+// отсортированные по времени. Группировку по таймфрейму делает API-слой.
+func (r *ClickhouseRepository) GetOpenInterest(ctx context.Context, symbol, market string, from, to time.Time) ([]model.OpenInterest, error) {
+	query := `
+		SELECT
+			symbol,
+			market,
+			ts,
+			sum_open_interest,
+			sum_open_interest_value
+		FROM open_interest
+		WHERE symbol = ? AND market = ? AND ts >= ? AND ts <= ?
+		ORDER BY ts ASC
+	`
+
+	rows, err := r.conn.Query(ctx, query, symbol, market, from, to)
+	if err != nil {
+		return nil, fmt.Errorf("query open_interest: %w", err)
+	}
+	defer rows.Close()
+
+	var result []model.OpenInterest
+	for rows.Next() {
+		var row model.OpenInterest
+		var oi, oiValue decimal.Decimal
+		if err := rows.Scan(
+			&row.Symbol,
+			&row.Market,
+			&row.TS,
+			&oi,
+			&oiValue,
+		); err != nil {
+			return nil, fmt.Errorf("scan open_interest row: %w", err)
+		}
+		row.SumOpenInterest, _ = oi.Float64()
+		row.SumOpenInterestValue, _ = oiValue.Float64()
+		result = append(result, row)
+	}
+
+	return result, rows.Err()
+}
+
 // GetBookDepthRatio читает снапшоты глубины за период [from, to], отсортированные
 // по времени. Группировку по таймфрейму и расчёт ratio делает API-слой.
 func (r *ClickhouseRepository) GetBookDepthRatio(ctx context.Context, symbol, market string, from, to time.Time) ([]model.BookDepthRatio, error) {
