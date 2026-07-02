@@ -85,6 +85,7 @@ export interface TierPolicy {
   telegramEnabled: number
   workspacesCount: number
   anomaliesEnabled: number
+  price: number
   historyDaysPerTf: Record<string, number>
   gatedIndicators: string[]
   createdAt: string

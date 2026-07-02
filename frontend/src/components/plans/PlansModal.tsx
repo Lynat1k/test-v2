@@ -38,8 +38,10 @@ export function PlansModal({ isOpen, onClose }: Props) {
 
   if (!isOpen) return null
 
-  const pricePro = Number(localStorage.getItem('procluster_price_pro')) || 19
-  const priceVip = Number(localStorage.getItem('procluster_price_vip')) || 49
+  // Prices are server-driven (tier_policies.price via /api/v1/tiers). Rendered
+  // only inside the tiers-loaded branch below, so reading them here is safe.
+  const pricePro = tiers?.pro.price ?? 0
+  const priceVip = tiers?.vip.price ?? 0
 
   return createPortal(
     <div className="fixed inset-0 z-[100000] flex items-center justify-center p-3 sm:p-6 overflow-hidden">

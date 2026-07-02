@@ -55,8 +55,6 @@ export function UserProfile({ onClose }: Props) {
   const [pwError, setPwError] = useState('')
   const [pwSuccess, setPwSuccess] = useState('')
 
-  const pricePro = Number(localStorage.getItem('procluster_price_pro')) || 19
-  const priceVip = Number(localStorage.getItem('procluster_price_vip')) || 49
 
   useEffect(() => {
     let cancelled = false
@@ -429,11 +427,11 @@ export function UserProfile({ onClose }: Props) {
               policy={tiers.free} userRole={tier} t={t} isLight={isLight}
             />
             <PlanCard
-              name="Pro" price={`$${pricePro}`} desc={t('profile.planProDesc')} isActive={tier === 'pro'} popular
+              name="Pro" price={`$${tiers.pro.price}`} desc={t('profile.planProDesc')} isActive={tier === 'pro'} popular
               policy={tiers.pro} userRole={tier} t={t} isLight={isLight}
             />
             <PlanCard
-              name="VIP" price={`$${priceVip}`} desc={t('profile.planVipDesc')} isActive={tier === 'vip'}
+              name="VIP" price={`$${tiers.vip.price}`} desc={t('profile.planVipDesc')} isActive={tier === 'vip'}
               policy={tiers.vip} userRole={tier} t={t} isLight={isLight}
             />
           </div>

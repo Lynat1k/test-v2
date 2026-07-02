@@ -232,6 +232,7 @@ func Migrate(db *sql.DB) error {
 		{"anomalies_enabled", "INTEGER NOT NULL DEFAULT 0"},
 		{"history_days_per_tf", "TEXT NOT NULL DEFAULT '{\"1m\":1,\"5m\":1,\"15m\":1,\"30m\":1,\"1h\":1,\"4h\":1}'"},
 		{"gated_indicators", "TEXT NOT NULL DEFAULT '[]'"},
+		{"price", "INTEGER NOT NULL DEFAULT 0"},
 	}
 	tierExisting := make(map[string]bool)
 	tierRows, err := db.Query("PRAGMA table_info(tier_policies)")

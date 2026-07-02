@@ -224,15 +224,19 @@ func TestGetPolicies_SeedValues(t *testing.T) {
 		ws        int
 		anomalies int
 		custom    int
+		price     int
 	}{
-		{"guest", 1, 1, 0, 1, 0, 0},
-		{"free", 1, 1, 0, 1, 0, 0},
-		{"pro", 3, 5, 0, 2, 1, 1},
-		{"vip", 6, 15, 1, 2, 1, 1},
-		{"admin", 10, -1, 1, 2, 1, 1},
+		{"guest", 1, 1, 0, 1, 0, 0, 0},
+		{"free", 1, 1, 0, 1, 0, 0, 0},
+		{"pro", 3, 5, 0, 2, 1, 1, 20},
+		{"vip", 6, 15, 1, 2, 1, 1, 40},
+		{"admin", 10, -1, 1, 2, 1, 1, 0},
 	}
 	for _, c := range checks {
 		p := policies[c.tier]
+		if p.Price != c.price {
+			t.Errorf("%s price: got %d, want %d", c.tier, p.Price, c.price)
+		}
 		if p.CompressionMax != c.compMax {
 			t.Errorf("%s compressionMax: got %d, want %d", c.tier, p.CompressionMax, c.compMax)
 		}

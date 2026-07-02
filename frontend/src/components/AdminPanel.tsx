@@ -1464,15 +1464,11 @@ function UsersTab({ isLight }: { isLight: boolean }) {
   const [savingRoles, setSavingRoles] = useState<Record<string, boolean>>({})
   const [savedRoles, setSavedRoles] = useState<Record<string, boolean>>({})
 
-  // Pricing
-  const [pricePro, setPricePro] = useState<number>(() => {
-    const saved = localStorage.getItem('procluster_price_pro')
-    return saved ? Number(saved) : 19
-  })
-  const [priceVip, setPriceVip] = useState<number>(() => {
-    const saved = localStorage.getItem('procluster_price_vip')
-    return saved ? Number(saved) : 49
-  })
+  // Pricing — server-side in tier_policies.price (admin policies API). Loaded
+  // from the server, NOT localStorage (which was per-browser and stale).
+  const [pricePro, setPricePro] = useState<number>(0)
+  const [priceVip, setPriceVip] = useState<number>(0)
+  const [priceSaving, setPriceSaving] = useState(false)
   const [priceSuccessMsg, setPriceSuccessMsg] = useState('')
 
   const card = isLight ? 'bg-white border-slate-200' : 'liquid-glass-card'
@@ -1498,6 +1494,40 @@ function UsersTab({ isLight }: { isLight: boolean }) {
   }, [])
 
   useEffect(() => { fetchData() }, [fetchData])
+
+  // Load current Pro/VIP prices from tier_policies (admin policies API).
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      try {
+        const pol = await apiGetPolicies()
+        if (cancelled) return
+        setPricePro(pol['pro']?.price ?? 0)
+        setPriceVip(pol['vip']?.price ?? 0)
+      } catch { /* leave 0; admin can re-enter and save */ }
+    })()
+    return () => { cancelled = true }
+  }, [])
+
+  // Save prices by merging into current policies (GET → set price → PUT) so the
+  // other tier limits are preserved. No localStorage.
+  const handleSavePrices = async () => {
+    setPriceSaving(true)
+    setPriceSuccessMsg('')
+    try {
+      const pol = await apiGetPolicies()
+      const next = { ...pol }
+      if (next['pro']) next['pro'] = { ...next['pro'], price: pricePro }
+      if (next['vip']) next['vip'] = { ...next['vip'], price: priceVip }
+      await apiUpdatePolicies(next)
+      setPriceSuccessMsg(t('admin.users.pricesSaved') || 'Цены успешно сохранены!')
+      setTimeout(() => setPriceSuccessMsg(''), 3000)
+    } catch (e: any) {
+      setError(e?.message ?? 'Failed to save prices')
+    } finally {
+      setPriceSaving(false)
+    }
+  }
 
   const handleAddUser = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -1704,13 +1734,9 @@ function UsersTab({ isLight }: { isLight: boolean }) {
 
         <div className="flex justify-end border-t border-slate-200/5 pt-1.5">
           <button
-            onClick={() => {
-              localStorage.setItem('procluster_price_pro', pricePro.toString())
-              localStorage.setItem('procluster_price_vip', priceVip.toString())
-              setPriceSuccessMsg('Цены успешно сохранены!')
-              setTimeout(() => setPriceSuccessMsg(''), 3000)
-            }}
-            className={`py-1 px-3 rounded-md font-bold uppercase tracking-wider text-[9px] flex items-center gap-1 cursor-pointer border transition-all duration-200 active:scale-95 ${
+            onClick={handleSavePrices}
+            disabled={priceSaving}
+            className={`py-1 px-3 rounded-md font-bold uppercase tracking-wider text-[9px] flex items-center gap-1 cursor-pointer border transition-all duration-200 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed ${
               isLight
                 ? 'bg-emerald-600 hover:bg-emerald-500 text-white border-emerald-700 shadow shadow-emerald-600/10'
                 : 'bg-emerald-500/10 hover:bg-emerald-500/20 border-emerald-500/25 text-emerald-400'

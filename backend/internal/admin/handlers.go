@@ -980,6 +980,13 @@ func (h *AdminHandler) handleUpdatePolicies(w http.ResponseWriter, r *http.Reque
 			writeError(w, http.StatusBadRequest, "INVALID_RANGE", fmt.Sprintf("anomalies_enabled must be 0 or 1 for tier %s", tier))
 			return
 		}
+		// price: monthly USD, integer. 0 = free/not purchasable. Upper bound is a
+		// sanity cap (matches the admin UI max), not a business rule.
+		const maxTierPrice = 100000
+		if p.Price < 0 || p.Price > maxTierPrice {
+			writeError(w, http.StatusBadRequest, "INVALID_RANGE", fmt.Sprintf("price must be 0..%d for tier %s", maxTierPrice, tier))
+			return
+		}
 		if p.HistoryDaysPerTf == nil {
 			p.HistoryDaysPerTf = map[string]int{"1m": 1, "5m": 1, "15m": 1, "30m": 1, "1h": 1, "4h": 1}
 			req.Policies[tier] = p

@@ -1044,6 +1044,7 @@ func (h *Handler) handleGetLimits(w http.ResponseWriter, r *http.Request) {
 		TelegramEnabled         int            `json:"telegramEnabled"`
 		WorkspacesCount         int            `json:"workspacesCount"`
 		AnomaliesEnabled        int            `json:"anomaliesEnabled"`
+		Price                   int            `json:"price"`
 		HistoryDaysPerTf        map[string]int `json:"historyDaysPerTf"`
 		GatedIndicators         []string       `json:"gatedIndicators"`
 	}
@@ -1051,11 +1052,11 @@ func (h *Handler) handleGetLimits(w http.ResponseWriter, r *http.Request) {
 	var gatedIndicators string
 
 	err := h.db.QueryRow(`SELECT tier, session_limit, history_max_days, compression_max, max_indicators,
-		custom_indicator_settings, telegram_enabled, workspaces_count, anomalies_enabled, history_days_per_tf,
+		custom_indicator_settings, telegram_enabled, workspaces_count, anomalies_enabled, price, history_days_per_tf,
 		gated_indicators
 		FROM tier_policies WHERE tier = ?`, strings.ToLower(role)).Scan(
 		&p.Tier, &p.SessionLimit, &p.HistoryMaxDays, &p.CompressionMax, &p.MaxIndicators,
-		&p.CustomIndicatorSettings, &p.TelegramEnabled, &p.WorkspacesCount, &p.AnomaliesEnabled, &historyDaysPerTf,
+		&p.CustomIndicatorSettings, &p.TelegramEnabled, &p.WorkspacesCount, &p.AnomaliesEnabled, &p.Price, &historyDaysPerTf,
 		&gatedIndicators)
 
 	if err == sql.ErrNoRows {
@@ -1075,6 +1076,7 @@ func (h *Handler) handleGetLimits(w http.ResponseWriter, r *http.Request) {
 			TelegramEnabled         int            `json:"telegramEnabled"`
 			WorkspacesCount         int            `json:"workspacesCount"`
 			AnomaliesEnabled        int            `json:"anomaliesEnabled"`
+			Price                   int            `json:"price"`
 			HistoryDaysPerTf        map[string]int `json:"historyDaysPerTf"`
 			GatedIndicators         []string       `json:"gatedIndicators"`
 		}{
